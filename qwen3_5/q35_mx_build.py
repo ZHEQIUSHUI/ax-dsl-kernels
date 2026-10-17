@@ -33,8 +33,7 @@ import q35_chat_build as cb
 graph_utils.AX_TYPE_TO_TENSOR_TYPE.setdefault("MXE8M0", TensorProto.UINT8)
 graph_utils.AX_TYPE_TO_TENSOR_TYPE.setdefault("MXFP8_E4M3", TensorProto.UINT8)
 
-BF16_DIR = os.path.abspath(sys.argv[1])
-OUT = os.path.abspath(sys.argv[2])
+BF16_DIR = OUT = None  # set from the command line in main()
 BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_mx"))
 GROUP = 32
 VC = cb.VC
@@ -140,6 +139,8 @@ def dump(t, path):
 
 
 def main():
+    global BF16_DIR, OUT
+    BF16_DIR, OUT = os.path.abspath(sys.argv[1]), os.path.abspath(sys.argv[2])
     os.makedirs(OUT, exist_ok=True)
     os.makedirs(BUILD, exist_ok=True)
     os.chdir(BUILD)

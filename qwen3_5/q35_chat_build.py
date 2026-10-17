@@ -26,7 +26,7 @@ from axnn.dsl.kernels.utils.linear import linear
 import q35_step as q
 
 VC = int(os.environ.get("VC", 24832))  # 248320 = 10 x 24832，每块 97 个 256 行的权重 tile
-OUT = os.path.abspath(sys.argv[1])
+OUT = None  # set from the command line in main()
 BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_chat"))
 
 
@@ -60,6 +60,8 @@ def axmodel(name):
 
 
 def main():
+    global OUT
+    OUT = os.path.abspath(sys.argv[1])
     os.makedirs(OUT, exist_ok=True)
     os.makedirs(BUILD, exist_ok=True)
     os.chdir(BUILD)
