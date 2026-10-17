@@ -15,6 +15,14 @@ safetensors 或 GGUF。llama.cpp 的 [ggml-axera 后端](https://github.com/ZHEQ
 | `bench/` | 单项测试：GEMV（常量 / 运行时权重、MX 格式）、多层合并、decode attention、KV 写入、一层 decode |
 | `tools/` | 通用板端工具：按名字喂输入的执行器、常驻 KV 写入验证、多核并行测试 |
 
+### 新增模型
+
+- 一个模型架构一个顶层目录，名字取 Hugging Face config 里的 `model_type`，比如 `qwen3_5/`、`qwen3/`、`minicpm/`。
+  同一架构的不同参数规模（0.8B / 2B / 9B）共用一套 kernel，只是形状不同。
+- 目录内的组织参照 `qwen3_5/`：kernel 和模拟器验证放在目录下，板端程序放在 `board/`。
+- 多个模型都要用的代码（MX 量化、模拟器常驻 buffer 补丁、板端 CMM 封装等），等第二个模型用到时再抽到 `common/`。
+- `ggml/`、`bench/`、`tools/` 和具体模型无关，留在顶层。
+
 ## 环境
 
 - **主机**：x86-64 + axnn（npu-codebase 的 Python 环境）。所有脚本默认跑 NPU 模拟器（CRUN），编出的 axmodel
