@@ -1,0 +1,10 @@
+build/
+__pycache__/
+out_*/
+cache/
+*.axmodel
+*.bin
+*.ids
+*.f32
+*.log
+*.tar
