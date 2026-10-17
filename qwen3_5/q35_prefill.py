@@ -32,10 +32,16 @@ import axnn.dsl as ax
 from axnn.dsl.kernels.utils import rmsnorm, silu_gate, sigmoid_mul
 from axnn.dsl.kernels.utils.causal_conv import stateful_runtime_causal_depthwise_conv1d_silu
 from axnn.dsl.kernels.utils.rope import rope
-from axnn.dsl.kernels.qwen_gdn_utils import gdn_gate, gdn_recurrent_step, l2norm_lastdim
+from axnn.dsl.kernels.qwen_gdn_utils import chunk_prefix_sum_fp32, gdn_gate, gdn_recurrent_step, gdn_stable_chunk
+from axnn.dsl.kernels.qwen_gdn_utils import l2norm_lastdim
 import q35_step as q
 
 P = int(os.environ.get("PCHUNK", 16))
+# GDN=chunk: delta rule in the chunked (WY / triangular-solve) form, official gdn_stable_chunk with the FP32 "triton"
+# solver, CHUNK tokens per solve and HG value heads batched per solve; GDN=seq: token by token as the decode kernel
+GDN = os.environ.get("GDN", "chunk")
+CHUNK = min(P, int(os.environ.get("CHUNK", 32)))
+HG = int(os.environ.get("HG", 8))
 H, D, HQ, HKV, G = q.H, q.D, q.HQ, q.HKV, q.G
 NK, NV, DK, DV, KD, VD = q.NK, q.NV, q.DK, q.DV, q.KD, q.VD
 EPS, ROT, LMAX, BC = q.EPS, q.ROT, q.LMAX, q.BC
@@ -60,7 +66,9 @@ def gdn_layer_prefill(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm
     q_scale = ax.dsl.full(shape=(1,), dtype=ax.fp32, fill_value=DK**-0.5)
     core = ax.dsl.create_tensor((1, P, NV, DV), ax.bf16, name="gdn_core")
     rep = NV // NK
-    for kh in range(NK):
+    if GDN == "chunk":
+        gdn_chunked(qm, km, vm, a, b, a_log_t, dt_bias_t, q_scale, state_in, state_out, core)
+    for kh in range(NK if GDN == "seq" else 0):
         for vo in range(rep):
             vh = kh * rep + vo
             st = ax.dsl.load(state_in[vh : vh + 1]).reshape(DK, DV)
@@ -80,6 +88,32 @@ def gdn_layer_prefill(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm
     x1 = ax.dsl.add(xt, q.proj(gated, w_out, "gdn_out"), output_dtype=ax.bf16)
     q.mlp_residual(x1, ln2, w_gate, w_up, w_down, out)
     return out, state_out, conv_out
+
+
+def gdn_chunked(qm, km, vm, a, b, a_log_t, dt_bias_t, q_scale, state_in, state_out, core):
+    """Delta rule for the P chunk tokens in the chunked form: HG heads per solve, CHUNK tokens per solve."""
+    assert NV == NK and NV % HG == 0 and P % CHUNK == 0
+    qn = ax.dsl.mul(l2norm_lastdim(qm), q_scale, output_dtype=ax.bf16)  # [1, P, NK, DK]
+    kn = l2norm_lastdim(km)
+    g_all, beta_all = gdn_gate(a.reshape(1, P, NV), b.reshape(1, P, NV), a_log_t, dt_bias_t)  # [1, P, NV]
+    prefix_all = chunk_prefix_sum_fp32(g_all, CHUNK, "gdn_prefix_g")  # restarts every CHUNK tokens
+    exp_prefix_all = ax.dsl.exp(prefix_all, output_dtype=ax.fp32)
+    for h0 in range(0, NV, HG):
+        hs = slice(h0, h0 + HG)
+        st = ax.dsl.load(state_in[hs]).reshape(HG, DK, DV)
+        for c0 in range(0, P, CHUNK):
+            cs = slice(c0, c0 + CHUNK)
+            q_tile = ax.dsl.transpose(qn[:, cs, hs, :], perm=(0, 2, 1, 3)).reshape(HG, CHUNK, DK)
+            k_tile = ax.dsl.transpose(kn[:, cs, hs, :], perm=(0, 2, 1, 3)).reshape(HG, CHUNK, DK)
+            v_tile = ax.dsl.transpose(vm[:, cs, hs, :], perm=(0, 2, 1, 3)).reshape(HG, CHUNK, DV)
+            prefix_g = ax.dsl.transpose(prefix_all[:, cs, hs], perm=(0, 2, 1)).reshape(HG, CHUNK, 1)
+            exp_prefix_g = ax.dsl.transpose(exp_prefix_all[:, cs, hs], perm=(0, 2, 1)).reshape(HG, CHUNK, 1)
+            beta = ax.dsl.transpose(beta_all[:, cs, hs], perm=(0, 2, 1)).reshape(HG, CHUNK, 1)
+            out_tile, st = gdn_stable_chunk(q_tile, k_tile, v_tile, beta, st, prefix_g, exp_prefix_g,
+                                            f"gdn_h{h0}_c{c0}", solver="triton")
+            ax.dsl.move(x=ax.dsl.transpose(out_tile.reshape(1, HG, CHUNK, DV), perm=(0, 2, 1, 3)),
+                        r=core[:, cs, hs, :])
+        ax.dsl.store(x=st.reshape(HG, DK, DV), r=state_out[hs])
 
 
 def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nblk, mask, w_o, ln2, w_gate, w_up,
