@@ -129,11 +129,17 @@ def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, 
     qh_all = rope(qh_all, cos_t, sin_t, rotary_dim=ROT)
     k = rope(k, cos_t, sin_t, rotary_dim=ROT)
 
-    # P new K/V rows at the runtime position (per KV head: rows pos .. pos+P-1)
-    rows = ax.dsl.from_numpy(np.array([1, P], dtype=np.uint32))
-    src0 = ax.dsl.from_numpy(np.zeros(shape=(2,), dtype=np.uint32))
+    # P new K/V rows at the runtime position (head layout: per KV head rows pos .. pos+P-1; cell layout: cells
+    # pos .. pos+P-1, both heads per row, f16)
+    rows = ax.dsl.from_numpy(np.array([1, P] if q.KVL == "head" else [P], dtype=np.uint32))
+    src0 = ax.dsl.from_numpy(np.zeros(shape=(2 if q.KVL == "head" else 1,), dtype=np.uint32))
     p = ax.dsl.cast(ax.dsl.load(pos), dtype=ax.uint32)
-    for hk in range(HKV):
+    if q.KVL == "cell":
+        ax.dsl.dynamic_st(ax.dsl.cast(k.reshape(P, HKV * D), dtype=ax.fp16), src0, p, rows, dim=(0,),
+                          output_shape=kc.shape, r=kc)
+        ax.dsl.dynamic_st(ax.dsl.cast(v.reshape(P, HKV * D), dtype=ax.fp16), src0, p, rows, dim=(0,),
+                          output_shape=vc.shape, r=vc)
+    for hk in range(HKV if q.KVL == "head" else 0):
         dst = ax.dsl.concat(ax.dsl.from_numpy(np.array([hk], dtype=np.uint32)), p, dim=0)
         kt = ax.dsl.create_tensor((P, 1, D), ax.bf16, name=f"k_rows{hk}")
         vt = ax.dsl.create_tensor((P, 1, D), ax.bf16, name=f"v_rows{hk}")
@@ -144,7 +150,7 @@ def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, 
 
     R = G * P  # query rows per KV head: g * P + t
     attn = ax.dsl.create_tensor((P, HQ, D), ax.bf16, ax.MemoryType.OCM, name="attn")
-    kv_block_shape = ax.dsl.from_numpy(np.array([1, BC], dtype=np.uint32))
+    kv_block_shape = ax.dsl.from_numpy(np.array([1, BC] if q.KVL == "head" else [BC], dtype=np.uint32))
     mask_block_shape = ax.dsl.from_numpy(np.array([1], dtype=np.uint32))
     block_stride = ax.dsl.from_numpy(np.array([BC], dtype=np.int32))
     minus_1 = ax.dsl.from_numpy(np.full(shape=(1,), dtype=ml_dtypes.bfloat16, fill_value=-1))
@@ -168,9 +174,15 @@ def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, 
                  zero_col, minus_1):
             loop_mi, loop_li, loop_oi = mi, li, oi
             t0 = ax.dsl.cast(ax.dsl.mul(index, block_stride), dtype=ax.uint32)
-            off = ax.dsl.concat(head, t0, dim=0)
-            kj = ax.dsl.dynamic_ld(kc, off, kv_block_shape, dim=(0, 1), output_shape=(1, BC, D)).reshape(BC, D)
-            vj = ax.dsl.dynamic_ld(vc, off, kv_block_shape, dim=(0, 1), output_shape=(1, BC, D)).reshape(BC, D)
+            if q.KVL == "head":
+                off = ax.dsl.concat(head, t0, dim=0)
+                kj = ax.dsl.dynamic_ld(kc, off, kv_block_shape, dim=(0, 1), output_shape=(1, BC, D)).reshape(BC, D)
+                vj = ax.dsl.dynamic_ld(vc, off, kv_block_shape, dim=(0, 1), output_shape=(1, BC, D)).reshape(BC, D)
+            else:  # BC cells x both heads, then this head's columns
+                kb = ax.dsl.dynamic_ld(kc, t0, kv_block_shape, dim=(0,), output_shape=(BC, HKV * D))
+                vb = ax.dsl.dynamic_ld(vc, t0, kv_block_shape, dim=(0,), output_shape=(BC, HKV * D))
+                kj = ax.dsl.cast(kb[:, hk * D : (hk + 1) * D], dtype=ax.bf16)
+                vj = ax.dsl.cast(vb[:, hk * D : (hk + 1) * D], dtype=ax.bf16)
             mj = ax.dsl.dynamic_ld(mask, ax.dsl.cast(index, dtype=ax.uint32), mask_block_shape, dim=(0,),
                                    output_shape=(1, R, BC)).reshape(R, BC)
             m_s = ax.dsl.create_tensor(shape=(R, 1 + BC + 1), dtype=ax.bf16)
@@ -273,9 +285,36 @@ def main():
     gdn_order = mb.order(mb.gdn_layer_mx) if mx else GDN_ORDER
     attn_order = mb.order(mb.attn_layer_mx) if mx else ATTN_ORDER
     sfx = "_mx8" if mx else ""
+    only = os.environ.get("ONLY")  # "attn": skip the GDN layer (e.g. a KV-layout change)
+    kv_sfx = "_kvc" if q.KVL == "cell" else ""
 
     # --- GDN layer 0
     a = mb.mx_args(q.gdn_args(W, 0), mb.GDN_W)[0] if mx else q.gdn_args(W, 0)
+    gdn_check(a, xs, gdn_dec, gdn_pre, gdn_order, sfx, kern) if only != "attn" else None
+
+    # --- attention layer 3
+    a = mb.mx_args(q.attn_args(W, 3), mb.ATTN_W)[0] if mx else q.attn_args(W, 3)
+    if q.KVL == "head":
+        kc0 = (torch.randn((HKV, LMAX, D)) * 0.5).bfloat16()
+        vc0 = (torch.randn((HKV, LMAX, D)) * 0.5).bfloat16()
+        sel = lambda c, r: c[:, r]  # noqa: E731
+    else:  # llama.cpp cells: [LMAX, HKV * D] f16
+        kc0 = (torch.randn((LMAX, HKV * D)) * 0.5).half()
+        vc0 = (torch.randn((LMAX, HKV * D)) * 0.5).half()
+        sel = lambda c, r: c[r]  # noqa: E731
+    attn_check(a, xs, attn_dec, attn_pre, attn_order, sfx + kv_sfx, kern, pos0, kc0, vc0, sel)
+
+    if out_dir:
+        for layer, fn in (("gdn", gdn_pre), ("attn", attn_pre)):
+            if layer == "gdn" and only == "attn":
+                continue
+            tag = sfx + (kv_sfx if layer == "attn" else "")
+            (path,) = glob.glob(f"{BUILD}/{layer}_pre{P}{tag}/cache/{fn.__name__}.*.compiled.axmodel")
+            shutil.copy(path, f"{out_dir}/qwen35_{layer}_prefill{P}{tag}.axmodel")
+            logger.info(f"wrote {out_dir}/qwen35_{layer}_prefill{P}{tag}.axmodel")
+
+
+def gdn_check(a, xs, gdn_dec, gdn_pre, gdn_order, sfx, kern):
     st0 = torch.randn((NV, DK, DV)) * 0.02
     cv0 = (torch.randn((1, q.CONV - 1, 2 * KD + VD)) * 0.1).bfloat16()
     k_dec, k_pre = kern(gdn_dec, f"gdn_dec{sfx}"), kern(gdn_pre, f"gdn_pre{P}{sfx}")
@@ -295,10 +334,7 @@ def main():
     logger.info(f"gdn prefill P={P}: out min cos {worst:.6f} bitwise={all(torch.equal(po[:, t:t+1], dec_out[t]) for t in range(P))}"
                 f" state cos {cos(case['state_out'], st):.6f} conv equal {torch.equal(case['conv_out'], cv)}")
 
-    # --- attention layer 3
-    a = mb.mx_args(q.attn_args(W, 3), mb.ATTN_W)[0] if mx else q.attn_args(W, 3)
-    kc0 = (torch.randn((HKV, LMAX, D)) * 0.5).bfloat16()
-    vc0 = (torch.randn((HKV, LMAX, D)) * 0.5).bfloat16()
+def attn_check(a, xs, attn_dec, attn_pre, attn_order, sfx, kern, pos0, kc0, vc0, sel):
     k_dec, k_pre = kern(attn_dec, f"attn_dec{sfx}"), kern(attn_pre, f"attn_pre{P}{sfx}")
     kc, vc, dec_out = kc0.clone(), vc0.clone(), []
     for t in range(P):
@@ -324,14 +360,9 @@ def main():
     worst = min(cos(po[:, t], dec_out[t]) for t in range(P))
     rows = slice(pos0, pos0 + P)
     logger.info(f"attn prefill P={P} pos0={pos0}: out min cos {worst:.6f} "
-                f"kv rows equal {torch.equal(case['kc'][:, rows], kc[:, rows]) and torch.equal(case['vc'][:, rows], vc[:, rows])}"
-                f" other rows untouched {torch.equal(case['kc'][:, :pos0], kc0[:, :pos0])}")
+                f"kv rows equal {torch.equal(sel(case['kc'], rows), sel(kc, rows)) and torch.equal(sel(case['vc'], rows), sel(vc, rows))}"
+                f" other rows untouched {torch.equal(sel(case['kc'], slice(0, pos0)), sel(kc0, slice(0, pos0)))}")
 
-    if out_dir:
-        for layer, fn in (("gdn", gdn_pre), ("attn", attn_pre)):
-            (path,) = glob.glob(f"{BUILD}/{layer}_pre{P}{sfx}/cache/{fn.__name__}.*.compiled.axmodel")
-            shutil.copy(path, f"{out_dir}/qwen35_{layer}_prefill{P}{sfx}.axmodel")
-        logger.info(f"wrote {out_dir}/qwen35_gdn_prefill{P}{sfx}.axmodel, qwen35_attn_prefill{P}{sfx}.axmodel")
 
 
 if __name__ == "__main__":

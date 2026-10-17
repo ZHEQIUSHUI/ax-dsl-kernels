@@ -52,6 +52,9 @@ _builder.simulate_dynamic_assembled = _simulate_resident
 MODEL = os.environ.get("MODEL") or sys.exit("set MODEL to the Qwen3.5 Hugging Face model directory")
 LMAX = int(os.environ.get("LMAX", 1024))
 BC = int(os.environ.get("BC", 256))
+# KV cache layout of the attention kernels: "head" [HKV, LMAX, D] bf16, rows indexed by position (default);
+# "cell" the llama.cpp layout [LMAX, HKV*D] f16, one row per KV cell (pos input = the cell to write)
+KVL = os.environ.get("KVL", "head")
 NGEN = int(os.environ.get("NGEN", 4))
 PROMPT = os.environ.get("PROMPT", "The capital of France is")
 DUMP = os.path.abspath(os.environ.get("DUMP", "out_q35_step"))
@@ -138,11 +141,16 @@ def attn_layer(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nbl
     q = rope(q, cos_t, sin_t, rotary_dim=ROT)
     k = rope(k, cos_t, sin_t, rotary_dim=ROT)
 
-    # 新 token 的 K/V 写入常驻 cache 的 pos 行（逐头写）
-    one_row = ax.dsl.from_numpy(np.array([1, 1], dtype=np.uint32))
-    src0 = ax.dsl.from_numpy(np.zeros(shape=(2,), dtype=np.uint32))
+    # 新 token 的 K/V 写入常驻 cache 的 pos 行（head 布局逐头写；cell 布局整行 f16 写入 cell 行）
+    one_row = ax.dsl.from_numpy(np.array([1, 1] if KVL == "head" else [1], dtype=np.uint32))
+    src0 = ax.dsl.from_numpy(np.zeros(shape=(2 if KVL == "head" else 1,), dtype=np.uint32))
     p = ax.dsl.cast(ax.dsl.load(pos), dtype=ax.uint32)
-    for hk in range(HKV):
+    if KVL == "cell":
+        ax.dsl.dynamic_st(ax.dsl.cast(k.reshape(1, HKV * D), dtype=ax.fp16), src0, p, one_row, dim=(0,),
+                          output_shape=kc.shape, r=kc)
+        ax.dsl.dynamic_st(ax.dsl.cast(v.reshape(1, HKV * D), dtype=ax.fp16), src0, p, one_row, dim=(0,),
+                          output_shape=vc.shape, r=vc)
+    for hk in range(HKV if KVL == "head" else 0):
         dst = ax.dsl.concat(ax.dsl.from_numpy(np.array([hk], dtype=np.uint32)), p, dim=0)
         ax.dsl.dynamic_st(k[:, hk : hk + 1, :].reshape(1, 1, D), src0, dst, one_row, dim=(0, 1),
                           output_shape=kc.shape, r=kc)
@@ -150,7 +158,7 @@ def attn_layer(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nbl
                           output_shape=vc.shape, r=vc)
 
     attn = ax.dsl.create_tensor((1, HQ, D), ax.bf16, ax.MemoryType.OCM, name="attn")
-    kv_block_shape = ax.dsl.from_numpy(np.array([1, BC], dtype=np.uint32))
+    kv_block_shape = ax.dsl.from_numpy(np.array([1, BC] if KVL == "head" else [BC], dtype=np.uint32))
     mask_block_shape = ax.dsl.from_numpy(np.array([1], dtype=np.uint32))
     block_stride = ax.dsl.from_numpy(np.array([BC], dtype=np.int32))
     minus_1 = ax.dsl.from_numpy(np.full(shape=(1,), dtype=ml_dtypes.bfloat16, fill_value=-1))
@@ -171,9 +179,15 @@ def attn_layer(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nbl
                  zero_col, minus_1):
             loop_mi, loop_li, loop_oi = mi, li, oi
             t0 = ax.dsl.cast(ax.dsl.mul(index, block_stride), dtype=ax.uint32)
-            off = ax.dsl.concat(head, t0, dim=0)
-            kj = ax.dsl.dynamic_ld(kc, off, kv_block_shape, dim=(0, 1), output_shape=(1, BC, D)).reshape(BC, D)
-            vj = ax.dsl.dynamic_ld(vc, off, kv_block_shape, dim=(0, 1), output_shape=(1, BC, D)).reshape(BC, D)
+            if KVL == "head":
+                off = ax.dsl.concat(head, t0, dim=0)
+                kj = ax.dsl.dynamic_ld(kc, off, kv_block_shape, dim=(0, 1), output_shape=(1, BC, D)).reshape(BC, D)
+                vj = ax.dsl.dynamic_ld(vc, off, kv_block_shape, dim=(0, 1), output_shape=(1, BC, D)).reshape(BC, D)
+            else:  # BC cells x both heads, then this head's columns
+                kb = ax.dsl.dynamic_ld(kc, t0, kv_block_shape, dim=(0,), output_shape=(BC, HKV * D))
+                vb = ax.dsl.dynamic_ld(vc, t0, kv_block_shape, dim=(0,), output_shape=(BC, HKV * D))
+                kj = ax.dsl.cast(kb[:, hk * D : (hk + 1) * D], dtype=ax.bf16)
+                vj = ax.dsl.cast(vb[:, hk * D : (hk + 1) * D], dtype=ax.bf16)
             mj = ax.dsl.dynamic_ld(mask, ax.dsl.cast(index, dtype=ax.uint32), mask_block_shape, dim=(0,),
                                    output_shape=(1, BC))
             m_s = ax.dsl.create_tensor(shape=(G, 1 + BC + 1), dtype=ax.bf16)

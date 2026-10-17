@@ -26,6 +26,15 @@ from axnn.dsl.kernels.utils.linear import linear
 import q35_step as q
 
 WFMT = os.environ.get("WFMT", "bf16")
+KVC = q.KVL == "cell"  # llama.cpp KV layout: only the attention kernels change, written as qwen35_attn*_kvc.axmodel
+KV_SFX = "_kvc" if KVC else ""
+
+
+def kv_cache():
+    if KVC:
+        return torch.zeros((q.LMAX, q.HKV * q.D), dtype=torch.half), torch.zeros((q.LMAX, q.HKV * q.D), dtype=torch.half)
+    return (torch.zeros((q.HKV, q.LMAX, q.D), dtype=torch.bfloat16),
+            torch.zeros((q.HKV, q.LMAX, q.D), dtype=torch.bfloat16))
 HEAD_C = int(os.environ.get("HEAD_C", 31040))  # output projection rows per GEMV call (248320 = 8 x 31040)
 
 OUT = os.path.abspath(sys.argv[1])
@@ -67,9 +76,8 @@ def build_mx8(W, x):
     for tag, fn, names in [("mx", mb.attn_layer_mx, mb.order(mb.attn_layer_mx)), ("deq", q.attn_layer, q.ATTN_ORDER)]:
         m, deq = mb.mx_args(q.attn_args(W, 3), mb.ATTN_W)
         k = ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=True, dump_path=f"{BUILD}/attn")(fn)
-        case = dict(m if tag == "mx" else deq, x=x, cos=c, sin=s,
-                    kc=torch.zeros((q.HKV, q.LMAX, q.D), dtype=torch.bfloat16),
-                    vc=torch.zeros((q.HKV, q.LMAX, q.D), dtype=torch.bfloat16), pos=torch.tensor([0], dtype=torch.int32),
+        kc, vc = kv_cache()
+        case = dict(m if tag == "mx" else deq, x=x, cos=c, sin=s, kc=kc, vc=vc, pos=torch.tensor([0], dtype=torch.int32),
                     nblk=torch.tensor([1], dtype=torch.int32), mask=mask.reshape(q.LMAX // q.BC, q.BC),
                     out=torch.zeros((1, 1, q.H), dtype=torch.bfloat16))
         mb.SCALES.clear()
@@ -86,8 +94,10 @@ def build_mx8(W, x):
     ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=True, dump_path=f"{BUILD}/head")(mul_mat_mx8)[1](xr, w8, s8, out)
     logger.info(f"mul_mat_mx8 n{HEAD_C}: cos vs dequantized {cos(out, xr.float() @ mb.dequant(w8, s8).T):.6f}")
 
-    for sub, name, dst in (("gdn", "gdn_layer_mx", "qwen35_gdn_mx8"), ("attn", "attn_layer_mx", "qwen35_attn_mx8"),
+    for sub, name, dst in (("gdn", "gdn_layer_mx", "qwen35_gdn_mx8"), ("attn", "attn_layer_mx", "qwen35_attn_mx8" + KV_SFX),
                            ("head", "mul_mat_mx8", f"mul_mat_mx8_n{HEAD_C}_k{q.H}")):
+        if KVC and sub != "attn":
+            continue
         (path,) = glob.glob(f"{BUILD}/{sub}/cache/{name}.*.compiled.axmodel")
         shutil.copy(path, f"{OUT}/{dst}.axmodel")
     open(f"{OUT}/qwen35.txt", "w").write(f"{q.LMAX} {q.BC} {q.ROT} {q.THETA}\n")
@@ -119,16 +129,18 @@ def main():
     c, s = q.rope_cos_sin(0)
     mask = torch.full((q.LMAX,), -3e38, dtype=torch.bfloat16)
     mask[0] = 0
-    case = dict(q.attn_args(W, 3), x=x, cos=c, sin=s, kc=torch.zeros((q.HKV, q.LMAX, q.D), dtype=torch.bfloat16),
-                vc=torch.zeros((q.HKV, q.LMAX, q.D), dtype=torch.bfloat16), pos=torch.tensor([0], dtype=torch.int32),
+    kc, vc = kv_cache()
+    case = dict(q.attn_args(W, 3), x=x, cos=c, sin=s, kc=kc, vc=vc, pos=torch.tensor([0], dtype=torch.int32),
                 nblk=torch.tensor([1], dtype=torch.int32), mask=mask.reshape(q.LMAX // q.BC, q.BC),
                 out=torch.zeros((1, 1, q.H), dtype=torch.bfloat16))
     k_attn[1](*[case[n] for n in q.ATTN_ORDER])
     logger.info(f"attn_layer LMAX={q.LMAX} BC={q.BC} compiled, out finite={bool(case['out'].float().isfinite().all())}")
 
     for sub, name in (("gdn", "gdn_layer"), ("attn", "attn_layer")):
+        if KVC and sub == "gdn":
+            continue
         (path,) = glob.glob(f"{BUILD}/{sub}/cache/{name}.*.compiled.axmodel")
-        shutil.copy(path, f"{OUT}/qwen35_{sub}.axmodel")
+        shutil.copy(path, f"{OUT}/qwen35_{sub}{KV_SFX if sub == 'attn' else ''}.axmodel")
     open(f"{OUT}/qwen35.txt", "w").write(f"{q.LMAX} {q.BC} {q.ROT} {q.THETA}\n")
     logger.info(f"wrote {OUT}/qwen35_gdn.axmodel, qwen35_attn.axmodel, qwen35.txt")
 
