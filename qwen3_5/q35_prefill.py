@@ -46,6 +46,8 @@ H, D, HQ, HKV, G = q.H, q.D, q.HQ, q.HKV, q.G
 NK, NV, DK, DV, KD, VD = q.NK, q.NV, q.DK, q.DV, q.KD, q.VD
 EPS, ROT, LMAX, BC = q.EPS, q.ROT, q.LMAX, q.BC
 BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_prefill"))
+# attention: P rows of independent tokens (batched decode, q35_batch.py): K/V row t goes to cell pos[t] (pos [P])
+SCATTER = False
 
 
 def gdn_layer_prefill(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out, ln2, w_gate, w_up, w_down,
@@ -134,7 +136,14 @@ def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, 
     rows = ax.dsl.from_numpy(np.array([1, P] if q.KVL == "head" else [P], dtype=np.uint32))
     src0 = ax.dsl.from_numpy(np.zeros(shape=(2 if q.KVL == "head" else 1,), dtype=np.uint32))
     p = ax.dsl.cast(ax.dsl.load(pos), dtype=ax.uint32)
-    if q.KVL == "cell":
+    if q.KVL == "cell" and SCATTER:
+        one = ax.dsl.from_numpy(np.array([1], dtype=np.uint32))
+        k16 = ax.dsl.cast(k.reshape(P, HKV * D), dtype=ax.fp16)
+        v16 = ax.dsl.cast(v.reshape(P, HKV * D), dtype=ax.fp16)
+        for t in range(P):
+            ax.dsl.dynamic_st(k16[t : t + 1, :], src0, p[t : t + 1], one, dim=(0,), output_shape=kc.shape, r=kc)
+            ax.dsl.dynamic_st(v16[t : t + 1, :], src0, p[t : t + 1], one, dim=(0,), output_shape=vc.shape, r=vc)
+    elif q.KVL == "cell":
         ax.dsl.dynamic_st(ax.dsl.cast(k.reshape(P, HKV * D), dtype=ax.fp16), src0, p, rows, dim=(0,),
                           output_shape=kc.shape, r=kc)
         ax.dsl.dynamic_st(ax.dsl.cast(v.reshape(P, HKV * D), dtype=ax.fp16), src0, p, rows, dim=(0,),

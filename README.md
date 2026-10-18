@@ -48,6 +48,9 @@ safetensors 或 GGUF。llama.cpp 的 [ggml-axera 后端](https://github.com/ZHEQ
 | `q35_board_prep.py` → `board/q35_board` → `q35_board_cmp.py` | 真机 24 层逐层输出，和模拟器、transformers 比 |
 | `q35_chat_build.py` / `q35_mx_build.py` → `board/q35_chat` | 板上完整生成（bf16 / MXFP8），`max_new=0` 时做 PPL 打分 |
 | `q35_tok.py`、`q35_chat_check.py`、`q35_score.py` | prompt 编码、生成结果和 transformers 比对、PPL 对照 |
+| `ggml_template_build.py` | ggml-axera 模板用的 decode 层 kernel（bf16 / MXFP8，KVL=cell 时按上下文 `_kvc_c<LMAX>` 命名） |
+| `q35_prefill.py` | prefill kernel：每次 P 个连续 token，模拟器上和逐 token decode 对比 |
+| `q35_batch.py` | batched decode kernel：B 个序列各一个 token（GDN、attention、lm_head），模拟器上和逐序列 decode 对比 |
 
 实测（2026-10-17，单核、bf16，不含 prefill kernel）：
 - **正确性**：真机和模拟器逐层余弦相似度 1.000000；生成的中英文文本和 transformers 贪心结果逐 token 相同。
