@@ -5,8 +5,9 @@ batched decode R = B, prefill R = P), any number of KV segments of S cells.
                        [R, HQ, D] bf16, the new K / V rows [R, HKV*D] f16 (the host writes them to their cells)
   attn_fd_seg<R>_c<S>  partial attention of the R tokens over one KV segment [S, HKV*D] f16 (the host binds the
                        segment's address in the llama.cpp KV cache): online softmax over the runtime block count with
-                       mask [S/BC, R, BC]; outputs per KV head and row g*R + t the running max m (bf16), the sum l
-                       (f32) and the unnormalized output o (bf16)
+                       mask [S/BC, R, BC], each block of BC cells loaded once for all KV heads (BC from env: larger
+                       blocks, fewer loop iterations); outputs per KV head and row g*R + t the running max m (bf16),
+                       the sum l (f32) and the unnormalized output o (bf16)
   attn_fd_tail<R>      attention output (the host's merge of the segments) -> sigmoid gate -> o_proj -> MLP
 
 Merging segments i: m = max m_i, l = sum exp(m_i - m) l_i, o = sum exp(m_i - m) o_i / l, skipping segments where a
@@ -73,27 +74,27 @@ def attn_fd_seg(qs, kc, vc, nblk, mask, m_out, l_out, o_out):
     range_start = ax.dsl.from_numpy(np.array([0], dtype=np.int32), prefix="range_start")
     range_step = ax.dsl.from_numpy(np.array([1], dtype=np.int32), prefix="range_step")
     range_stop = ax.dsl.load(nblk)
+    zero_col = ax.dsl.zeros(shape=(GR, 1), dtype=ax.bf16)
+    heads = []  # per KV head: its G query heads x R tokens, and the running (max, sum, output)
     for hk in range(HKV):
-        head = ax.dsl.from_numpy(np.array([hk], dtype=np.uint32))
         qh = ax.dsl.create_tensor((GR, D), ax.bf16, name=f"qh{hk}")
         for g in range(G):
             ax.dsl.move(x=qa[:, hk * G + g : hk * G + g + 1, :].reshape(R, D), r=qh[g * R : (g + 1) * R, :])
-        oi = ax.dsl.zeros(shape=(GR, D), dtype=ax.bf16)
-        li = ax.dsl.zeros(shape=(GR,), dtype=ax.fp32)
-        mi = ax.dsl.full(shape=(GR, 1), dtype=ax.bf16, fill_value=-3e38)
-        zero_col = ax.dsl.zeros(shape=(GR, 1), dtype=ax.bf16)
-        index = ax.dsl.zeros(shape=(1,), dtype=ax.int32)
+        heads += [qh, ax.dsl.full(shape=(GR, 1), dtype=ax.bf16, fill_value=-3e38), ax.dsl.zeros(shape=(GR,), dtype=ax.fp32),
+                  ax.dsl.zeros(shape=(GR, D), dtype=ax.bf16)]
+    index = ax.dsl.zeros(shape=(1,), dtype=ax.int32)
 
-        def body(index, kc, vc, mask, qh, mi, li, oi, head, block_stride, kv_block_shape, mask_block_shape,
-                 zero_col, minus_1):
-            loop_mi, loop_li, loop_oi = mi, li, oi
-            t0 = ax.dsl.cast(ax.dsl.mul(index, block_stride), dtype=ax.uint32)
-            kb = ax.dsl.dynamic_ld(kc, t0, kv_block_shape, dim=(0,), output_shape=(BC, HKV * D))
-            vb = ax.dsl.dynamic_ld(vc, t0, kv_block_shape, dim=(0,), output_shape=(BC, HKV * D))
-            kj = ax.dsl.cast(kb[:, hk * D : (hk + 1) * D], dtype=ax.bf16)
-            vj = ax.dsl.cast(vb[:, hk * D : (hk + 1) * D], dtype=ax.bf16)
-            mj = ax.dsl.dynamic_ld(mask, ax.dsl.cast(index, dtype=ax.uint32), mask_block_shape, dim=(0,),
-                                   output_shape=(1, R, BC)).reshape(R, BC)
+    def body(index, kc, vc, mask, block_stride, kv_block_shape, mask_block_shape, zero_col, minus_1, *heads):
+        # one block of BC cells, both KV heads' columns, loaded and converted once for all heads
+        t0 = ax.dsl.cast(ax.dsl.mul(index, block_stride), dtype=ax.uint32)
+        kb = ax.dsl.cast(ax.dsl.dynamic_ld(kc, t0, kv_block_shape, dim=(0,), output_shape=(BC, HKV * D)), dtype=ax.bf16)
+        vb = ax.dsl.cast(ax.dsl.dynamic_ld(vc, t0, kv_block_shape, dim=(0,), output_shape=(BC, HKV * D)), dtype=ax.bf16)
+        mj = ax.dsl.dynamic_ld(mask, ax.dsl.cast(index, dtype=ax.uint32), mask_block_shape, dim=(0,),
+                               output_shape=(1, R, BC)).reshape(R, BC)
+        for hk in range(HKV):
+            qh, mi, li, oi = heads[4 * hk : 4 * hk + 4]
+            kj = kb[:, hk * D : (hk + 1) * D]
+            vj = vb[:, hk * D : (hk + 1) * D]
             m_s = ax.dsl.create_tensor(shape=(GR, 1 + BC + 1), dtype=ax.bf16)
             ax.dsl.move(r=m_s[:, :1], x=mi)
             ax.dsl.move(r=m_s[:, -1:], x=zero_col)
@@ -107,19 +108,18 @@ def attn_fd_seg(qs, kc, vc, nblk, mask, m_out, l_out, o_out):
             lij = ax.dsl.sum(p32, dim=-1, output_dtype=ax.fp32)
             ratio = ax.dsl.exp(m_s[:, :1], output_dtype=ax.fp32).reshape(GR)
             ratio_li = ax.dsl.mul(li, ratio, output_dtype=ax.fp32)
-            ax.dsl.add(ratio_li, lij, r=loop_li, output_dtype=ax.fp32)
+            ax.dsl.add(ratio_li, lij, r=li, output_dtype=ax.fp32)
             oij = pj @ vj
             ratio_oi = ax.dsl.mul(ratio.reshape(GR, 1), oi, output_dtype=ax.fp32)
-            ax.dsl.add(ratio_oi, oij, r=loop_oi, output_dtype=ax.bf16)
-            ax.dsl.mul(m_s[:, -1:], minus_1, r=loop_mi)
-            return (kc, vc, mask, qh, loop_mi, loop_li, loop_oi, head, block_stride, kv_block_shape,
-                    mask_block_shape, zero_col, minus_1)
+            ax.dsl.add(ratio_oi, oij, r=oi, output_dtype=ax.bf16)
+            ax.dsl.mul(m_s[:, -1:], minus_1, r=mi)
+        return (kc, vc, mask, block_stride, kv_block_shape, mask_block_shape, zero_col, minus_1, *heads)
 
-        (kc, vc, mask, qh, mi, li, oi, head, block_stride, kv_block_shape, mask_block_shape, zero_col,
-         minus_1) = ax.dsl.range(
-            index, range_start, range_stop, range_step, body,
-            kc, vc, mask, qh, mi, li, oi, head, block_stride, kv_block_shape, mask_block_shape, zero_col, minus_1,
-        )
+    res = ax.dsl.range(index, range_start, range_stop, range_step, body, kc, vc, mask, block_stride, kv_block_shape,
+                       mask_block_shape, zero_col, minus_1, *heads)
+    heads = res[8:]
+    for hk in range(HKV):
+        _, mi, li, oi = heads[4 * hk : 4 * hk + 4]
         ax.dsl.store(mi.reshape(1, GR, 1), r=m_out[hk : hk + 1])
         ax.dsl.store(li.reshape(1, GR), r=l_out[hk : hk + 1])
         ax.dsl.store(oi.reshape(1, GR, D), r=o_out[hk : hk + 1])
