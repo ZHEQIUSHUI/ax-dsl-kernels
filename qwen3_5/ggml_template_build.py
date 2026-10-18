@@ -1,7 +1,8 @@
 """Build the Qwen3.5 layer kernels for the ggml-axera graph template (GGML_AXERA_TEMPLATE=qwen35).
 
 Writes into <kernel_dir>: qwen35_gdn.axmodel, qwen35_attn.axmodel (q35_step.py's layer kernels; attention compiled for
-LMAX/BC from env, default 4096/64) and qwen35.txt "LMAX BC ROT THETA". The backend feeds them the GGUF weights as they
+LMAX/BC from env, default 4096/64). The backend reads LMAX and BC from the attention kernel's mask input and the RoPE
+parameters from the llama.cpp graph; any llama.cpp context up to LMAX cells works. It feeds them the GGUF weights as they
 are, except ssm_a -> log(-ssm_a) and the conv1d weight (time-flipped, bf16). Each kernel runs once on the simulator.
 
 WFMT=mx8 builds the MXFP8 variants instead (GGML_AXERA_WEIGHTS=mxfp8; the backend quantizes the bf16 GGUF weights at
@@ -26,8 +27,8 @@ from axnn.dsl.kernels.utils.linear import linear
 import q35_step as q
 
 WFMT = os.environ.get("WFMT", "bf16")
-KVC = q.KVL == "cell"  # llama.cpp KV layout: only the attention kernels change, written as qwen35_attn*_kvc.axmodel
-KV_SFX = "_kvc" if KVC else ""
+KVC = q.KVL == "cell"  # llama.cpp KV layout: only the attention kernels change, written as qwen35_attn*_kvc_c<LMAX>.axmodel
+KV_SFX = f"_kvc_c{q.LMAX}" if KVC else ""
 
 
 def kv_cache():
@@ -100,7 +101,6 @@ def build_mx8(W, x):
             continue
         (path,) = glob.glob(f"{BUILD}/{sub}/cache/{name}.*.compiled.axmodel")
         shutil.copy(path, f"{OUT}/{dst}.axmodel")
-    open(f"{OUT}/qwen35.txt", "w").write(f"{q.LMAX} {q.BC} {q.ROT} {q.THETA}\n")
     logger.info(f"wrote {OUT}/qwen35_gdn_mx8.axmodel, qwen35_attn_mx8.axmodel, mul_mat_mx8_n{HEAD_C}_k{q.H}.axmodel")
 
 
@@ -141,8 +141,7 @@ def main():
             continue
         (path,) = glob.glob(f"{BUILD}/{sub}/cache/{name}.*.compiled.axmodel")
         shutil.copy(path, f"{OUT}/qwen35_{sub}{KV_SFX if sub == 'attn' else ''}.axmodel")
-    open(f"{OUT}/qwen35.txt", "w").write(f"{q.LMAX} {q.BC} {q.ROT} {q.THETA}\n")
-    logger.info(f"wrote {OUT}/qwen35_gdn.axmodel, qwen35_attn.axmodel, qwen35.txt")
+    logger.info(f"wrote {OUT}/qwen35_gdn.axmodel, qwen35_attn.axmodel")
 
 
 if __name__ == "__main__":

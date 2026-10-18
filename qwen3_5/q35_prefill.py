@@ -5,7 +5,7 @@
                       as the decode kernel), state updated in place like the decode kernel
   attn_layer_prefill  P new K/V rows written at the runtime position; the G query heads of a KV head times P tokens are
                       one G*P-row block attention against the cache (runtime block count), with a host-built causal mask
-                      mask [LMAX/BC, G*P, BC] (row g*P + t: query token t of head g)
+                      mask [LMAX/BC, P, BC] (row t: query token t, shared by the G heads)
 
 Inputs as the decode kernels in q35_step.py, with x/out [1, P, H] and cos/sin [P, ROT/2].
 
@@ -184,12 +184,13 @@ def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, 
                 kj = ax.dsl.cast(kb[:, hk * D : (hk + 1) * D], dtype=ax.bf16)
                 vj = ax.dsl.cast(vb[:, hk * D : (hk + 1) * D], dtype=ax.bf16)
             mj = ax.dsl.dynamic_ld(mask, ax.dsl.cast(index, dtype=ax.uint32), mask_block_shape, dim=(0,),
-                                   output_shape=(1, R, BC)).reshape(R, BC)
+                                   output_shape=(1, P, BC)).reshape(P, BC)
             m_s = ax.dsl.create_tensor(shape=(R, 1 + BC + 1), dtype=ax.bf16)
             ax.dsl.move(r=m_s[:, :1], x=mi)
             ax.dsl.move(r=m_s[:, -1:], x=zero_col)
             sj = ax.dsl.matmul(qh, kj, transposed=True, output_dtype=ax.bf16)
-            ax.dsl.add(sj, mj, output_dtype=ax.bf16, r=m_s[:, 1 : 1 + BC])
+            for g in range(G):  # the P mask rows apply to each of the G heads' P rows
+                ax.dsl.add(sj[g * P : (g + 1) * P, :], mj, output_dtype=ax.bf16, r=m_s[g * P : (g + 1) * P, 1 : 1 + BC])
             m_next = ax.dsl.max(m_s[:, : 1 + BC], dim=-1, keepdim=True)
             m_s = ax.dsl.sub(m_s, m_next, r=m_s)
             pj = ax.dsl.exp(m_s[:, 1 : 1 + BC])
@@ -248,9 +249,9 @@ if WFMT == "mx8":
 
 
 def prefill_mask(pos0):
-    """[LMAX/BC, G*P, BC] bf16: row g*P + t sees positions <= pos0 + t."""
+    """[LMAX/BC, P, BC] bf16: row t sees positions <= pos0 + t."""
     col = torch.arange(LMAX).reshape(LMAX // BC, 1, BC)
-    lim = (pos0 + torch.arange(P)).repeat(G).reshape(1, G * P, 1)
+    lim = (pos0 + torch.arange(P)).reshape(1, P, 1)
     return torch.where(col <= lim, 0.0, -3e38).bfloat16()
 
 
@@ -286,7 +287,7 @@ def main():
     attn_order = mb.order(mb.attn_layer_mx) if mx else ATTN_ORDER
     sfx = "_mx8" if mx else ""
     only = os.environ.get("ONLY")  # "attn": skip the GDN layer (e.g. a KV-layout change)
-    kv_sfx = "_kvc" if q.KVL == "cell" else ""
+    kv_sfx = f"_kvc_c{LMAX}" if q.KVL == "cell" else ""  # llama.cpp KV layout, named by context
 
     # --- GDN layer 0
     a = mb.mx_args(q.gdn_args(W, 0), mb.GDN_W)[0] if mx else q.gdn_args(W, 0)
