@@ -51,6 +51,7 @@ safetensors 或 GGUF。llama.cpp 的 [ggml-axera 后端](https://github.com/ZHEQ
 | `ggml_template_build.py` | ggml-axera 模板用的 decode 层 kernel（bf16 / MXFP8，KVL=cell 时按上下文 `_kvc_c<LMAX>` 命名） |
 | `q35_prefill.py` | prefill kernel：每次 P 个连续 token，模拟器上和逐 token decode 对比 |
 | `q35_batch.py` | batched decode kernel：B 个序列各一个 token（GDN、attention、lm_head），模拟器上和逐序列 decode 对比 |
+| `q35_flash.py` | 长上下文的拆分 attention（flash decoding）：head / 按段的部分 attention / tail，模拟器上跨 2 段和融合 kernel 对比 |
 
 实测（2026-10-17，单核、bf16，不含 prefill kernel）：
 - **正确性**：真机和模拟器逐层余弦相似度 1.000000；生成的中英文文本和 transformers 贪心结果逐 token 相同。
