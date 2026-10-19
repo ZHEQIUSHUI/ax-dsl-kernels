@@ -83,7 +83,7 @@ def gdn_layer_batch(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w
                                output_dtype=ax.bf16)
             k_tok = l2norm_lastdim(km[:, t : t + 1, kh : kh + 1, :].reshape(1, DK))
             for vo in range(rep):
-                vh = kh * rep + vo
+                vh = vo * NK + kh if q.VORDER == "tiled" else kh * rep + vo
                 g, beta = gdn_gate(a[:, t : t + 1, vh : vh + 1].reshape(1, 1), b[:, t : t + 1, vh : vh + 1].reshape(1, 1),
                                    a_log_t[vh : vh + 1], dt_bias_t[vh : vh + 1])
                 st = ax.dsl.load(state_in[t : t + 1, vh : vh + 1]).reshape(DK, DV)

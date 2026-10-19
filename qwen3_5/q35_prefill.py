@@ -72,7 +72,7 @@ def gdn_layer_prefill(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm
         gdn_chunked(qm, km, vm, a, b, a_log_t, dt_bias_t, q_scale, state_in, state_out, core)
     for kh in range(NK if GDN == "seq" else 0):
         for vo in range(rep):
-            vh = kh * rep + vo
+            vh = vo * NK + kh if q.VORDER == "tiled" else kh * rep + vo
             st = ax.dsl.load(state_in[vh : vh + 1]).reshape(DK, DV)
             for t in range(P):
                 q_tok = ax.dsl.mul(l2norm_lastdim(qm[:, t : t + 1, kh : kh + 1, :].reshape(1, DK)), q_scale,
@@ -94,7 +94,8 @@ def gdn_layer_prefill(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm
 
 def gdn_chunked(qm, km, vm, a, b, a_log_t, dt_bias_t, q_scale, state_in, state_out, core):
     """Delta rule for the P chunk tokens in the chunked form: HG heads per solve, CHUNK tokens per solve."""
-    assert NV == NK and NV % HG == 0 and P % CHUNK == 0
+    # the HG value heads h0 .. h0 + HG - 1 use key heads h0 % NK .. (+ HG): consecutive in the tiled order
+    assert (NV == NK or q.VORDER == "tiled") and NK % HG == 0 and P % CHUNK == 0
     qn = ax.dsl.mul(l2norm_lastdim(qm), q_scale, output_dtype=ax.bf16)  # [1, P, NK, DK]
     kn = l2norm_lastdim(km)
     g_all, beta_all = gdn_gate(a.reshape(1, P, NV), b.reshape(1, P, NV), a_log_t, dt_bias_t)  # [1, P, NV]
@@ -102,11 +103,12 @@ def gdn_chunked(qm, km, vm, a, b, a_log_t, dt_bias_t, q_scale, state_in, state_o
     exp_prefix_all = ax.dsl.exp(prefix_all, output_dtype=ax.fp32)
     for h0 in range(0, NV, HG):
         hs = slice(h0, h0 + HG)
+        ks = slice(h0 % NK, h0 % NK + HG)
         st = ax.dsl.load(state_in[hs]).reshape(HG, DK, DV)
         for c0 in range(0, P, CHUNK):
             cs = slice(c0, c0 + CHUNK)
-            q_tile = ax.dsl.transpose(qn[:, cs, hs, :], perm=(0, 2, 1, 3)).reshape(HG, CHUNK, DK)
-            k_tile = ax.dsl.transpose(kn[:, cs, hs, :], perm=(0, 2, 1, 3)).reshape(HG, CHUNK, DK)
+            q_tile = ax.dsl.transpose(qn[:, cs, ks, :], perm=(0, 2, 1, 3)).reshape(HG, CHUNK, DK)
+            k_tile = ax.dsl.transpose(kn[:, cs, ks, :], perm=(0, 2, 1, 3)).reshape(HG, CHUNK, DK)
             v_tile = ax.dsl.transpose(vm[:, cs, hs, :], perm=(0, 2, 1, 3)).reshape(HG, CHUNK, DV)
             prefix_g = ax.dsl.transpose(prefix_all[:, cs, hs], perm=(0, 2, 1)).reshape(HG, CHUNK, 1)
             exp_prefix_g = ax.dsl.transpose(exp_prefix_all[:, cs, hs], perm=(0, 2, 1)).reshape(HG, CHUNK, 1)

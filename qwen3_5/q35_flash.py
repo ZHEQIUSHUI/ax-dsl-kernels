@@ -24,6 +24,7 @@ import shutil
 import sys
 
 R = int(os.environ.get("R", 4))
+CORES = int(os.environ.get("CORES", 1))  # segment kernel: cores, each scanning its own run of blocks
 S = int(os.environ.get("S", 4096))
 CHECK = os.environ.get("CHECK", "1") == "1" and 2 * S <= 32768
 os.environ["PCHUNK"] = str(R)
@@ -66,14 +67,22 @@ def attn_fd_head(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, q_out, gate_ou
 
 
 def attn_fd_seg(qs, kc, vc, nblk, mask, m_out, l_out, o_out):
+    """CORES == 1: nblk [1], blocks 0 .. nblk - 1; outputs [HKV, ..]. CORES > 1: nblk [CORES, 2], core c scans blocks
+    nblk[c, 0] .. nblk[c, 1] - 1 (at least one; the host ignores a core given no block); outputs [CORES, HKV, ..], one
+    partial result per core, merged by the host like the segments. No synchronization between the cores."""
+    c = ax.program_id(0)
     qa = ax.dsl.load(qs)  # [R, HQ, D], pre-scaled
     kv_block_shape = ax.dsl.from_numpy(np.array([BC], dtype=np.uint32))
     mask_block_shape = ax.dsl.from_numpy(np.array([1], dtype=np.uint32))
     block_stride = ax.dsl.from_numpy(np.array([BC], dtype=np.int32))
     minus_1 = ax.dsl.from_numpy(np.full(shape=(1,), dtype=ml_dtypes.bfloat16, fill_value=-1))
-    range_start = ax.dsl.from_numpy(np.array([0], dtype=np.int32), prefix="range_start")
     range_step = ax.dsl.from_numpy(np.array([1], dtype=np.int32), prefix="range_step")
-    range_stop = ax.dsl.load(nblk)
+    if CORES == 1:
+        range_start = ax.dsl.from_numpy(np.array([0], dtype=np.int32), prefix="range_start")
+        range_stop = ax.dsl.load(nblk)
+    else:
+        range_start = ax.dsl.load(nblk[c : c + 1, 0:1]).reshape(1)
+        range_stop = ax.dsl.load(nblk[c : c + 1, 1:2]).reshape(1)
     zero_col = ax.dsl.zeros(shape=(GR, 1), dtype=ax.bf16)
     heads = []  # per KV head: its G query heads x R tokens, and the running (max, sum, output)
     for hk in range(HKV):
@@ -82,7 +91,8 @@ def attn_fd_seg(qs, kc, vc, nblk, mask, m_out, l_out, o_out):
             ax.dsl.move(x=qa[:, hk * G + g : hk * G + g + 1, :].reshape(R, D), r=qh[g * R : (g + 1) * R, :])
         heads += [qh, ax.dsl.full(shape=(GR, 1), dtype=ax.bf16, fill_value=-3e38), ax.dsl.zeros(shape=(GR,), dtype=ax.fp32),
                   ax.dsl.zeros(shape=(GR, D), dtype=ax.bf16)]
-    index = ax.dsl.zeros(shape=(1,), dtype=ax.int32)
+    index = ax.dsl.create_tensor((1,), ax.int32, name="index")
+    ax.dsl.move(x=range_start, r=index)
 
     def body(index, kc, vc, mask, block_stride, kv_block_shape, mask_block_shape, zero_col, minus_1, *heads):
         # one block of BC cells, both KV heads' columns, loaded and converted once for all heads
@@ -120,9 +130,14 @@ def attn_fd_seg(qs, kc, vc, nblk, mask, m_out, l_out, o_out):
     heads = res[8:]
     for hk in range(HKV):
         _, mi, li, oi = heads[4 * hk : 4 * hk + 4]
-        ax.dsl.store(mi.reshape(1, GR, 1), r=m_out[hk : hk + 1])
-        ax.dsl.store(li.reshape(1, GR), r=l_out[hk : hk + 1])
-        ax.dsl.store(oi.reshape(1, GR, D), r=o_out[hk : hk + 1])
+        if CORES == 1:
+            ax.dsl.store(mi.reshape(1, GR, 1), r=m_out[hk : hk + 1])
+            ax.dsl.store(li.reshape(1, GR), r=l_out[hk : hk + 1])
+            ax.dsl.store(oi.reshape(1, GR, D), r=o_out[hk : hk + 1])
+        else:
+            ax.dsl.store(mi.reshape(1, 1, GR, 1), r=m_out[c : c + 1, hk : hk + 1])
+            ax.dsl.store(li.reshape(1, 1, GR), r=l_out[c : c + 1, hk : hk + 1])
+            ax.dsl.store(oi.reshape(1, 1, GR, D), r=o_out[c : c + 1, hk : hk + 1])
     return m_out, l_out, o_out
 
 
@@ -161,6 +176,13 @@ def cos(a, b):
     return torch.nn.functional.cosine_similarity(a.reshape(-1).double(), b.reshape(-1).double(), dim=0).item()
 
 
+def split_blocks(nb, cores):
+    """the host's split of blocks 0 .. nb - 1 over the cores: [start, stop) each, an empty run as [0, 1) (ignored)"""
+    per = -(-nb // cores)
+    runs = [(min(nb, i * per), min(nb, (i + 1) * per)) for i in range(cores)]
+    return [(a, b) if b > a else (0, 1) for a, b in runs], [b > a for a, b in runs]
+
+
 def kern(fn, sub):
     os.makedirs(f"{BUILD}/{sub}", exist_ok=True)
     os.chdir(f"{BUILD}/{sub}")
@@ -176,7 +198,7 @@ def main():
     a = q.attn_args(W, 3)
     xs = W("embed_tokens.weight")[torch.randint(0, 200000, (R,))].reshape(1, R, H).contiguous()
     NC = 2 * S if CHECK else S  # cells of the test cache
-    C0 = (S + 5) if CHECK else 70  # the R new tokens at cells C0 .. C0 + R - 1 (segment 1 when checking)
+    C0 = (S + 5) if CHECK else int(os.environ.get("C0", 70))  # the R new tokens at cells C0 .. (segment 1 checking)
     cells = [C0 + t for t in range(R)]
     posn = [C0 - C0 // 3 + t for t in range(R)]
 
@@ -201,7 +223,9 @@ def main():
     kc[cells], vc[cells] = hc["k_out"], hc["v_out"]  # the host's write
 
     # segments
-    k_seg = kern(attn_fd_seg, f"seg{R}_c{S}")
+    SEG = f"seg{R}_c{S}" + (f"_x{CORES}" if CORES > 1 else "")
+    ax.init(chip_num=1, core_num=CORES)  # the segment kernel only: head, tail and the reference are single-core
+    k_seg = kern(attn_fd_seg, SEG)
     parts, seen = [], []
     for g in range(NC // S):
         rows = torch.stack([mask_row(t)[g * S : (g + 1) * S] for t in range(R)])  # [R, S]
@@ -209,15 +233,28 @@ def main():
         if not vis.any():
             continue
         last = int(vis.any(0).nonzero().max())
+        nb = last // BC + 1
+        runs, used = split_blocks(nb, CORES)
+        lead = (CORES,) if CORES > 1 else ()
         sc = dict(qs=hc["q_out"], kc=kc[g * S : (g + 1) * S].contiguous(), vc=vc[g * S : (g + 1) * S].contiguous(),
-                  nblk=torch.tensor([last // BC + 1], dtype=torch.int32),
+                  nblk=torch.tensor(runs, dtype=torch.int32) if CORES > 1 else torch.tensor([nb], dtype=torch.int32),
                   mask=rows.reshape(R, S // BC, BC).permute(1, 0, 2).bfloat16().contiguous(),
-                  m_out=torch.zeros((HKV, GR, 1), dtype=torch.bfloat16), l_out=torch.zeros((HKV, GR)),
-                  o_out=torch.zeros((HKV, GR, D), dtype=torch.bfloat16))
-        k_seg[1](*[sc[n] for n in SEG_ORDER])
-        parts.append((sc["m_out"], sc["l_out"], sc["o_out"]))
-        seen.append(vis.any(1).tolist())
+                  m_out=torch.zeros(lead + (HKV, GR, 1), dtype=torch.bfloat16), l_out=torch.zeros(lead + (HKV, GR)),
+                  o_out=torch.zeros(lead + (HKV, GR, D), dtype=torch.bfloat16))
+        k_seg[CORES](*[sc[n] for n in SEG_ORDER])
+        if CORES == 1:
+            parts.append((sc["m_out"], sc["l_out"], sc["o_out"]))
+            seen.append(vis.any(1).tolist())
+            continue
+        for i, ((a0, a1), u) in enumerate(zip(runs, used)):
+            sv = vis[:, a0 * BC : a1 * BC].any(1) & u
+            if sv.any():
+                parts.append((sc["m_out"][i], sc["l_out"][i], sc["o_out"][i]))
+                seen.append(sv.tolist())
     att = merge(parts, seen)
+    if os.environ.get("SAVE"):
+        torch.save(att, os.environ["SAVE"])
+    ax.init(chip_num=1, core_num=1)
 
     # tail
     k_tail = kern(attn_fd_tail, f"tail{R}")
@@ -241,9 +278,9 @@ def main():
                     f"{torch.equal(rc['kc'], kc) and torch.equal(rc['vc'], vc)}")
 
     if out_dir:
-        for sub, fn, dst in ((f"head{R}", "attn_fd_head", f"qwen35_attn_fd_head{R}"),
-                             (f"seg{R}_c{S}", "attn_fd_seg", f"qwen35_attn_fd_seg{R}_c{S}"),
-                             (f"tail{R}", "attn_fd_tail", f"qwen35_attn_fd_tail{R}")):
+        kernels = [(f"head{R}", "attn_fd_head", f"qwen35_attn_fd_head{R}"), (SEG, "attn_fd_seg", f"qwen35_attn_fd_{SEG}"),
+                   (f"tail{R}", "attn_fd_tail", f"qwen35_attn_fd_tail{R}")]
+        for sub, fn, dst in kernels if CORES == 1 else kernels[1:2]:
             (path,) = glob.glob(f"{BUILD}/{sub}/cache/{fn}.*.compiled.axmodel")
             shutil.copy(path, f"{out_dir}/{dst}.axmodel")
             logger.info(f"wrote {out_dir}/{dst}.axmodel")

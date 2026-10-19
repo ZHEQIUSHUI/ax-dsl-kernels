@@ -69,6 +69,10 @@ THETA = cfg["rope_parameters"]["rope_theta"]
 NK, NV = cfg["linear_num_key_heads"], cfg["linear_num_value_heads"]  # 16, 16
 DK, DV = cfg["linear_key_head_dim"], cfg["linear_value_head_dim"]  # 128, 128
 KD, VD = NK * DK, NV * DV
+# value head order with NV > NK: "tiled" (the GGUF's, llama.cpp reorders them for ggml broadcasting: value head vh
+# uses key head vh % NK) or "grouped" (Hugging Face: vh // (NV / NK)); the same for NV == NK
+VORDER = os.environ.get("VORDER", "tiled")
+assert VORDER in ("tiled", "grouped") and NV % NK == 0
 CONV = cfg["linear_conv_kernel_dim"]  # 4
 EPS = cfg["rms_norm_eps"]
 LAYERS = cfg["layer_types"]
@@ -113,7 +117,7 @@ def gdn_layer(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_ou
         q_tok = ax.dsl.mul(l2norm_lastdim(q[:, :, kh : kh + 1, :].reshape(1, DK)), q_scale, output_dtype=ax.bf16)
         k_tok = l2norm_lastdim(k[:, :, kh : kh + 1, :].reshape(1, DK))
         for vo in range(rep):
-            vh = kh * rep + vo
+            vh = vo * NK + kh if VORDER == "tiled" else kh * rep + vo
             g, beta = gdn_gate(a[:, :, vh : vh + 1].reshape(1, 1), b[:, :, vh : vh + 1].reshape(1, 1),
                                a_log_t[vh : vh + 1], dt_bias_t[vh : vh + 1])
             st = ax.dsl.load(state_in[vh : vh + 1]).reshape(DK, DV)
@@ -227,32 +231,54 @@ def attn_layer(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nbl
 
 
 class Weights:
+    """the checkpoint's tensors by name (one file or shards listed in model.safetensors.index.json)"""
+
     def __init__(self, path):
-        self.f = safe_open(f"{path}/model.safetensors-00001-of-00001.safetensors", "pt")
+        idx = f"{path}/model.safetensors.index.json"
+        files = sorted(set(json.load(open(idx))["weight_map"].values())) if os.path.exists(idx) else ["model.safetensors"]
+        self.f = [safe_open(f"{path}/{f}", "pt") for f in files]
+        self.where = {k: f for f in self.f for k in f.keys()}
+
+    def raw(self, name):
+        return self.where[name].get_tensor(name)
 
     def __call__(self, name):
-        return self.f.get_tensor("model.language_model." + name)
+        return self.raw("model.language_model." + name)
 
 
 def one_plus(w):
     return (1.0 + w.float()).contiguous()  # Qwen3.5 RMSNorm: x_norm * (1 + w)，fp32 运行时输入
 
 
+def v_tiled(t, dim, hd):
+    """value heads from the checkpoint's grouped order to the GGUF's tiled one along dim (as llama.cpp's
+    _LinearAttentionVReorderBase); identity for NV == NK or VORDER=grouped"""
+    if VORDER != "tiled" or NV == NK:
+        return t
+    sh = list(t.shape)
+    t = t.reshape(sh[:dim] + [NK, NV // NK, hd] + sh[dim + 1 :]).transpose(dim, dim + 1)
+    return t.contiguous().reshape(sh)
+
+
 def gdn_args(W, i):
     p = f"layers.{i}."
     la = p + "linear_attn."
+    qkv = W(la + "in_proj_qkv.weight")
+    qkv = torch.cat([qkv[: 2 * KD], v_tiled(qkv[2 * KD :], 0, DV)])
+    # checkpoint 是 PyTorch conv1d 布局（第 3 列乘当前 token）；kernel 要第 0 列乘当前 token
+    conv = W(la + "conv1d.weight")[:, 0, :].flip(-1)
+    conv = torch.cat([conv[: 2 * KD], v_tiled(conv[2 * KD :], 0, DV)])
     return dict(
         ln1=one_plus(W(p + "input_layernorm.weight")),
-        w_qkv=W(la + "in_proj_qkv.weight"),
-        w_z=W(la + "in_proj_z.weight"),
-        w_b=W(la + "in_proj_b.weight"),
-        w_a=W(la + "in_proj_a.weight"),
-        # checkpoint 是 PyTorch conv1d 布局（第 3 列乘当前 token）；kernel 要第 0 列乘当前 token
-        conv_w=W(la + "conv1d.weight")[:, 0, :].flip(-1).contiguous(),
-        a_log=W(la + "A_log").float().contiguous(),
-        dt_bias=W(la + "dt_bias").float().contiguous(),
+        w_qkv=qkv.contiguous(),
+        w_z=v_tiled(W(la + "in_proj_z.weight"), 0, DV),
+        w_b=v_tiled(W(la + "in_proj_b.weight"), 0, 1),
+        w_a=v_tiled(W(la + "in_proj_a.weight"), 0, 1),
+        conv_w=conv.contiguous(),
+        a_log=v_tiled(W(la + "A_log").float(), 0, 1).contiguous(),
+        dt_bias=v_tiled(W(la + "dt_bias").float(), 0, 1).contiguous(),
         norm_w=W(la + "norm.weight").float().contiguous(),
-        w_out=W(la + "out_proj.weight"),
+        w_out=v_tiled(W(la + "out_proj.weight"), 1, DV),
         **mlp_args(W, p),
     )
 

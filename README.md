@@ -13,7 +13,7 @@ safetensors 或 GGUF。llama.cpp 的 [ggml-axera 后端](https://github.com/ZHEQ
 | `qwen3_5/board/` | 板端程序：24 层逐层比对（`q35_board`）、板上完整生成和 PPL 打分（`q35_chat`） |
 | `ggml/` | 给 ggml-axera 生成 kernel：从 GGUF 读出权重形状，每种形状一个 GEMV axmodel |
 | `bench/` | 单项测试：GEMV（常量 / 运行时权重、MX 格式）、多层合并、decode attention、KV 写入、一层 decode |
-| `tools/` | 通用板端工具：按名字喂输入的执行器、常驻 KV 写入验证、多核并行测试 |
+| `tools/` | 通用板端工具：按名字喂输入的执行器、常驻 KV 写入验证、多核并行测试、多核 kernel 压测 |
 
 ### 新增模型
 
@@ -41,6 +41,8 @@ safetensors 或 GGUF。llama.cpp 的 [ggml-axera 后端](https://github.com/ZHEQ
 
 宿主负责 embedding 查表和 RoPE 的 cos/sin。lm_head 是单独的 kernel，按词表分块调用。
 
+GDN 的 value 头多于 key 头时（9B：32 / 16），kernel 按 GGUF 的顺序取头：llama.cpp 转换时把 value 头从 HF 的分组顺序重排成平铺顺序（value 头 j 用 key 头 j % NK），`VORDER=tiled`（默认）；和 HF 比对的脚本加载 HF 权重时做同样的重排。
+
 | 脚本 | 用途 |
 |---|---|
 | `q35_step.py` | 模拟器上逐 token 跑完整 decode，逐层和 transformers 比 |
@@ -51,7 +53,10 @@ safetensors 或 GGUF。llama.cpp 的 [ggml-axera 后端](https://github.com/ZHEQ
 | `ggml_template_build.py` | ggml-axera 模板用的 decode 层 kernel（bf16 / MXFP8，KVL=cell 时按上下文 `_kvc_c<LMAX>` 命名） |
 | `q35_prefill.py` | prefill kernel：每次 P 个连续 token，模拟器上和逐 token decode 对比 |
 | `q35_batch.py` | batched decode kernel：B 个序列各一个 token（GDN、attention、lm_head），模拟器上和逐序列 decode 对比 |
-| `q35_flash.py` | 长上下文的拆分 attention（flash decoding）：head / 按段的部分 attention / tail，模拟器上跨 2 段和融合 kernel 对比 |
+| `q35_flash.py` | 长上下文的拆分 attention（flash decoding）：head / 按段的部分 attention / tail，模拟器上跨 2 段和融合 kernel 对比；`CORES=4` 时段 kernel 按块分给 4 个核（`_x4`，`nblk` 为每核 [start, stop)） |
+| `q35_vit.py` | 视觉编码器（ViT）：`vit_embed` / `vit_pre` / `vit_attn` / `vit_post` / `vit_merge`，按 patch 数 N 分档（`_<N>_h<hidden>`，各尺寸共用代码：0.8B 768、2B/4B 1024、9B 及以上 1152），模拟器上逐层和 transformers 比 |
+| `q35_hf_layer.py` | 任意尺寸的一个 GDN 层和一个注意力层的 decode / prefill kernel 直接和 transformers 的 `Qwen3_5DecoderLayer` 比 |
+| `q35_mc.py` | 多核层链（实验性）：`gdn_mc` / `mlp_mc` / `attn_head_mc` / `attn_tail_mc`（P = 1 decode、64、128 prefill），按头或输出通道切到 4 个核、核间不同步，残差以 base + 每核 fp32 部分和在调用间传递；tail 在 NPU 上合并 NP 个段结果；另有 4 核 lm_head GEMV `mul_mat_bf16_n31040_k1024_x4` |
 
 实测（2026-10-17，单核、bf16，不含 prefill kernel）：
 - **正确性**：真机和模拟器逐层余弦相似度 1.000000；生成的中英文文本和 transformers 贪心结果逐 token 相同。
@@ -72,5 +77,8 @@ mul_mat_bf16_n<N>_k<K>.axmodel   输入 x [1, K] bf16、w [N, K] bf16；输出 o
 
 - 多核 kernel 内的 `sync_all` 会导致驱动崩溃，不要在共享板上跑。
 - 多个任务不能同时在不同的核上执行（其余任务返回 `0x8006008a`），所以目前只用单核 kernel。
+- 无同步的多核 kernel（`program_id` 切分，各核只写自己的输出）单独压测稳定（`tools/mc_stress.cc`、`tools/mc_alt.cc`：单个、交替、链式依赖、单多核混用），但在 llama.cpp 里串成层链时偶发 NaN / 结果漂移 / `0x8006008a` 超时，原因未明，所以 ggml-axera 默认不用（`GGML_AXERA_CORES=4` 打开）。有别的进程同时用 NPU 时多核调用必然超时。
+- 多核 kernel 的输入越界（如段 kernel 的 `nblk` 超出范围）会让多核一直失败到重启，单核不受影响。
+- c32768 的多核段 kernel 在板上核 1–3 结果错误（模拟器正确），多核段长用 16384。
 - affinity 掩码每个核占 2 位：`0x3`、`0xc`、`0x30`、`0xc0`。
 - 模拟器跑 kernel 前会把输出 buffer 清零。原地更新的常驻 KV cache 要先预填，见 `q35_step.py` 里的 RESIDENT 补丁。
