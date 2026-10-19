@@ -44,8 +44,11 @@ PS, TPS, MERGE = VC["patch_size"], VC["temporal_patch_size"], VC["spatial_merge_
 CP = 3 * PS * PS  # pixels per patch (one temporal frame)
 EPS = 1e-6
 N = int(os.environ.get("N", 256))  # patches per call, a multiple of BC and MT
-BC = int(os.environ.get("BC", 128))  # key block of the attention
-QB = int(os.environ.get("QB", 128))  # query rows per block of the attention
+# attention blocks (simulator, N = 1024 / 2048): 512 query rows per block beat 128 / 256 / 1024 (0.8B -41 %, 9B -56 % with
+# the key blocks below); key blocks of 256 cells where a block of K or V stays within 384 KB (H <= 768: a 9B block of
+# 256 x 1152 does not build), else 128
+BC = int(os.environ.get("BC", 256 if H <= 768 else 128))  # key block of the attention
+QB = int(os.environ.get("QB", min(512, N)))  # query rows per block of the attention
 MT = int(os.environ.get("MT", 128))  # rows per tile of the projections
 BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_vit"))
 assert N % BC == 0 and N % QB == 0 and N % MT == 0 and MT % (MERGE * MERGE) == 0
@@ -219,10 +222,35 @@ def kern(fn, sub):
     return ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=True, dump_path=f"{BUILD}/{sub}")(fn)
 
 
+def attn_random():
+    """VIT_RANDOM=1: the attention kernel alone on random q / k / v (only the config's sizes, no weights), vs torch;
+    written to the kernel directory if one is given"""
+    torch.manual_seed(0)
+    n = int(os.environ.get("NREAL", N))
+    qf = (torch.randn((N, NH, HD)) * HD**-0.5).bfloat16()
+    kf, vf = torch.randn((N, H)).bfloat16(), torch.randn((N, H)).bfloat16()
+    kmask = torch.zeros((N,))
+    kmask[n:] = -3e38
+    t = dict(qs=qf, kc=kf, vc=vf, nblk=torch.tensor([-(-n // BC)], dtype=torch.int32),
+             kmask=kmask.reshape(N // BC, 1, BC).expand(N // BC, QB, BC).bfloat16().contiguous(),
+             out=torch.zeros((N, H), dtype=torch.bfloat16))
+    kern(vit_attn, f"attn{N}")[1](*[t[a] for a in ATTN_ORDER])
+    q32, k32, v32 = qf[:n].float(), kf[:n].float().view(n, NH, HD), vf[:n].float().view(n, NH, HD)
+    att = torch.einsum("hqk,khd->qhd", torch.softmax(torch.einsum("qhd,khd->hqk", q32, k32), -1), v32).reshape(n, H)
+    logger.info(f"vit attn N={N} H={H} QB={QB} BC={BC} (n={n}, random): cos vs torch {cos(t['out'][:n], att):.6f}")
+    if len(sys.argv) > 1:  # the kernel alone, e.g. a new attention block size for existing other kernels
+        (path,) = glob.glob(f"{BUILD}/attn{N}/cache/vit_attn.*.compiled.axmodel")
+        dst = f"{os.path.abspath(sys.argv[1])}/qwen35_vit_attn{N}_h{H}.axmodel"
+        shutil.copy(path, dst)
+        logger.info(f"wrote {dst}")
+
+
 def main():
     out_dir = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else None
     os.makedirs(BUILD, exist_ok=True)
     ax.init(chip_num=1, core_num=1)
+    if os.environ.get("VIT_RANDOM") == "1":
+        return attn_random()
     torch.manual_seed(0)
     vm = load_visual()
     gh, gw = int(os.environ.get("GH", 16)), int(os.environ.get("GW", N // int(os.environ.get("GH", 16))))
@@ -281,6 +309,11 @@ def main():
         run(vit_pre, f"pre{N}", p, PRE_ORDER)
         t = dict(qs=p["q_out"], kc=p["k_out"], vc=p["v_out"], nblk=nblk, kmask=kmask, out=torch.zeros((N, H), dtype=torch.bfloat16))
         run(vit_attn, f"attn{N}", t, ATTN_ORDER)
+        if os.environ.get("ONLY") == "attn":
+            qf, kf, vf = p["q_out"][:n].float(), p["k_out"][:n].float().view(n, NH, HD), p["v_out"][:n].float().view(n, NH, HD)
+            att = torch.einsum("hqk,khd->qhd", torch.softmax(torch.einsum("qhd,khd->hqk", qf, kf), -1), vf).reshape(n, H)
+            logger.info(f"vit attn N={N} QB={QB} BC={BC} (n={n}): cos vs torch {cos(t['out'][:n], att):.6f}")
+            return
         o = dict(x=x_in, attn=t["out"], w_o=g(blk.attn.proj.weight), b_o=g(blk.attn.proj.bias), ln2_w=g(blk.norm2.weight),
                  ln2_b=g(blk.norm2.bias), w_up=g(blk.mlp.linear_fc1.weight), b_up=g(blk.mlp.linear_fc1.bias),
                  w_down=g(blk.mlp.linear_fc2.weight), b_down=g(blk.mlp.linear_fc2.bias), out=torch.zeros((N, H), dtype=torch.bfloat16))
