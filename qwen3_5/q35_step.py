@@ -61,7 +61,7 @@ DUMP = os.path.abspath(os.environ.get("DUMP", "out_q35_step"))
 
 cfg = json.load(open(f"{MODEL}/config.json"))["text_config"]
 H = cfg["hidden_size"]  # 1024
-F = cfg["intermediate_size"]  # 3584
+F = cfg.get("intermediate_size") or cfg["shared_expert_intermediate_size"]  # 3584; MoE (35B-A3B): the shared expert, 512
 HQ, HKV, D = cfg["num_attention_heads"], cfg["num_key_value_heads"], cfg["head_dim"]  # 8, 2, 256
 G = HQ // HKV
 ROT = int(D * cfg["rope_parameters"]["partial_rotary_factor"])  # 64
