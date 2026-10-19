@@ -33,6 +33,15 @@ import q35_chat_build as cb
 graph_utils.AX_TYPE_TO_TENSOR_TYPE.setdefault("MXE8M0", TensorProto.UINT8)
 graph_utils.AX_TYPE_TO_TENSOR_TYPE.setdefault("MXFP8_E4M3", TensorProto.UINT8)
 
+# compiled axmodel 的 MX scale 输入：新版 builder 写成 FLOAT8E8M0（ONNX 24），板上运行时（2026-10）不认，加载报
+# 0x80060084；按 uint8 字节写入，与旧版导出的 decode kernel 一致，字节内容不变
+from axnn.dsl import builder_ as _builder
+from axnn.opset import datatype as _datatype
+
+_io_dtype = _builder.KernelBuilder._compiled_axmodel_io_dtype
+_builder.KernelBuilder._compiled_axmodel_io_dtype = staticmethod(
+    lambda dt: _datatype.DType("U8") if dt.typename == "MXE8M0" else _io_dtype(dt))
+
 BF16_DIR = OUT = None  # set from the command line in main()
 BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_mx"))
 GROUP = 32
@@ -64,13 +73,24 @@ def oc_tile_fp8(cols):
     return max(16, min(256, (512 * 1024) // cols))  # fp8 一行 1 字节，tile 仍约 512 KB 封顶 256 行
 
 
-def proj_mx(x, w, name):
+def proj_mx(x, w, name, output_dtype=ax.bf16):
     s = SCALES.get(id(w))
     tile = oc_tile_fp8(w.shape[1]) if s is not None else q.oc_tile(w.shape[1])
-    return linear(x, w, s, name, output_dtype=ax.bf16, oc_tile_size=tile)
+    return linear(x, w, s, name, output_dtype=output_dtype, oc_tile_size=tile)
+
+
+def slice_w_mx(w, rows=slice(None), cols=slice(None)):
+    """a block of an MX weight with its scales (one per GROUP input channels): cols in whole groups"""
+    ws = w[rows, cols]
+    s = SCALES.get(id(w))
+    if s is not None:
+        g = slice(None) if cols == slice(None) else slice(cols.start // GROUP, cols.stop // GROUP)
+        SCALES[id(ws)] = s[rows, g]
+    return ws
 
 
 q.proj = proj_mx  # gdn_layer / attn_layer / mlp_residual 里的 proj 都换成 MX 版
+q.slice_w = slice_w_mx
 
 
 def gdn_layer_mx(x, ln1, w_qkv, s_qkv, w_z, s_z, w_b, s_b, w_a, s_a, conv_w, a_log, dt_bias, norm_w, w_out, s_out,

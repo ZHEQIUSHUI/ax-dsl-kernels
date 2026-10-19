@@ -83,15 +83,43 @@ def oc_tile(cols):
     return max(16, min(256, (512 * 1024) // (cols * 2)))
 
 
-def proj(x, w, name):
-    return linear(x, w, None, name, output_dtype=ax.bf16, oc_tile_size=oc_tile(w.shape[1]))
+def proj(x, w, name, output_dtype=ax.bf16):
+    return linear(x, w, None, name, output_dtype=output_dtype, oc_tile_size=oc_tile(w.shape[1]))
+
+
+def slice_w(w, rows=slice(None), cols=slice(None)):
+    """a block of a projection weight (q35_mx_build replaces it to slice the MX scales along)"""
+    return w[rows, cols]
+
+
+MLP_OCM = int(os.environ.get("MLP_OCM", 4 << 20))  # bytes of fp32 MLP activations one pass may hold
+
+
+def mlp_ft(rows):
+    """intermediate channels per MLP pass: all of F unless rows x F fp32 activations exceed MLP_OCM (9B prefill)"""
+    ft = F
+    while rows * ft * 4 > MLP_OCM and ft % 2 == 0 and ft > 256:
+        ft //= 2
+    return ft
 
 
 def mlp_residual(x1, ln2, w_gate, w_up, w_down, out):
     h2 = rmsnorm(x1, ax.dsl.load(ln2).reshape(1, 1, H), eps=EPS)
-    act = silu_mul(proj(h2, w_gate, "mlp_gate"), proj(h2, w_up, "mlp_up"), activation_output_dtype=ax.fp32,
-                   output_dtype=ax.bf16)
-    x2 = ax.dsl.add(x1, proj(act, w_down, "mlp_down"), output_dtype=ax.bf16)
+    ft = mlp_ft(x1.shape[0] * x1.shape[1])
+    if ft == F:
+        act = silu_mul(proj(h2, w_gate, "mlp_gate"), proj(h2, w_up, "mlp_up"), activation_output_dtype=ax.fp32,
+                       output_dtype=ax.bf16)
+        x2 = ax.dsl.add(x1, proj(act, w_down, "mlp_down"), output_dtype=ax.bf16)
+    else:  # F in passes of ft channels: their down-projection partials summed in fp32
+        acc = None
+        for f0 in range(0, F, ft):
+            fs = slice(f0, f0 + ft)
+            act = silu_mul(proj(h2, slice_w(w_gate, rows=fs), f"mlp_gate{f0}"),
+                           proj(h2, slice_w(w_up, rows=fs), f"mlp_up{f0}"), activation_output_dtype=ax.fp32,
+                           output_dtype=ax.bf16)
+            d = proj(act, slice_w(w_down, cols=fs), f"mlp_down{f0}", output_dtype=ax.fp32)
+            acc = d if acc is None else ax.dsl.add(acc, d, output_dtype=ax.fp32)
+        x2 = ax.dsl.add(x1, acc, output_dtype=ax.bf16)
     ax.dsl.store(x2, r=out)
 
 
@@ -230,8 +258,41 @@ def attn_layer(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nbl
 # ---------------------------------------------------------------- host side
 
 
+class RandomWeights:
+    """QW_RANDOM=1: random tensors of the checkpoint's shapes (from the config alone), the same for a name every time:
+    kernel builds and kernel-vs-kernel checks without the weights"""
+
+    def __init__(self, path):
+        V = cfg["vocab_size"]
+        attn = lambda o, i: (o, i)  # noqa: E731
+        self.shapes = {
+            "embed_tokens.weight": (V, H), "input_layernorm.weight": (H,), "post_attention_layernorm.weight": (H,),
+            "linear_attn.in_proj_qkv.weight": attn(2 * KD + VD, H), "linear_attn.in_proj_z.weight": attn(VD, H),
+            "linear_attn.in_proj_b.weight": attn(NV, H), "linear_attn.in_proj_a.weight": attn(NV, H),
+            "linear_attn.conv1d.weight": (2 * KD + VD, 1, CONV), "linear_attn.A_log": (NV,),
+            "linear_attn.dt_bias": (NV,), "linear_attn.norm.weight": (DV,), "linear_attn.out_proj.weight": attn(H, VD),
+            "self_attn.q_proj.weight": attn(2 * HQ * D, H), "self_attn.k_proj.weight": attn(HKV * D, H),
+            "self_attn.v_proj.weight": attn(HKV * D, H), "self_attn.q_norm.weight": (D,), "self_attn.k_norm.weight": (D,),
+            "self_attn.o_proj.weight": attn(H, HQ * D), "mlp.gate_proj.weight": attn(F, H), "mlp.up_proj.weight": attn(F, H),
+            "mlp.down_proj.weight": attn(H, F),
+        }
+
+    def __call__(self, name):
+        key = next(k for k in self.shapes if name == k or name.endswith("." + k))
+        g = torch.Generator().manual_seed(sum(map(ord, name)) * 7919 % (1 << 31))
+        sh = self.shapes[key]
+        if key == "linear_attn.A_log":  # A in [1, 16]
+            return (torch.rand(sh, generator=g) * 15 + 1).log().bfloat16()
+        if key.endswith("norm.weight") or key.endswith("layernorm.weight") or key == "linear_attn.dt_bias":
+            return (torch.randn(sh, generator=g) * 0.02).bfloat16()
+        return (torch.randn(sh, generator=g) * (0.1 if "conv1d" in key else 0.02)).bfloat16()
+
+
 class Weights:
     """the checkpoint's tensors by name (one file or shards listed in model.safetensors.index.json)"""
+
+    def __new__(cls, path):
+        return RandomWeights(path) if os.environ.get("QW_RANDOM") == "1" else super().__new__(cls)
 
     def __init__(self, path):
         idx = f"{path}/model.safetensors.index.json"

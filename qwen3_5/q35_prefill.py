@@ -326,9 +326,18 @@ def main():
             logger.info(f"wrote {out_dir}/qwen35_{layer}_prefill{P}{tag}.axmodel")
 
 
+NODEC = os.environ.get("NODEC") == "1"  # only the prefill kernels (build, cycles), no token-by-token decode reference
+
+
 def gdn_check(a, xs, gdn_dec, gdn_pre, gdn_order, sfx, kern):
     st0 = torch.randn((NV, DK, DV)) * 0.02
     cv0 = (torch.randn((1, q.CONV - 1, 2 * KD + VD)) * 0.1).bfloat16()
+    if NODEC:
+        case = dict(a, x=xs, state_in=st0.clone(), conv_in=cv0.clone(), out=torch.zeros((1, P, H), dtype=torch.bfloat16),
+                    state_out=torch.zeros_like(st0), conv_out=torch.zeros_like(cv0))
+        kern(gdn_pre, f"gdn_pre{P}{sfx}")[1](*[case[n] for n in gdn_order])
+        logger.info(f"gdn prefill P={P}: built, out finite {bool(case['out'].float().isfinite().all())}")
+        return
     k_dec, k_pre = kern(gdn_dec, f"gdn_dec{sfx}"), kern(gdn_pre, f"gdn_pre{P}{sfx}")
     st, cv, dec_out = st0.clone(), cv0.clone(), []
     for t in range(P):
@@ -347,9 +356,9 @@ def gdn_check(a, xs, gdn_dec, gdn_pre, gdn_order, sfx, kern):
                 f" state cos {cos(case['state_out'], st):.6f} conv equal {torch.equal(case['conv_out'], cv)}")
 
 def attn_check(a, xs, attn_dec, attn_pre, attn_order, sfx, kern, pos0, kc0, vc0, sel):
-    k_dec, k_pre = kern(attn_dec, f"attn_dec{sfx}"), kern(attn_pre, f"attn_pre{P}{sfx}")
+    k_dec, k_pre = (None if NODEC else kern(attn_dec, f"attn_dec{sfx}")), kern(attn_pre, f"attn_pre{P}{sfx}")
     kc, vc, dec_out = kc0.clone(), vc0.clone(), []
-    for t in range(P):
+    for t in range(0 if NODEC else P):
         p = pos0 + t
         c, s = q.rope_cos_sin(p)
         case = dict(a, x=xs[:, t : t + 1].contiguous(), cos=c, sin=s, kc=kc, vc=vc,
@@ -369,6 +378,9 @@ def attn_check(a, xs, attn_dec, attn_pre, attn_order, sfx, kern, pos0, kc0, vc0,
     k_pre[1](*[case[n] for n in attn_order])
     q.RESIDENT.clear()
     po = case["out"].float()
+    if NODEC:
+        logger.info(f"attn prefill P={P}: built, out finite {bool(po.isfinite().all())}")
+        return
     worst = min(cos(po[:, t], dec_out[t]) for t in range(P))
     rows = slice(pos0, pos0 + P)
     logger.info(f"attn prefill P={P} pos0={pos0}: out min cos {worst:.6f} "
