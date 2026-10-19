@@ -87,12 +87,13 @@ def vit_pre(x, ln1_w, ln1_b, w_qkv, b_qkv, cos, sin, q_out, k_out, v_out):
         rows = slice(t * MT, (t + 1) * MT)
         h = layernorm(ax.dsl.load(x[rows]).reshape(1, MT, H), ln1_w, ln1_b)
         cs, sn = ax.dsl.load(cos[rows]), ax.dsl.load(sin[rows])  # [MT, HD / 2]
-        qkv = proj(h, w_qkv, b_qkv, "vit_qkv").reshape(MT, 3 * H)  # [q | k | v], each head-major
-        qh = rope(qkv[:, 0:H].reshape(MT, NH, HD), cs, sn)
-        kh = rope(qkv[:, H : 2 * H].reshape(MT, NH, HD), cs, sn)
+        # w_qkv rows [q | k | v], each head-major; one projection each, so every result is contiguous
+        part = lambda i, nm: proj(h, w_qkv[i * H : (i + 1) * H], b_qkv[i * H : (i + 1) * H], nm)  # noqa: E731
+        qh = rope(part(0, "vit_q").reshape(MT, NH, HD), cs, sn)
+        kh = rope(part(1, "vit_k").reshape(MT, NH, HD), cs, sn)
         ax.dsl.store(ax.dsl.mul(qh, scale, output_dtype=ax.bf16), r=q_out[rows])
-        ax.dsl.store(kh.reshape(MT, H), r=k_out[rows])
-        ax.dsl.store(qkv[:, 2 * H : 3 * H], r=v_out[rows])
+        ax.dsl.store(kh, r=k_out[rows].reshape(MT, NH, HD))  # (OCM rows of HD = 72 are padded: no reshape)
+        ax.dsl.store(part(2, "vit_v").reshape(MT, H), r=v_out[rows])
     return q_out, k_out, v_out
 
 
