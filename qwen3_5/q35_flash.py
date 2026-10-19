@@ -15,7 +15,8 @@ row sees no cell. With one segment the result is the fused kernel's.
 
 Check on the simulator (S <= 16384): R tokens at cells in segment 1, history in segments 0 and 1, against the fused
 attention kernel (q35_prefill, SCATTER) with LMAX = 2 S. Usage:
-MODEL=<hf dir> R=4 S=4096 BC=64 python q35_flash.py [kernel_dir]   (CHECK=0: compile only, e.g. S = 32768)
+MODEL=<hf dir> R=4 S=4096 BC=64 python q35_flash.py [kernel_dir]   (CHECK=0: compile only, e.g. S = 32768;
+WFMT=mx8: qwen35_attn_fd_{head,tail}<R>_mx8 with MXFP8 weights, checked against the fused kernel on their bf16 values)
 """
 import glob
 import math
@@ -153,6 +154,23 @@ def attn_fd_tail(x, attn, gate, w_o, ln2, w_gate, w_up, w_down, out):
 HEAD_ORDER = ["x", "ln1", "w_q", "w_k", "w_v", "q_norm", "k_norm", "cos", "sin", "q_out", "gate_out", "k_out", "v_out"]
 SEG_ORDER = ["qs", "kc", "vc", "nblk", "mask", "m_out", "l_out", "o_out"]
 TAIL_ORDER = ["x", "attn", "gate", "w_o", "ln2", "w_gate", "w_up", "w_down", "out"]
+WFMT = os.environ.get("WFMT", "bf16")  # mx8: head / tail with MXFP8 weights (an s_* scale input per projection)
+if WFMT == "mx8":
+    import q35_mx_build as mb  # patches q.proj to the MX linear (scales looked up per weight)
+
+    def attn_fd_head_mx(x, ln1, w_q, s_q, w_k, s_k, w_v, s_v, q_norm, k_norm, cos, sin, q_out, gate_out, k_out, v_out):
+        mb.SCALES.clear()
+        for w, s in ((w_q, s_q), (w_k, s_k), (w_v, s_v)):
+            mb.SCALES[id(w)] = s
+        attn_fd_head(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, q_out, gate_out, k_out, v_out)
+        return q_out, gate_out, k_out, v_out  # the builder reads the output names from this statement
+
+    def attn_fd_tail_mx(x, attn, gate, w_o, s_o, ln2, w_gate, s_gate, w_up, s_up, w_down, s_down, out):
+        mb.SCALES.clear()
+        for w, s in ((w_o, s_o), (w_gate, s_gate), (w_up, s_up), (w_down, s_down)):
+            mb.SCALES[id(w)] = s
+        attn_fd_tail(x, attn, gate, w_o, ln2, w_gate, w_up, w_down, out)
+        return out
 
 
 def merge(parts, seen):
@@ -195,7 +213,13 @@ def main():
     ax.init(chip_num=1, core_num=1)
     W = q.Weights(q.MODEL)
     torch.manual_seed(0)
-    a = q.attn_args(W, 3)
+    mx = WFMT == "mx8"
+    # MXFP8: the kernels take the quantized weights, the fused reference their dequantized bf16 values
+    a, ref_a = mb.mx_args(q.attn_args(W, 3), mb.ATTN_W) if mx else (q.attn_args(W, 3), None)
+    ref_a = ref_a or a
+    sfx = "_mx8" if mx else ""
+    head_fn, tail_fn = (attn_fd_head_mx, attn_fd_tail_mx) if mx else (attn_fd_head, attn_fd_tail)
+    head_order, tail_order = (mb.order(head_fn), mb.order(tail_fn)) if mx else (HEAD_ORDER, TAIL_ORDER)
     xs = W("embed_tokens.weight")[torch.randint(0, 200000, (R,))].reshape(1, R, H).contiguous()
     NC = 2 * S if CHECK else S  # cells of the test cache
     C0 = (S + 5) if CHECK else int(os.environ.get("C0", 70))  # the R new tokens at cells C0 .. (segment 1 checking)
@@ -214,11 +238,11 @@ def main():
     cos_t, sin_t = torch.cat([c for c, _ in cs]), torch.cat([s for _, s in cs])
 
     # head
-    k_head = kern(attn_fd_head, f"head{R}")
+    k_head = kern(head_fn, f"head{R}{sfx}")
     hc = dict(a, x=xs, cos=cos_t, sin=sin_t, q_out=torch.zeros((R, HQ, D), dtype=torch.bfloat16),
               gate_out=torch.zeros((R, HQ, D), dtype=torch.bfloat16), k_out=torch.zeros((R, HKV * D), dtype=torch.half),
               v_out=torch.zeros((R, HKV * D), dtype=torch.half))
-    k_head[1](*[hc[n] for n in HEAD_ORDER])
+    k_head[1](*[hc[n] for n in head_order])
     kc, vc = kc0.clone(), vc0.clone()
     kc[cells], vc[cells] = hc["k_out"], hc["v_out"]  # the host's write
 
@@ -257,16 +281,18 @@ def main():
     ax.init(chip_num=1, core_num=1)
 
     # tail
-    k_tail = kern(attn_fd_tail, f"tail{R}")
+    k_tail = kern(tail_fn, f"tail{R}{sfx}")
     tc = dict(a, x=xs, attn=att, gate=hc["gate_out"], out=torch.zeros((1, R, H), dtype=torch.bfloat16))
-    k_tail[1](*[tc[n] for n in TAIL_ORDER])
+    k_tail[1](*[tc[n] for n in tail_order])
     fo = tc["out"].float()
     logger.info(f"flash R={R} S={S}: {len(parts)} segment(s), out finite {bool(fo.isfinite().all())}")
 
     if CHECK:  # the fused kernel over both segments
         k_ref = kern(pf.attn_layer_prefill, f"ref{R}_c{NC}")
         mask = torch.stack([mask_row(t).reshape(NC // BC, BC) for t in range(R)], dim=1).bfloat16()
-        rc = dict(a, x=xs, cos=cos_t, sin=sin_t, kc=kc0.clone(), vc=vc0.clone(),
+        if mx:
+            mb.SCALES.clear()
+        rc = dict(ref_a, x=xs, cos=cos_t, sin=sin_t, kc=kc0.clone(), vc=vc0.clone(),
                   pos=torch.tensor(cells, dtype=torch.int32), nblk=torch.tensor([max(cells) // BC + 1], dtype=torch.int32),
                   mask=mask.contiguous(), out=torch.zeros((1, R, H), dtype=torch.bfloat16))
         q.RESIDENT.update(kc=kc0.clone(), vc=vc0.clone())
@@ -278,8 +304,9 @@ def main():
                     f"{torch.equal(rc['kc'], kc) and torch.equal(rc['vc'], vc)}")
 
     if out_dir:
-        kernels = [(f"head{R}", "attn_fd_head", f"qwen35_attn_fd_head{R}"), (SEG, "attn_fd_seg", f"qwen35_attn_fd_{SEG}"),
-                   (f"tail{R}", "attn_fd_tail", f"qwen35_attn_fd_tail{R}")]
+        kernels = [(f"head{R}{sfx}", head_fn.__name__, f"qwen35_attn_fd_head{R}{sfx}"),
+                   (SEG, "attn_fd_seg", f"qwen35_attn_fd_{SEG}"),
+                   (f"tail{R}{sfx}", tail_fn.__name__, f"qwen35_attn_fd_tail{R}{sfx}")]
         for sub, fn, dst in kernels if CORES == 1 else kernels[1:2]:
             (path,) = glob.glob(f"{BUILD}/{sub}/cache/{fn}.*.compiled.axmodel")
             shutil.copy(path, f"{out_dir}/{dst}.axmodel")
