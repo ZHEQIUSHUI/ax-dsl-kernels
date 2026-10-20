@@ -6,6 +6,8 @@ that divides N; the backend then calls it N / C times (e.g. token_embd as the ti
 weights are skipped (not matrix products). Each kernel is run once on the simulator against torch.
 
 Usage: PYTHONPATH=<llama.cpp>/gguf-py python gguf_gemv_kernels.py model.gguf out_dir
+SHAPES="<N>x<K>,..." adds shapes (e.g. a quantized GGUF's weights the backend converts to bf16); model.gguf "-" reads
+no GGUF.
 """
 import glob
 import os
@@ -46,10 +48,13 @@ def mul_mat_bf16(x, w, out):
 
 
 def main():
-    reader = GGUFReader(sys.argv[1])
+    reader = GGUFReader(sys.argv[1]) if sys.argv[1] != "-" else None
     out_dir = os.path.abspath(sys.argv[2])
     shapes = {}
-    for t in reader.tensors:
+    for sh in filter(None, os.environ.get("SHAPES", "").split(",")):
+        n, k = (int(v) for v in sh.split("x"))
+        shapes.setdefault((chunk_rows(n), k), []).append(f"SHAPES {sh}")
+    for t in reader.tensors if reader else []:
         if t.tensor_type != GGMLQuantizationType.BF16 or len(t.shape) != 2 or any(s in t.name for s in SKIP):
             continue
         k, n = int(t.shape[0]), int(t.shape[1])  # ggml ne0 = K（输入维），ne1 = N
