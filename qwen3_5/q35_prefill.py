@@ -11,8 +11,9 @@ Inputs as the decode kernels in q35_step.py, with x/out [1, P, H] and cos/sin [P
 
 Check on the simulator: P tokens through the prefill kernels once vs the decode kernels P times (layer outputs,
 state, conv state, KV rows). Usage: MODEL=<hf dir> LMAX=4096 BC=64 PCHUNK=16 [WFMT=mx8] python q35_prefill.py
-[kernel_dir] (with kernel_dir: also copy qwen35_{gdn,attn}_prefill<P>[_mx8].axmodel there). WFMT=mx8 builds the
-MXFP8 kernels (a s_* scale input per projection, as q35_mx_build.py) and checks them against the MXFP8 decode kernels.
+[kernel_dir] (with kernel_dir: also copy qwen35_{gdn,attn}_prefill<P>[_mx8].axmodel there; Qwen3: qwen3_attn_*).
+WFMT=mx8 builds the MXFP8 kernels (a s_* scale input per projection, as q35_mx_build.py) and checks them against the
+MXFP8 decode kernels.
 """
 import glob
 import math
@@ -124,9 +125,9 @@ def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, 
                        w_down, out):
     xt = ax.dsl.load(x)  # [1, P, H]
     h = rmsnorm(xt, ax.dsl.load(ln1).reshape(1, 1, H), eps=EPS)
-    qg = q.proj(h, w_q, "attn_q").reshape(P, HQ, 2 * D)  # per head [q | gate]
+    qg = q.proj(h, w_q, "attn_q").reshape(P, HQ, (2 if q.GATE else 1) * D)  # per head [q | gate] (Qwen3: q)
     qh_all = rmsnorm(qg[:, :, 0:D], ax.dsl.load(q_norm).reshape(1, 1, D), eps=EPS)
-    gate = qg[:, :, D : 2 * D]
+    gate = qg[:, :, D : 2 * D] if q.GATE else None
     k = rmsnorm(q.proj(h, w_k, "attn_k").reshape(P, HKV, D), ax.dsl.load(k_norm).reshape(1, 1, D), eps=EPS)
     v = q.proj(h, w_v, "attn_v").reshape(P, HKV, D)
     cos_t, sin_t = ax.dsl.load(cos), ax.dsl.load(sin)  # [P, ROT/2]
@@ -226,7 +227,8 @@ def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, 
         for g in range(G):
             ax.dsl.move(x=o[g * P : (g + 1) * P, :].reshape(P, 1, D), r=attn[:, hk * G + g : hk * G + g + 1, :])
 
-    gated = sigmoid_mul(attn, gate, activation_output_dtype=ax.fp32, output_dtype=ax.bf16).reshape(1, P, HQ * D)
+    gated = (sigmoid_mul(attn, gate, activation_output_dtype=ax.fp32, output_dtype=ax.bf16) if q.GATE else attn
+             ).reshape(1, P, HQ * D)
     x1 = ax.dsl.add(xt, q.proj(gated, w_o, "attn_o"), output_dtype=ax.bf16)
     q.mlp_residual(x1, ln2, w_gate, w_up, w_down, out)
     return out, kc, vc
@@ -284,7 +286,7 @@ def main():
     emb = W("embed_tokens.weight")
     torch.manual_seed(0)
     pos0 = int(os.environ.get("POS0", 70))  # chunk start: earlier KV rows / state are random "history"
-    xs = emb[torch.randint(0, 200000, (P,))].reshape(1, P, H).contiguous()
+    xs = emb[torch.randint(0, min(200000, emb.shape[0]), (P,))].reshape(1, P, H).contiguous()
 
     def kern(fn, sub):
         os.makedirs(f"{BUILD}/{sub}", exist_ok=True)
@@ -301,8 +303,10 @@ def main():
     kv_sfx = f"_kvc_c{LMAX}" if q.KVL == "cell" else ""  # llama.cpp KV layout, named by context
 
     # --- GDN layer 0
-    a = mb.mx_args(q.gdn_args(W, 0), mb.GDN_W)[0] if mx else q.gdn_args(W, 0)
-    gdn_check(a, xs, gdn_dec, gdn_pre, gdn_order, sfx, kern) if only != "attn" else None
+    only = "attn" if not q.HYBRID else only  # Qwen3: attention layers only
+    if only != "attn":
+        a = mb.mx_args(q.gdn_args(W, 0), mb.GDN_W)[0] if mx else q.gdn_args(W, 0)
+        gdn_check(a, xs, gdn_dec, gdn_pre, gdn_order, sfx, kern)
 
     # --- attention layer 3
     a = mb.mx_args(q.attn_args(W, 3), mb.ATTN_W)[0] if mx else q.attn_args(W, 3)
@@ -322,8 +326,8 @@ def main():
                 continue
             tag = sfx + (kv_sfx if layer == "attn" else "")
             (path,) = glob.glob(f"{BUILD}/{layer}_pre{P}{tag}/cache/{fn.__name__}.*.compiled.axmodel")
-            shutil.copy(path, f"{out_dir}/qwen35_{layer}_prefill{P}{tag}.axmodel")
-            logger.info(f"wrote {out_dir}/qwen35_{layer}_prefill{P}{tag}.axmodel")
+            shutil.copy(path, f"{out_dir}/{q.KP}_{layer}_prefill{P}{tag}.axmodel")
+            logger.info(f"wrote {out_dir}/{q.KP}_{layer}_prefill{P}{tag}.axmodel")
 
 
 NODEC = os.environ.get("NODEC") == "1"  # only the prefill kernels (build, cycles), no token-by-token decode reference

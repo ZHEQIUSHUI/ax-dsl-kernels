@@ -57,6 +57,16 @@ GDN 的 value 头多于 key 头时（9B：32 / 16），kernel 按 GGUF 的顺序
 | `q35_vit.py` | 视觉编码器（ViT）：`vit_embed` / `vit_pre` / `vit_attn` / `vit_post` / `vit_merge`，按 patch 数 N 分档（`_<N>_h<hidden>`，各尺寸共用代码：0.8B 768、2B/4B 1024、9B 及以上 1152），模拟器上逐层和 transformers 比 |
 | `q35_hf_layer.py` | 任意尺寸的一个 GDN 层和一个注意力层的 decode / prefill kernel 直接和 transformers 的 `Qwen3_5DecoderLayer` 比 |
 | `q35_mc.py` | 多核层链（实验性）：`gdn_mc` / `mlp_mc` / `attn_head_mc` / `attn_tail_mc`（P = 1 decode、64、128 prefill），按头或输出通道切到 4 个核、核间不同步，残差以 base + 每核 fp32 部分和在调用间传递；tail 在 NPU 上合并 NP 个段结果；另有 4 核 lm_head GEMV `mul_mat_bf16_n31040_k1024_x4` |
+| `q3a_audio.py` | Qwen3-ASR 音频编码器的 transformer 层：复用 `q35_vit.py` 的 pre / attn / post（无 RoPE，宿主给 cos 1 / sin 0；GELU erf；LayerNorm eps 1e-5），`qwen3a_{pre,attn,post}<N>_h<H>`，模拟器上和 torch 比 |
+| `q3a_conv.py` | Qwen3-ASR 卷积前端的矩阵乘（ggml 的 im2col 行 × 卷积核）：`qwen3a_conv_o<OC>_k<K>_r<R>`，conv2d.2 / conv2d.3 两层 480 通道，占 CPU 上编码器的大部分时间 |
+
+### Qwen3（稠密）
+
+Qwen3 只有注意力层（无输出门、全宽 RoPE、RMSNorm 权重原样），和 Qwen3.5 的门控注意力层是同一套 kernel，所以不另开目录：
+`q35_step.py` 读到没有 `text_config` / `layer_types` 的 config（或 `text_config` 里是 qwen3，如 Qwen3-ASR）时去掉门和 GDN 层，
+`ggml_template_build.py`、`q35_prefill.py`、`q35_flash.py`、`q35_batch.py` 照常用，产物名前缀 `qwen3_`（`q35_step.KP`）。
+覆盖 Qwen3、Qwen3-VL / Qwen3-ASR 的文本模型、Qwen3-TTS 的 talker、Qwen3-Embedding / Reranker；形状相同的模型共用 kernel。
+`HEAD_C` 要整除词表（151936 = 8 × 18992；TTS talker 的 codec 词表 3072）。
 
 实测（2026-10-17，单核、bf16，不含 prefill kernel）：
 - **正确性**：真机和模拟器逐层余弦相似度 1.000000；生成的中英文文本和 transformers 贪心结果逐 token 相同。

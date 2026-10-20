@@ -59,23 +59,32 @@ NGEN = int(os.environ.get("NGEN", 4))
 PROMPT = os.environ.get("PROMPT", "The capital of France is")
 DUMP = os.path.abspath(os.environ.get("DUMP", "out_q35_step"))
 
-cfg = json.load(open(f"{MODEL}/config.json"))["text_config"]
+_config = json.load(open(f"{MODEL}/config.json"))
+cfg = _config.get("text_config") or _config  # Qwen3.5 / Qwen3-ASR: text_config; Qwen3: the top level
 H = cfg["hidden_size"]  # 1024
 F = cfg.get("intermediate_size") or cfg["shared_expert_intermediate_size"]  # 3584; MoE (35B-A3B): the shared expert, 512
-HQ, HKV, D = cfg["num_attention_heads"], cfg["num_key_value_heads"], cfg["head_dim"]  # 8, 2, 256
+HQ, HKV = cfg["num_attention_heads"], cfg["num_key_value_heads"]  # 8, 2
+D = cfg.get("head_dim") or H // HQ  # 256
 G = HQ // HKV
-ROT = int(D * cfg["rope_parameters"]["partial_rotary_factor"])  # 64
-THETA = cfg["rope_parameters"]["rope_theta"]
-NK, NV = cfg["linear_num_key_heads"], cfg["linear_num_value_heads"]  # 16, 16
-DK, DV = cfg["linear_key_head_dim"], cfg["linear_value_head_dim"]  # 128, 128
+_rope = cfg.get("rope_parameters") or {}
+ROT = int(D * _rope.get("partial_rotary_factor", cfg.get("partial_rotary_factor", 1.0)))  # 64
+THETA = _rope.get("rope_theta", cfg.get("rope_theta", 10000.0))
+# Qwen3.5: gated delta net layers between the attention layers, whose output is gated (sigmoid of a second half of
+# q_proj, attn_output_gate). Qwen3 (dense; the text model of Qwen3-VL / Qwen3-ASR): attention layers only, no gate,
+# kernels written as qwen3_* (KP) instead of qwen35_*
+LAYERS = cfg.get("layer_types") or ["full_attention"] * cfg["num_hidden_layers"]
+HYBRID = "linear_attention" in LAYERS
+GATE = cfg.get("attn_output_gate", HYBRID)
+KP = "qwen35" if HYBRID else "qwen3"
+NK, NV = cfg.get("linear_num_key_heads", 1), cfg.get("linear_num_value_heads", 1)  # 16, 16
+DK, DV = cfg.get("linear_key_head_dim", 128), cfg.get("linear_value_head_dim", 128)  # 128, 128
 KD, VD = NK * DK, NV * DV
 # value head order with NV > NK: "tiled" (the GGUF's, llama.cpp reorders them for ggml broadcasting: value head vh
 # uses key head vh % NK) or "grouped" (Hugging Face: vh // (NV / NK)); the same for NV == NK
 VORDER = os.environ.get("VORDER", "tiled")
 assert VORDER in ("tiled", "grouped") and NV % NK == 0
-CONV = cfg["linear_conv_kernel_dim"]  # 4
+CONV = cfg.get("linear_conv_kernel_dim", 4)  # 4
 EPS = cfg["rms_norm_eps"]
-LAYERS = cfg["layer_types"]
 
 
 def oc_tile(cols):
@@ -164,9 +173,9 @@ def attn_layer(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nbl
                w_down, out):
     xt = ax.dsl.load(x)  # [1, 1, H]
     h = rmsnorm(xt, ax.dsl.load(ln1).reshape(1, 1, H), eps=EPS)
-    qg = proj(h, w_q, "attn_q").reshape(1, HQ, 2 * D)  # 每个头 [q | gate]
+    qg = proj(h, w_q, "attn_q").reshape(1, HQ, (2 if GATE else 1) * D)  # 每个头 [q | gate]（Qwen3 无 gate）
     q = rmsnorm(qg[:, :, 0:D], ax.dsl.load(q_norm).reshape(1, 1, D), eps=EPS)
-    gate = qg[:, :, D : 2 * D]
+    gate = qg[:, :, D : 2 * D] if GATE else None
     k = rmsnorm(proj(h, w_k, "attn_k").reshape(1, HKV, D), ax.dsl.load(k_norm).reshape(1, 1, D), eps=EPS)
     v = proj(h, w_v, "attn_v").reshape(1, HKV, D)
     cos_t, sin_t = ax.dsl.load(cos), ax.dsl.load(sin)  # [1, ROT/2]
@@ -249,7 +258,8 @@ def attn_layer(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nbl
         )
         ax.dsl.div(oi, li.reshape(G, 1), output_dtype=ax.bf16, r=attn[:, hk * G : (hk + 1) * G, :].reshape(G, D))
 
-    gated = sigmoid_mul(attn, gate, activation_output_dtype=ax.fp32, output_dtype=ax.bf16).reshape(1, 1, HQ * D)
+    gated = (sigmoid_mul(attn, gate, activation_output_dtype=ax.fp32, output_dtype=ax.bf16) if GATE else attn
+             ).reshape(1, 1, HQ * D)
     x1 = ax.dsl.add(xt, proj(gated, w_o, "attn_o"), output_dtype=ax.bf16)
     mlp_residual(x1, ln2, w_gate, w_up, w_down, out)
     return out, kc, vc
@@ -271,7 +281,7 @@ class RandomWeights:
             "linear_attn.in_proj_b.weight": attn(NV, H), "linear_attn.in_proj_a.weight": attn(NV, H),
             "linear_attn.conv1d.weight": (2 * KD + VD, 1, CONV), "linear_attn.A_log": (NV,),
             "linear_attn.dt_bias": (NV,), "linear_attn.norm.weight": (DV,), "linear_attn.out_proj.weight": attn(H, VD),
-            "self_attn.q_proj.weight": attn(2 * HQ * D, H), "self_attn.k_proj.weight": attn(HKV * D, H),
+            "self_attn.q_proj.weight": attn((2 if GATE else 1) * HQ * D, H), "self_attn.k_proj.weight": attn(HKV * D, H),
             "self_attn.v_proj.weight": attn(HKV * D, H), "self_attn.q_norm.weight": (D,), "self_attn.k_norm.weight": (D,),
             "self_attn.o_proj.weight": attn(H, HQ * D), "mlp.gate_proj.weight": attn(F, H), "mlp.up_proj.weight": attn(F, H),
             "mlp.down_proj.weight": attn(H, F),
@@ -304,11 +314,15 @@ class Weights:
         return self.where[name].get_tensor(name)
 
     def __call__(self, name):
-        return self.raw("model.language_model." + name)
+        for p in ("model.language_model.", "model.", "thinker.model."):
+            if p + name in self.where:
+                return self.raw(p + name)
+        return self.raw(name)
 
 
 def one_plus(w):
-    return (1.0 + w.float()).contiguous()  # Qwen3.5 RMSNorm: x_norm * (1 + w)，fp32 运行时输入
+    # Qwen3.5 RMSNorm: x_norm * (1 + w)；Qwen3 是 x_norm * w。fp32 运行时输入
+    return ((1.0 if HYBRID else 0.0) + w.float()).contiguous()
 
 
 def v_tiled(t, dim, hd):

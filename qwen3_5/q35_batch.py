@@ -238,18 +238,18 @@ def main():
     ax.init(chip_num=1, core_num=1)
     W = q.Weights(q.MODEL)
     torch.manual_seed(0)
-    xs = W("embed_tokens.weight")[torch.randint(0, 200000, (B,))].reshape(1, B, H).contiguous()
+    xs = W("embed_tokens.weight")[torch.randint(0, min(200000, q.cfg["vocab_size"]), (B,))].reshape(1, B, H).contiguous()
     only = os.environ.get("ONLY")
     if only != "attn":
-        gdn_check(W, xs)
+        gdn_check(W, xs) if q.HYBRID else None
         head_check(W, xs)
     attn_check(W, xs)
     if out_dir:
         fx = "_mx" if MX else ""
-        built = [("attn", f"attn_batch{B}{SFX}_kvc_c{LMAX}", f"attn_layer_batch{fx}", f"qwen35_attn_batch{B}{SFX}_kvc_c{LMAX}")]
+        built = [("attn", f"attn_batch{B}{SFX}_kvc_c{LMAX}", f"attn_layer_batch{fx}", f"{q.KP}_attn_batch{B}{SFX}_kvc_c{LMAX}")]
         if only != "attn":
-            built += [("gdn", f"gdn_batch{B}{SFX}", f"gdn_layer_batch{fx}", f"qwen35_gdn_batch{B}{SFX}"),
-                      ("mm", f"mm{SFX}_b{B}", f"mul_mat_{'mx8' if MX else 'bf16'}_batch",
+            built += [("gdn", f"gdn_batch{B}{SFX}", f"gdn_layer_batch{fx}", f"qwen35_gdn_batch{B}{SFX}")] if q.HYBRID else []
+            built += [("mm", f"mm{SFX}_b{B}", f"mul_mat_{'mx8' if MX else 'bf16'}_batch",
                        f"mul_mat_{'mx8' if MX else 'bf16'}_b{B}_n{HEAD_C}_k{H}")]
         for _, sub, fn, dst in built:
             (path,) = glob.glob(f"{BUILD}/{sub}/cache/{fn}.*.compiled.axmodel")

@@ -58,7 +58,7 @@ def build_mx8(W, x):
     outs = {}
     os.chdir(f"{BUILD}/gdn")
     for tag, fn, names, args in [("mx", mb.gdn_layer_mx, mb.order(mb.gdn_layer_mx), None),
-                                 ("deq", q.gdn_layer, q.GDN_ORDER, None)]:
+                                 ("deq", q.gdn_layer, q.GDN_ORDER, None)] if q.HYBRID else []:
         m, deq = mb.mx_args(q.gdn_args(W, 0), mb.GDN_W)
         k = ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=True, dump_path=f"{BUILD}/gdn")(fn)
         case = dict(m if tag == "mx" else deq, x=x, state_in=torch.zeros((q.NV, q.DK, q.DV)),
@@ -68,7 +68,8 @@ def build_mx8(W, x):
         mb.SCALES.clear()
         k[1](*[case[n] for n in names])
         outs[tag] = case["out"].float()
-    logger.info(f"gdn_layer_mx: cos vs dequantized bf16 {cos(outs['mx'], outs['deq']):.6f}")
+    if q.HYBRID:
+        logger.info(f"gdn_layer_mx: cos vs dequantized bf16 {cos(outs['mx'], outs['deq']):.6f}")
 
     os.chdir(f"{BUILD}/attn")
     c, s = q.rope_cos_sin(0)
@@ -95,13 +96,13 @@ def build_mx8(W, x):
     ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=True, dump_path=f"{BUILD}/head")(mul_mat_mx8)[1](xr, w8, s8, out)
     logger.info(f"mul_mat_mx8 n{HEAD_C}: cos vs dequantized {cos(out, xr.float() @ mb.dequant(w8, s8).T):.6f}")
 
-    for sub, name, dst in (("gdn", "gdn_layer_mx", "qwen35_gdn_mx8"), ("attn", "attn_layer_mx", "qwen35_attn_mx8" + KV_SFX),
+    for sub, name, dst in (("gdn", "gdn_layer_mx", "qwen35_gdn_mx8"), ("attn", "attn_layer_mx", f"{q.KP}_attn_mx8" + KV_SFX),
                            ("head", "mul_mat_mx8", f"mul_mat_mx8_n{HEAD_C}_k{q.H}")):
-        if KVC and sub != "attn":
+        if sub == "gdn" and not q.HYBRID:
             continue
         (path,) = glob.glob(f"{BUILD}/{sub}/cache/{name}.*.compiled.axmodel")
         shutil.copy(path, f"{OUT}/{dst}.axmodel")
-    logger.info(f"wrote {OUT}/qwen35_gdn_mx8.axmodel, qwen35_attn_mx8.axmodel, mul_mat_mx8_n{HEAD_C}_k{q.H}.axmodel")
+    logger.info(f"wrote {OUT}/{q.KP}_*_mx8.axmodel, mul_mat_mx8_n{HEAD_C}_k{q.H}.axmodel")
 
 
 def main():

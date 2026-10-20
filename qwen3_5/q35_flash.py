@@ -53,10 +53,11 @@ BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_flash"))
 pf.SCATTER = True
 
 
-def attn_fd_head(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, q_out, gate_out, k_out, v_out):
+def head_body(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, q_out, gate_out, k_out, v_out):
+    """gate_out None: no output gate (Qwen3), q_proj holds q only"""
     xt = ax.dsl.load(x)  # [1, R, H]
     h = rmsnorm(xt, ax.dsl.load(ln1).reshape(1, 1, H), eps=EPS)
-    qg = q.proj(h, w_q, "attn_q").reshape(R, HQ, 2 * D)  # per head [q | gate]
+    qg = q.proj(h, w_q, "attn_q").reshape(R, HQ, (1 if gate_out is None else 2) * D)  # per head [q | gate]
     qh_all = rmsnorm(qg[:, :, 0:D], ax.dsl.load(q_norm).reshape(1, 1, D), eps=EPS)
     k = rmsnorm(q.proj(h, w_k, "attn_k").reshape(R, HKV, D), ax.dsl.load(k_norm).reshape(1, 1, D), eps=EPS)
     v = q.proj(h, w_v, "attn_v").reshape(R, HKV, D)
@@ -65,10 +66,22 @@ def attn_fd_head(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, q_out, gate_ou
     k = rope(k, cos_t, sin_t, rotary_dim=ROT)
     scale = ax.dsl.full(shape=(1,), dtype=ax.fp32, fill_value=1.0 / math.sqrt(D))
     ax.dsl.store(ax.dsl.mul(qh_all, scale, output_dtype=ax.bf16), r=q_out)
-    ax.dsl.store(qg[:, :, D : 2 * D], r=gate_out)
+    if gate_out is not None:
+        ax.dsl.store(qg[:, :, D : 2 * D], r=gate_out)
     ax.dsl.store(ax.dsl.cast(k.reshape(R, HKV * D), dtype=ax.fp16), r=k_out)
     ax.dsl.store(ax.dsl.cast(v.reshape(R, HKV * D), dtype=ax.fp16), r=v_out)
+
+
+# the builder takes a kernel's inputs from its parameters and its outputs from its return statement: one function per
+# IO set (with and without the output gate)
+def attn_fd_head(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, q_out, gate_out, k_out, v_out):
+    head_body(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, q_out, gate_out, k_out, v_out)
     return q_out, gate_out, k_out, v_out
+
+
+def attn_fd_head_ng(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, q_out, k_out, v_out):
+    head_body(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, q_out, None, k_out, v_out)
+    return q_out, k_out, v_out
 
 
 def attn_fd_seg(qs, kc, vc, nblk, mask, m_out, l_out, o_out):
@@ -154,18 +167,30 @@ def attn_fd_seg(qs, kc, vc, nblk, mask, m_out, l_out, o_out):
     return m_out, l_out, o_out
 
 
-def attn_fd_tail(x, attn, gate, w_o, ln2, w_gate, w_up, w_down, out):
+def tail_body(x, attn, gate, w_o, ln2, w_gate, w_up, w_down, out):
     xt = ax.dsl.load(x)  # [1, R, H]
-    gated = sigmoid_mul(ax.dsl.load(attn), ax.dsl.load(gate), activation_output_dtype=ax.fp32,
-                        output_dtype=ax.bf16).reshape(1, R, HQ * D)
-    x1 = ax.dsl.add(xt, q.proj(gated, w_o, "attn_o"), output_dtype=ax.bf16)
+    gated = ax.dsl.load(attn) if gate is None else sigmoid_mul(ax.dsl.load(attn), ax.dsl.load(gate),
+                                                               activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
+    x1 = ax.dsl.add(xt, q.proj(gated.reshape(1, R, HQ * D), w_o, "attn_o"), output_dtype=ax.bf16)
     q.mlp_residual(x1, ln2, w_gate, w_up, w_down, out)
+
+
+def attn_fd_tail(x, attn, gate, w_o, ln2, w_gate, w_up, w_down, out):
+    tail_body(x, attn, gate, w_o, ln2, w_gate, w_up, w_down, out)
+    return out
+
+
+def attn_fd_tail_ng(x, attn, w_o, ln2, w_gate, w_up, w_down, out):
+    tail_body(x, attn, None, w_o, ln2, w_gate, w_up, w_down, out)
     return out
 
 
 HEAD_ORDER = ["x", "ln1", "w_q", "w_k", "w_v", "q_norm", "k_norm", "cos", "sin", "q_out", "gate_out", "k_out", "v_out"]
 SEG_ORDER = ["qs", "kc", "vc", "nblk", "mask", "m_out", "l_out", "o_out"]
 TAIL_ORDER = ["x", "attn", "gate", "w_o", "ln2", "w_gate", "w_up", "w_down", "out"]
+if not q.GATE:
+    HEAD_ORDER.remove("gate_out")
+    TAIL_ORDER.remove("gate")
 WFMT = os.environ.get("WFMT", "bf16")  # mx8: head / tail with MXFP8 weights (an s_* scale input per projection)
 if WFMT == "mx8":
     import q35_mx_build as mb  # patches q.proj to the MX linear (scales looked up per weight)
@@ -174,14 +199,28 @@ if WFMT == "mx8":
         mb.SCALES.clear()
         for w, s in ((w_q, s_q), (w_k, s_k), (w_v, s_v)):
             mb.SCALES[id(w)] = s
-        attn_fd_head(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, q_out, gate_out, k_out, v_out)
+        head_body(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, q_out, gate_out, k_out, v_out)
         return q_out, gate_out, k_out, v_out  # the builder reads the output names from this statement
+
+    def attn_fd_head_mx_ng(x, ln1, w_q, s_q, w_k, s_k, w_v, s_v, q_norm, k_norm, cos, sin, q_out, k_out, v_out):
+        mb.SCALES.clear()
+        for w, s in ((w_q, s_q), (w_k, s_k), (w_v, s_v)):
+            mb.SCALES[id(w)] = s
+        head_body(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, q_out, None, k_out, v_out)
+        return q_out, k_out, v_out
 
     def attn_fd_tail_mx(x, attn, gate, w_o, s_o, ln2, w_gate, s_gate, w_up, s_up, w_down, s_down, out):
         mb.SCALES.clear()
         for w, s in ((w_o, s_o), (w_gate, s_gate), (w_up, s_up), (w_down, s_down)):
             mb.SCALES[id(w)] = s
-        attn_fd_tail(x, attn, gate, w_o, ln2, w_gate, w_up, w_down, out)
+        tail_body(x, attn, gate, w_o, ln2, w_gate, w_up, w_down, out)
+        return out
+
+    def attn_fd_tail_mx_ng(x, attn, w_o, s_o, ln2, w_gate, s_gate, w_up, s_up, w_down, s_down, out):
+        mb.SCALES.clear()
+        for w, s in ((w_o, s_o), (w_gate, s_gate), (w_up, s_up), (w_down, s_down)):
+            mb.SCALES[id(w)] = s
+        tail_body(x, attn, None, w_o, ln2, w_gate, w_up, w_down, out)
         return out
 
 
@@ -231,8 +270,10 @@ def main():
     ref_a = ref_a or a
     sfx = "_mx8" if mx else ""
     head_fn, tail_fn = (attn_fd_head_mx, attn_fd_tail_mx) if mx else (attn_fd_head, attn_fd_tail)
+    if not q.GATE:
+        head_fn, tail_fn = (attn_fd_head_mx_ng, attn_fd_tail_mx_ng) if mx else (attn_fd_head_ng, attn_fd_tail_ng)
     head_order, tail_order = (mb.order(head_fn), mb.order(tail_fn)) if mx else (HEAD_ORDER, TAIL_ORDER)
-    xs = W("embed_tokens.weight")[torch.randint(0, 200000, (R,))].reshape(1, R, H).contiguous()
+    xs = W("embed_tokens.weight")[torch.randint(0, min(200000, q.cfg["vocab_size"]), (R,))].reshape(1, R, H).contiguous()
     NC = 2 * S if CHECK else S  # cells of the test cache
     C0 = (S + 5) if CHECK else int(os.environ.get("C0", 70))  # the R new tokens at cells C0 .. (segment 1 checking)
     cells = [C0 + t for t in range(R)]
@@ -252,7 +293,7 @@ def main():
     # head
     k_head = kern(head_fn, f"head{R}{sfx}")
     hc = dict(a, x=xs, cos=cos_t, sin=sin_t, q_out=torch.zeros((R, HQ, D), dtype=torch.bfloat16),
-              gate_out=torch.zeros((R, HQ, D), dtype=torch.bfloat16), k_out=torch.zeros((R, HKV * D), dtype=torch.half),
+              gate_out=torch.zeros((R, HQ, D), dtype=torch.bfloat16) if q.GATE else None, k_out=torch.zeros((R, HKV * D), dtype=torch.half),
               v_out=torch.zeros((R, HKV * D), dtype=torch.half))
     k_head[1](*[hc[n] for n in head_order])
     kc, vc = kc0.clone(), vc0.clone()
@@ -294,7 +335,7 @@ def main():
 
     # tail
     k_tail = kern(tail_fn, f"tail{R}{sfx}")
-    tc = dict(a, x=xs, attn=att, gate=hc["gate_out"], out=torch.zeros((1, R, H), dtype=torch.bfloat16))
+    tc = dict(a, x=xs, attn=att, gate=hc.get("gate_out"), out=torch.zeros((1, R, H), dtype=torch.bfloat16))
     k_tail[1](*[tc[n] for n in tail_order])
     fo = tc["out"].float()
     logger.info(f"flash R={R} S={S}: {len(parts)} segment(s), out finite {bool(fo.isfinite().all())}")
@@ -316,9 +357,9 @@ def main():
                     f"{torch.equal(rc['kc'], kc) and torch.equal(rc['vc'], vc)}")
 
     if out_dir:
-        kernels = [(f"head{R}{sfx}", head_fn.__name__, f"qwen35_attn_fd_head{R}{sfx}"),
-                   (SEG, "attn_fd_seg", f"qwen35_attn_fd_{SEG}"),
-                   (f"tail{R}{sfx}", tail_fn.__name__, f"qwen35_attn_fd_tail{R}{sfx}")]
+        kernels = [(f"head{R}{sfx}", head_fn.__name__, f"{q.KP}_attn_fd_head{R}{sfx}"),
+                   (SEG, "attn_fd_seg", f"{q.KP}_attn_fd_{SEG}"),
+                   (f"tail{R}{sfx}", tail_fn.__name__, f"{q.KP}_attn_fd_tail{R}{sfx}")]
         for sub, fn, dst in kernels if CORES == 1 else kernels[1:2]:
             (path,) = glob.glob(f"{BUILD}/{sub}/cache/{fn}.*.compiled.axmodel")
             shutil.copy(path, f"{out_dir}/{dst}.axmodel")
