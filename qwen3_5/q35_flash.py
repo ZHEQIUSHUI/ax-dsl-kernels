@@ -45,6 +45,10 @@ import q35_prefill as pf
 
 H, D, HQ, HKV, G, ROT, EPS, BC = q.H, q.D, q.HQ, q.HKV, q.G, q.ROT, q.EPS, q.BC
 GR = G * R
+# segment kernel: each KV head's G query heads in SEG_PARTS passes over every block (a block's K / V loaded once for all):
+# fewer score rows at a time (R = 128: 1024 rows of [BC] scores per head overflow the on-chip memory)
+NP = int(os.environ.get("SEG_PARTS", 1))
+GP, GRP = G // NP, G // NP * R
 BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_flash"))
 pf.SCATTER = True
 
@@ -84,14 +88,16 @@ def attn_fd_seg(qs, kc, vc, nblk, mask, m_out, l_out, o_out):
     else:
         range_start = ax.dsl.load(nblk[c : c + 1, 0:1]).reshape(1)
         range_stop = ax.dsl.load(nblk[c : c + 1, 1:2]).reshape(1)
-    zero_col = ax.dsl.zeros(shape=(GR, 1), dtype=ax.bf16)
-    heads = []  # per KV head: its G query heads x R tokens, and the running (max, sum, output)
+    zero_col = ax.dsl.zeros(shape=(GRP, 1), dtype=ax.bf16)
+    heads = []  # per KV head and pass: its GP query heads x R tokens, and the running (max, sum, output)
     for hk in range(HKV):
-        qh = ax.dsl.create_tensor((GR, D), ax.bf16, name=f"qh{hk}")
-        for g in range(G):
-            ax.dsl.move(x=qa[:, hk * G + g : hk * G + g + 1, :].reshape(R, D), r=qh[g * R : (g + 1) * R, :])
-        heads += [qh, ax.dsl.full(shape=(GR, 1), dtype=ax.bf16, fill_value=-3e38), ax.dsl.zeros(shape=(GR,), dtype=ax.fp32),
-                  ax.dsl.zeros(shape=(GR, D), dtype=ax.bf16)]
+        for p in range(NP):
+            qh = ax.dsl.create_tensor((GRP, D), ax.bf16, name=f"qh{hk}" if NP == 1 else f"qh{hk}_{p}")
+            for gg in range(GP):
+                g = p * GP + gg
+                ax.dsl.move(x=qa[:, hk * G + g : hk * G + g + 1, :].reshape(R, D), r=qh[gg * R : (gg + 1) * R, :])
+            heads += [qh, ax.dsl.full(shape=(GRP, 1), dtype=ax.bf16, fill_value=-3e38),
+                      ax.dsl.zeros(shape=(GRP,), dtype=ax.fp32), ax.dsl.zeros(shape=(GRP, D), dtype=ax.bf16)]
     index = ax.dsl.create_tensor((1,), ax.int32, name="index")
     ax.dsl.move(x=range_start, r=index)
 
@@ -102,26 +108,27 @@ def attn_fd_seg(qs, kc, vc, nblk, mask, m_out, l_out, o_out):
         vb = ax.dsl.cast(ax.dsl.dynamic_ld(vc, t0, kv_block_shape, dim=(0,), output_shape=(BC, HKV * D)), dtype=ax.bf16)
         mj = ax.dsl.dynamic_ld(mask, ax.dsl.cast(index, dtype=ax.uint32), mask_block_shape, dim=(0,),
                                output_shape=(1, R, BC)).reshape(R, BC)
-        for hk in range(HKV):
-            qh, mi, li, oi = heads[4 * hk : 4 * hk + 4]
+        for hp in range(HKV * NP):
+            hk = hp // NP
+            qh, mi, li, oi = heads[4 * hp : 4 * hp + 4]
             kj = kb[:, hk * D : (hk + 1) * D]
             vj = vb[:, hk * D : (hk + 1) * D]
-            m_s = ax.dsl.create_tensor(shape=(GR, 1 + BC + 1), dtype=ax.bf16)
+            m_s = ax.dsl.create_tensor(shape=(GRP, 1 + BC + 1), dtype=ax.bf16)
             ax.dsl.move(r=m_s[:, :1], x=mi)
             ax.dsl.move(r=m_s[:, -1:], x=zero_col)
             sj = ax.dsl.matmul(qh, kj, transposed=True, output_dtype=ax.bf16)
-            for g in range(G):
+            for g in range(GP):
                 ax.dsl.add(sj[g * R : (g + 1) * R, :], mj, output_dtype=ax.bf16, r=m_s[g * R : (g + 1) * R, 1 : 1 + BC])
             m_next = ax.dsl.max(m_s[:, : 1 + BC], dim=-1, keepdim=True)
             m_s = ax.dsl.sub(m_s, m_next, r=m_s)
             pj = ax.dsl.exp(m_s[:, 1 : 1 + BC])
             p32 = ax.dsl.exp(m_s[:, 1 : 1 + BC], output_dtype=ax.fp32)
             lij = ax.dsl.sum(p32, dim=-1, output_dtype=ax.fp32)
-            ratio = ax.dsl.exp(m_s[:, :1], output_dtype=ax.fp32).reshape(GR)
+            ratio = ax.dsl.exp(m_s[:, :1], output_dtype=ax.fp32).reshape(GRP)
             ratio_li = ax.dsl.mul(li, ratio, output_dtype=ax.fp32)
             ax.dsl.add(ratio_li, lij, r=li, output_dtype=ax.fp32)
             oij = pj @ vj
-            ratio_oi = ax.dsl.mul(ratio.reshape(GR, 1), oi, output_dtype=ax.fp32)
+            ratio_oi = ax.dsl.mul(ratio.reshape(GRP, 1), oi, output_dtype=ax.fp32)
             ax.dsl.add(ratio_oi, oij, r=oi, output_dtype=ax.bf16)
             ax.dsl.mul(m_s[:, -1:], minus_1, r=mi)
         return (kc, vc, mask, block_stride, kv_block_shape, mask_block_shape, zero_col, minus_1, *heads)
@@ -129,13 +136,19 @@ def attn_fd_seg(qs, kc, vc, nblk, mask, m_out, l_out, o_out):
     res = ax.dsl.range(index, range_start, range_stop, range_step, body, kc, vc, mask, block_stride, kv_block_shape,
                        mask_block_shape, zero_col, minus_1, *heads)
     heads = res[8:]
-    for hk in range(HKV):
-        _, mi, li, oi = heads[4 * hk : 4 * hk + 4]
-        if CORES == 1:
+    for hp in range(HKV * NP):
+        hk, r0 = hp // NP, hp % NP * GRP  # rows g * R + t of this pass
+        _, mi, li, oi = heads[4 * hp : 4 * hp + 4]
+        if CORES == 1 and NP == 1:
             ax.dsl.store(mi.reshape(1, GR, 1), r=m_out[hk : hk + 1])
             ax.dsl.store(li.reshape(1, GR), r=l_out[hk : hk + 1])
             ax.dsl.store(oi.reshape(1, GR, D), r=o_out[hk : hk + 1])
+        elif CORES == 1:
+            ax.dsl.store(mi.reshape(1, GRP, 1), r=m_out[hk : hk + 1, r0 : r0 + GRP])
+            ax.dsl.store(li.reshape(1, GRP), r=l_out[hk : hk + 1, r0 : r0 + GRP])
+            ax.dsl.store(oi.reshape(1, GRP, D), r=o_out[hk : hk + 1, r0 : r0 + GRP])
         else:
+            assert NP == 1, "SEG_PARTS with CORES"
             ax.dsl.store(mi.reshape(1, 1, GR, 1), r=m_out[c : c + 1, hk : hk + 1])
             ax.dsl.store(li.reshape(1, 1, GR), r=l_out[c : c + 1, hk : hk + 1])
             ax.dsl.store(oi.reshape(1, 1, GR, D), r=o_out[c : c + 1, hk : hk + 1])
