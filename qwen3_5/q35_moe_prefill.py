@@ -58,6 +58,21 @@ def attn_layer_prefill_moe(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, 
     return out, kc, vc, h2_out, logits_out
 
 
+if mo.WFMT == "mx8":  # MXFP8 projections (q35_mx_build via q35_moe); router and gate stay bf16
+    mb = mo.mb
+
+    def gdn_layer_prefill_moe_mx(x, ln1, w_qkv, s_qkv, w_z, s_z, w_b, s_b, w_a, s_a, conv_w, a_log, dt_bias, norm_w,
+                                 w_out, s_out, ln2, w_gate, s_gate, w_up, s_up, w_down, s_down, w_router, w_shg,
+                                 state_in, conv_in, out, h2_out, logits_out, state_out, conv_out):
+        mb.SCALES.clear()
+        for w, sc in [(w_qkv, s_qkv), (w_z, s_z), (w_b, s_b), (w_a, s_a), (w_out, s_out), (w_gate, s_gate),
+                      (w_up, s_up), (w_down, s_down)]:
+            mb.SCALES[id(w)] = sc
+        gdn_layer_prefill_moe(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out, ln2, w_gate, w_up,
+                              w_down, w_router, w_shg, state_in, conv_in, out, h2_out, logits_out, state_out, conv_out)
+        return out, h2_out, logits_out, state_out, conv_out
+
+
 def _slots_src(n):
     ins = ", ".join(f"w_c{i}, s_c{i}, w_d{i}, s_d{i}" for i in range(n))
     return f"""
@@ -128,11 +143,15 @@ def slots_check(out_dir):
 
 def layer_check(W, kind, il, out_dir):
     a = q.gdn_args(W, il) if kind == "gdn" else q.attn_args(W, il)
+    mx = mo.WFMT == "mx8"
+    if mx:
+        assert kind == "gdn", "MXFP8 MoE prefill: the GDN layer only (attention: split kernels)"
+        a = mb.mx_args(a, mb.GDN_W)[0]
     torch.manual_seed(0)
     xs = W("embed_tokens.weight")[torch.randint(0, 200000, (P,))].reshape(1, P, H).contiguous()
     z = lambda *sh, dt=torch.bfloat16: torch.zeros(sh, dtype=dt)  # noqa: E731
-    pre_fn = gdn_layer_prefill_moe if kind == "gdn" else attn_layer_prefill_moe
-    name = f"qwen35moe_gdn_prefill{P}" if kind == "gdn" else f"qwen35moe_attn_prefill{P}_kvc_c{LMAX}"
+    pre_fn = (gdn_layer_prefill_moe_mx if mx else gdn_layer_prefill_moe) if kind == "gdn" else attn_layer_prefill_moe
+    name = f"qwen35moe_gdn_prefill{P}{'_mx8' if mx else ''}" if kind == "gdn" else f"qwen35moe_attn_prefill{P}_kvc_c{LMAX}"
     k_pre = kern(pre_fn, name)
     k_dec = None if NODEC else kern(mo.LAYER_FN[kind], f"dec_{kind}")
     pos0 = 70
@@ -194,8 +213,11 @@ def main():
     if only == "slots":
         return
     W = q.Weights(q.MODEL)
-    layer_check(W, "gdn", int(os.environ.get("GDN_LAYER", 0)), out_dir)
-    layer_check(W, "attn", int(os.environ.get("ATTN_LAYER", 3)), out_dir)
+    kinds = os.environ.get("KINDS", "gdn,attn").split(",")
+    if "gdn" in kinds:
+        layer_check(W, "gdn", int(os.environ.get("GDN_LAYER", 0)), out_dir)
+    if "attn" in kinds:
+        layer_check(W, "attn", int(os.environ.get("ATTN_LAYER", 3)), out_dir)
 
 
 if __name__ == "__main__":
