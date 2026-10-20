@@ -93,7 +93,28 @@ def _define(src, name):
     exec(compile(src, fn, "exec"), globals())
 
 
+def _experts_gu_src(k):
+    """as _experts_src with each expert's gate and up rows in one weight: w_c<i> [2 FE, H] (gate rows, then up), one
+    projection per expert instead of two (the board pays ~25 us per small projection)"""
+    ins = ", ".join(f"w_c{i}, s_c{i}, w_d{i}, s_d{i}" for i in range(k))
+    return f"""
+def moe_experts_gu(h2, base, rw, {ins}, out):
+    h = ax.dsl.load(h2)  # [1, 1, H] bf16
+    r = ax.dsl.load(rw)  # [1, K] f32
+    acc = ax.dsl.cast(ax.dsl.load(base), dtype=ax.fp32)
+    ws = [{", ".join(f"(w_c{i}, s_c{i}, w_d{i}, s_d{i})" for i in range(k))}]
+    for i, (wc, sc, wd, sd) in enumerate(ws):
+        gu = linear(h, wc, sc, f"e{{i}}_gate_up", output_dtype=ax.bf16, oc_tile_size=oc_tile_fp4(H))
+        a = silu_mul(gu[:, :, :FE], gu[:, :, FE:], activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
+        d = linear(a, wd, sd, f"e{{i}}_down", output_dtype=ax.fp32, oc_tile_size=oc_tile_fp4(FE))
+        acc = ax.dsl.add(acc, ax.dsl.mul(d, r[:, i : i + 1].reshape(1, 1, 1), output_dtype=ax.fp32), output_dtype=ax.fp32)
+    ax.dsl.store(ax.dsl.cast(acc, dtype=ax.bf16), r=out)
+    return out
+"""
+
+
 _define(_experts_src(TOPK), f"moe_experts{TOPK}")  # moe_experts(h2, base, rw, w_g0, s_g0, ..., out)
+_define(_experts_gu_src(TOPK), f"moe_experts_gu{TOPK}")  # moe_experts_gu(h2, base, rw, w_c0, s_c0, w_d0, ..., out)
 
 
 MOE = {}  # router / shared-expert-gate weights and the extra outputs of the layer kernel being built
@@ -213,14 +234,23 @@ def experts_check(out_dir):
         a = (torch.nn.functional.silu(g) * u).bfloat16().float()
         ref += rw[0, i] * (dq[2] @ a)
     case["out"] = torch.zeros((1, 1, H), dtype=torch.bfloat16)
-    k = kern(moe_experts, f"experts{TOPK}")
-    k[1](*[case[n] for n in moe_experts.__code__.co_varnames[: moe_experts.__code__.co_argcount]])
-    logger.info(f"moe experts K={TOPK} FE={FE} H={H}: out cos vs torch {cos(case['out'].float(), ref):.6f}")
-    if out_dir:
-        (path,) = glob.glob(f"{BUILD}/experts{TOPK}/cache/moe_experts.*.compiled.axmodel")
-        dst = f"{out_dir}/qwen35moe_experts{TOPK}_mxfp4.axmodel"
-        shutil.copy(path, dst)
-        logger.info(f"wrote {dst}: {board_io.fix(dst)[:2]} ...")
+    # the gate-up kernel on the same experts: w_c<i> = gate rows then up rows (packed codes and scales alike)
+    for i in range(TOPK):
+        for n in ("w", "s"):
+            g, u = case[f"{n}_g{i}"].view(torch.uint8), case[f"{n}_u{i}"].view(torch.uint8)
+            c = torch.cat([g, u])
+            case[f"{n}_c{i}"] = c.view(torch.float4_e2m1fn_x2) if n == "w" else c.view(torch.float8_e8m0fnu)
+    for fn, sub, name in ((moe_experts, f"experts{TOPK}", f"qwen35moe_experts{TOPK}_mxfp4"),
+                          (moe_experts_gu, f"experts_gu{TOPK}", f"qwen35moe_experts{TOPK}_gu_mxfp4")):
+        case["out"] = torch.zeros((1, 1, H), dtype=torch.bfloat16)
+        k = kern(fn, sub)
+        k[1](*[case[n] for n in order(fn)])
+        logger.info(f"{fn.__name__} K={TOPK} FE={FE} H={H}: out cos vs torch {cos(case['out'].float(), ref):.6f}")
+        if out_dir:
+            path = max(glob.glob(f"{BUILD}/{sub}/cache/{fn.__name__}.*.compiled.axmodel"), key=os.path.getmtime)
+            dst = f"{out_dir}/{name}.axmodel"
+            shutil.copy(path, dst)
+            logger.info(f"wrote {dst}: {board_io.fix(dst)[:2]} ...")
 
 
 NDEC = int(os.environ.get("NDEC", 2))
