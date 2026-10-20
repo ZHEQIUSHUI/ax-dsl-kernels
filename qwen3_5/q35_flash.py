@@ -148,10 +148,9 @@ def attn_fd_seg(qs, kc, vc, nblk, mask, m_out, l_out, o_out):
             ax.dsl.store(li.reshape(1, GRP), r=l_out[hk : hk + 1, r0 : r0 + GRP])
             ax.dsl.store(oi.reshape(1, GRP, D), r=o_out[hk : hk + 1, r0 : r0 + GRP])
         else:
-            assert NP == 1, "SEG_PARTS with CORES"
-            ax.dsl.store(mi.reshape(1, 1, GR, 1), r=m_out[c : c + 1, hk : hk + 1])
-            ax.dsl.store(li.reshape(1, 1, GR), r=l_out[c : c + 1, hk : hk + 1])
-            ax.dsl.store(oi.reshape(1, 1, GR, D), r=o_out[c : c + 1, hk : hk + 1])
+            ax.dsl.store(mi.reshape(1, 1, GRP, 1), r=m_out[c : c + 1, hk : hk + 1, r0 : r0 + GRP])
+            ax.dsl.store(li.reshape(1, 1, GRP), r=l_out[c : c + 1, hk : hk + 1, r0 : r0 + GRP])
+            ax.dsl.store(oi.reshape(1, 1, GRP, D), r=o_out[c : c + 1, hk : hk + 1, r0 : r0 + GRP])
     return m_out, l_out, o_out
 
 

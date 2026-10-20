@@ -37,6 +37,7 @@ import q35_prefill as qp
 q = mo.q
 H, NE, FE, P, LMAX, BC = mo.H, mo.NE, mo.FE, qp.P, qp.LMAX, qp.BC
 S, G = int(os.environ.get("SLOTS", 32)), int(os.environ.get("SLOT_G", 8))
+CORES = int(os.environ.get("CORES", 1))  # slots kernel: S / CORES slots per core, no synchronization (_x<CORES>)
 BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_moe_prefill"))
 NODEC = os.environ.get("NODEC") == "1"
 
@@ -61,8 +62,11 @@ def _slots_src(n):
     ins = ", ".join(f"w_c{i}, s_c{i}, w_d{i}, s_d{i}" for i in range(n))
     return f"""
 def moe_slots(x, rw, {ins}, out):
+    c = ax.program_id(0)
     ws = [{", ".join(f"(w_c{i}, s_c{i}, w_d{i}, s_d{i})" for i in range(n))}]
     for i, (wc, sc, wd, sd) in enumerate(ws):
+        if i // (S // CORES) != c:  # the core's slots
+            continue
         h = ax.dsl.load(x[i : i + 1])  # [1, G, H] bf16
         r = ax.dsl.load(rw[i : i + 1])  # [1, G] f32
         gu = linear(h, wc, sc, f"s{{i}}_gate_up", output_dtype=ax.bf16, oc_tile_size=mo.oc_tile_fp4(H))
@@ -112,11 +116,14 @@ def slots_check(out_dir):
         gu = (xi @ dq[0].T).bfloat16().float()
         a = (torch.nn.functional.silu(gu[:, :FE]) * gu[:, FE:]).bfloat16().float()
         ref[i] = rw[i].reshape(G, 1) * (a @ dq[1].T)
-    k = kern(moe_slots, f"slots{S}_g{G}")
-    k[1](*[case[n] for n in mo.order(moe_slots)])
+    sfx = f"_x{CORES}" if CORES > 1 else ""
+    ax.init(chip_num=1, core_num=CORES)
+    k = kern(moe_slots, f"slots{S}_g{G}{sfx}")
+    k[CORES](*[case[n] for n in mo.order(moe_slots)])
+    ax.init(chip_num=1, core_num=1)
     logger.info(f"moe slots S={S} G={G}: out cos vs torch {mo.cos(case['out'], ref):.6f}, unused rows zero "
                 f"{bool((case['out'][S // 2 :, G // 2 :] == 0).all())}")
-    publish(f"slots{S}_g{G}", moe_slots, out_dir, f"qwen35moe_slots{S}_g{G}_gu_mxfp4")
+    publish(f"slots{S}_g{G}{sfx}", moe_slots, out_dir, f"qwen35moe_slots{S}_g{G}_gu_mxfp4{sfx}")
 
 
 def layer_check(W, kind, il, out_dir):
