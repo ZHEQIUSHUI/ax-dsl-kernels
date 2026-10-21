@@ -44,7 +44,7 @@ static AX_ENGINE_IO_BUFFER_T io(const Buf & b) {
 
 int main(int argc, char ** argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: %s gdn.axmodel steps\n", argv[0]);
+        fprintf(stderr, "usage: %s gdn_npu1.axmodel steps\n", argv[0]);
         return 1;
     }
     const int S = atoi(argv[2]);

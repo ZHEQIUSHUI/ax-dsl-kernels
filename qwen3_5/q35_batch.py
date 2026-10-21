@@ -9,8 +9,8 @@
   mul_mat_bf16_batch output projection of B rows: x [1, B, K] bf16, w [C, K] bf16 -> out [1, B, C] f32
 
 Check on the simulator against the decode kernels run once per sequence (own state, own cells). Writes
-qwen35_gdn_batch<B>.axmodel, qwen35_attn_batch<B>_kvc_c<LMAX>.axmodel and mul_mat_bf16_b<B>_n<C>_k<H>.axmodel into
-kernel_dir. ONLY=attn builds the attention kernel alone (other contexts). WFMT=mx8 builds the MXFP8 kernels instead
+qwen35_gdn_batch<B>_npu1.axmodel, qwen35_attn_batch<B>_kvc_c<LMAX>_npu1.axmodel and mul_mat_bf16_b<B>_n<C>_k<H>_npu1.axmodel
+into kernel_dir. ONLY=attn builds the attention kernel alone (other contexts). WFMT=mx8 builds the MXFP8 kernels instead
 (q35_mx_build's MX projections, a s_* scale input per weight): qwen35_gdn_batch<B>_mx8, qwen35_attn_batch<B>_mx8_kvc_c
 <LMAX> and mul_mat_mx8_b<B>_n<C>_k<H> (x, w, s -> out f32), checked against the MXFP8 decode kernels.
 
@@ -32,6 +32,7 @@ import axnn.dsl as ax
 from axnn.dsl.kernels.utils import rmsnorm, silu_gate
 from axnn.dsl.kernels.utils.linear import linear
 from axnn.dsl.kernels.qwen_gdn_utils import gdn_gate, gdn_recurrent_step, l2norm_lastdim
+import board_io
 import q35_step as q
 import q35_prefill as pf
 
@@ -253,8 +254,8 @@ def main():
                        f"mul_mat_{'mx8' if MX else 'bf16'}_b{B}_n{HEAD_C}_k{H}")]
         for _, sub, fn, dst in built:
             (path,) = glob.glob(f"{BUILD}/{sub}/cache/{fn}.*.compiled.axmodel")
-            shutil.copy(path, f"{out_dir}/{dst}.axmodel")
-            logger.info(f"wrote {out_dir}/{dst}.axmodel")
+            shutil.copy(path, board_io.kernel_file(out_dir, dst))
+            logger.info(f"wrote {board_io.kernel_file(out_dir, dst)}")
 
 
 if __name__ == "__main__":

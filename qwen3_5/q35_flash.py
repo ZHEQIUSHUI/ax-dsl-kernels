@@ -40,6 +40,7 @@ from loguru import logger
 import axnn.dsl as ax
 from axnn.dsl.kernels.utils import rmsnorm, sigmoid_mul
 from axnn.dsl.kernels.utils.rope import rope
+import board_io
 import q35_step as q
 import q35_prefill as pf
 
@@ -300,9 +301,9 @@ def main():
     kc[cells], vc[cells] = hc["k_out"], hc["v_out"]  # the host's write
 
     # segments
-    SEG = f"seg{R}_c{S}" + (f"_x{CORES}" if CORES > 1 else "")
+    SEG = f"seg{R}_c{S}"
     ax.init(chip_num=1, core_num=CORES)  # the segment kernel only: head, tail and the reference are single-core
-    k_seg = kern(attn_fd_seg, SEG)
+    k_seg = kern(attn_fd_seg, f"{SEG}_npu{CORES}")
     parts, seen = [], []
     for g in range(NC // S):
         rows = torch.stack([mask_row(t)[g * S : (g + 1) * S] for t in range(R)])  # [R, S]
@@ -357,13 +358,13 @@ def main():
                     f"{torch.equal(rc['kc'], kc) and torch.equal(rc['vc'], vc)}")
 
     if out_dir:
-        kernels = [(f"head{R}{sfx}", head_fn.__name__, f"{q.KP}_attn_fd_head{R}{sfx}"),
-                   (SEG, "attn_fd_seg", f"{q.KP}_attn_fd_{SEG}"),
-                   (f"tail{R}{sfx}", tail_fn.__name__, f"{q.KP}_attn_fd_tail{R}{sfx}")]
-        for sub, fn, dst in kernels if CORES == 1 else kernels[1:2]:
+        kernels = [(f"head{R}{sfx}", head_fn.__name__, f"{q.KP}_attn_fd_head{R}{sfx}", 1),
+                   (f"{SEG}_npu{CORES}", "attn_fd_seg", f"{q.KP}_attn_fd_{SEG}", CORES),
+                   (f"tail{R}{sfx}", tail_fn.__name__, f"{q.KP}_attn_fd_tail{R}{sfx}", 1)]
+        for sub, fn, dst, cores in kernels if CORES == 1 else kernels[1:2]:
             (path,) = glob.glob(f"{BUILD}/{sub}/cache/{fn}.*.compiled.axmodel")
-            shutil.copy(path, f"{out_dir}/{dst}.axmodel")
-            logger.info(f"wrote {out_dir}/{dst}.axmodel")
+            shutil.copy(path, board_io.kernel_file(out_dir, dst, cores))
+            logger.info(f"wrote {board_io.kernel_file(out_dir, dst, cores)}")
 
 
 if __name__ == "__main__":

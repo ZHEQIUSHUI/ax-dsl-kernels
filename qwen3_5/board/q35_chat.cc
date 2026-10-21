@@ -182,8 +182,8 @@ int main(int argc, char** argv) {
     memset(&attr, 0, sizeof(attr));
     attr.eHardMode = AX_ENGINE_VIRTUAL_NPU_DISABLE;
     if (AX_ENGINE_Init(&attr) != 0) return 2;
-    Model gdn = load_model(dir + "/gdn.axmodel"), attn = load_model(dir + "/attn.axmodel");
-    Model head = load_model(dir + "/lm_head.axmodel");
+    Model gdn = load_model(dir + "/gdn_npu1.axmodel"), attn = load_model(dir + "/attn_npu1.axmodel");
+    Model head = load_model(dir + "/lm_head_npu1.axmodel");
 
     auto t_load = std::chrono::steady_clock::now();
     Buf X = alloc(size_of(gdn, "x", true)), OUT = alloc(size_of(gdn, "out", false));

@@ -6,7 +6,7 @@ LayerNorm eps 1e-5). The conv front-end, the post norm and the projector stay on
   qwen3a_attn<N>_h<H>  bidirectional attention over the N rows (key mask for the padding)
   qwen3a_post<N>_h<H>  x + out_proj, + fc2(gelu(fc1(LayerNorm2)))
 
-Check on the simulator: layer LAYER (default 0) of the checkpoint on random inputs of n real rows (NREAL, default
+Written as qwen3a_<kernel><N>_h<H>_npu1.axmodel. Check on the simulator: layer LAYER (default 0) of the checkpoint on random inputs of n real rows (NREAL, default
 N - 37) against torch. Usage: MODEL=<Qwen3-ASR -hf dir> N=512 python q3a_audio.py [kernel_dir]
 """
 import glob
@@ -32,6 +32,7 @@ os.environ["MODEL"] = _cfg
 os.environ.setdefault("DUMP", "out_q3a_audio")
 
 import axnn.dsl as ax  # noqa: E402
+import board_io  # noqa: E402
 import q35_vit as v  # noqa: E402
 
 v.EPS = 1e-5  # the audio tower's LayerNorm
@@ -100,7 +101,7 @@ def main():
     if out_dir:
         for sub, fn in built:
             (path,) = glob.glob(f"{v.BUILD}/{sub}/cache/{fn}.*.compiled.axmodel")
-            dst = f"{out_dir}/qwen3a_{fn[4:]}{N}_h{H}.axmodel"  # vit_pre -> qwen3a_pre<N>_h<H>
+            dst = board_io.kernel_file(out_dir, f"qwen3a_{fn[4:]}{N}_h{H}")  # vit_pre -> qwen3a_pre<N>_h<H>
             shutil.copy(path, dst)
             logger.info(f"wrote {dst}")
 

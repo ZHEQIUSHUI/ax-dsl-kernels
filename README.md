@@ -5,6 +5,10 @@
 kernel 的权重都是**运行时输入**，所以同一种层只要一个 axmodel，所有层共用，权重可以直接来自 Hugging Face
 safetensors 或 GGUF。llama.cpp 的 [ggml-axera 后端](https://github.com/ZHEQIUSHUI/llama.cpp)按名字加载这里生成的 axmodel。
 
+**文件命名**：每个 kernel 文件都带编译时的核数，`<名字>_npu<核数>.axmodel`：单核 `_npu1`，4 核 `_npu4`，没有不带后缀的。
+下文和脚本说明里的 kernel 名都不含这个后缀。后端按名字 + `GGML_AXERA_CORES`（默认 4）找 `<名字>_npu4.axmodel`，没有就用
+`<名字>_npu1.axmodel`。脚本里统一用 `qwen3_5/board_io.py` 的 `kernel_file(out_dir, name, cores)` 拼文件名。
+
 ## 目录
 
 | 目录 | 内容 |
@@ -53,10 +57,10 @@ GDN 的 value 头多于 key 头时（9B：32 / 16），kernel 按 GGUF 的顺序
 | `ggml_template_build.py` | ggml-axera 模板用的 decode 层 kernel（bf16 / MXFP8，KVL=cell 时按上下文 `_kvc_c<LMAX>` 命名） |
 | `q35_prefill.py` | prefill kernel：每次 P 个连续 token，模拟器上和逐 token decode 对比 |
 | `q35_batch.py` | batched decode kernel：B 个序列各一个 token（GDN、attention、lm_head），模拟器上和逐序列 decode 对比 |
-| `q35_flash.py` | 长上下文的拆分 attention（flash decoding）：head / 按段的部分 attention / tail，模拟器上跨 2 段和融合 kernel 对比；`CORES=4` 时段 kernel 按块分给 4 个核（`_x4`，`nblk` 为每核 [start, stop)） |
+| `q35_flash.py` | 长上下文的拆分 attention（flash decoding）：head / 按段的部分 attention / tail，模拟器上跨 2 段和融合 kernel 对比；`CORES=4` 时段 kernel 按块分给 4 个核（`_npu4`，`nblk` 为每核 [start, stop)） |
 | `q35_vit.py` | 视觉编码器（ViT）：`vit_embed` / `vit_pre` / `vit_attn` / `vit_post` / `vit_merge`，按 patch 数 N 分档（`_<N>_h<hidden>`，各尺寸共用代码：0.8B 768、2B/4B 1024、9B 及以上 1152），模拟器上逐层和 transformers 比 |
 | `q35_hf_layer.py` | 任意尺寸的一个 GDN 层和一个注意力层的 decode / prefill kernel 直接和 transformers 的 `Qwen3_5DecoderLayer` 比 |
-| `q35_mc.py` | 多核层链（实验性）：`gdn_mc` / `mlp_mc` / `attn_head_mc` / `attn_tail_mc`（P = 1 decode、64、128 prefill），按头或输出通道切到 4 个核、核间不同步，残差以 base + 每核 fp32 部分和在调用间传递；tail 在 NPU 上合并 NP 个段结果；另有 4 核 lm_head GEMV `mul_mat_bf16_n31040_k1024_x4` |
+| `q35_mc.py` | 多核层链（实验性）：`gdn_mc` / `mlp_mc` / `attn_head_mc` / `attn_tail_mc`（P = 1 decode、64、128 prefill），按头或输出通道切到 4 个核、核间不同步，残差以 base + 每核 fp32 部分和在调用间传递；tail 在 NPU 上合并 NP 个段结果；另有 4 核 lm_head GEMV `mul_mat_bf16_n31040_k1024`（文件 `_npu4`） |
 | `q3a_audio.py` | Qwen3-ASR 音频编码器的 transformer 层：复用 `q35_vit.py` 的 pre / attn / post（无 RoPE，宿主给 cos 1 / sin 0；GELU erf；LayerNorm eps 1e-5），`qwen3a_{pre,attn,post}<N>_h<H>`，模拟器上和 torch 比 |
 | `q3a_conv.py` | Qwen3-ASR 卷积前端的矩阵乘（ggml 的 im2col 行 × 卷积核）：`qwen3a_conv_o<OC>_k<K>_r<R>`，conv2d.2 / conv2d.3 两层 480 通道，占 CPU 上编码器的大部分时间 |
 
@@ -78,17 +82,17 @@ Qwen3 只有注意力层（无输出门、全宽 RoPE、RMSNorm 权重原样）�
 `ggml/gguf_gemv_kernels.py model.gguf out_dir` 为 GGUF 里每种 BF16 二维权重形状生成：
 
 ```
-mul_mat_bf16_n<N>_k<K>.axmodel   输入 x [1, K] bf16、w [N, K] bf16；输出 out [1, N] f32
+mul_mat_bf16_n<N>_k<K>_npu1.axmodel   输入 x [1, K] bf16、w [N, K] bf16；输出 out [1, N] f32
 ```
 
-后端从 `GGML_AXERA_KERNEL_DIR` 按这个名字查找；找不到的形状回退到 CPU。
+后端从 `GGML_AXERA_KERNEL_DIR` 按名字（不含 `_npu<N>`）查找；找不到的形状回退到 CPU。
 
 没有模板的图（mtmd 的生成图：Qwen3-TTS 的 code predictor 和 codec 解码器）由后端交给 CPU 后端执行，其中有 kernel
 的矩阵乘放到 NPU：一行的走上面的 GEMV（同一输入的 q / k / v、gate / up 合并成一次），多行的走
 `ggml/mm_kernels.py` 按形状生成的 GEMM：
 
 ```
-mm_bf16_m<M>_n<N>_k<K>.axmodel   输入 x [M, K]、w [N, K] bf16；输出 out [M, N] f32 = x · wᵀ（ggml 的 src1 · src0ᵀ）
+mm_bf16_m<M>_n<N>_k<K>_npu1.axmodel   输入 x [M, K]、w [N, K] bf16；输出 out [M, N] f32 = x · wᵀ（ggml 的 src1 · src0ᵀ）
 ```
 
 卷积的 im2col 行是 w（N 很大，kernel 里按列分块）。Qwen3-TTS（12Hz 声码器，每次 72 帧）用到的形状：
@@ -104,7 +108,7 @@ SHAPES=72x1024x512,72x512x1024,72x512x256,72x2048x1024,1024x72x1536,144x1024x409
 K 个错位矩阵乘 f32 累加，不生成 im2col（AxConvV2 在 AX8860 上只出 bf16，NCL 只支持 depthwise）：
 
 ```
-conv1d_bf16_ic<IC>_oc<OC>_k<K>_d<D>_l<L>.axmodel   x [IC, L]、w [K, OC, IC] bf16；输出 out [OC, L - (K-1)·D] f32
+conv1d_bf16_ic<IC>_oc<OC>_k<K>_d<D>_l<L>_npu1.axmodel   x [IC, L]、w [K, OC, IC] bf16；输出 out [OC, L - (K-1)·D] f32
 ```
 
 Qwen3-TTS 声码器用到的（L 含因果卷积的左侧上下文）：
@@ -117,14 +121,14 @@ SHAPES=$(echo $S | tr ' ' ',') python ggml/conv1d_kernels.py <kernel_dir>
 ```
 
 code predictor 的 5 层（1024 宽，和 Qwen3-0.6B 同形状）用 Qwen3-0.6B 的融合 decode 层 kernel（`ggml_template_build.py`
-`WFMT=bf16`），拷成 `qwen3tts_cp_attn_kvc_c4096.axmodel`（talker 的同名 kernel 是另一种宽度）。MXFP8 版
+`WFMT=bf16`），拷成 `qwen3tts_cp_attn_kvc_c4096_npu1.axmodel`（talker 的同名 kernel 是另一种宽度）。MXFP8 版
 （`qwen3tts_cp_attn_mx8_kvc_c4096`）快约 15%，但 TTS-0.6B 用它时有的种子说不完（talker 不出结束 token），后端优先用 bf16 版。
 
 ## 已知限制（当前驱动）
 
 - 多核 kernel 内的 `sync_all` 会导致驱动崩溃，不要在共享板上跑。
 - 多个任务不能同时在不同的核上执行（其余任务返回 `0x8006008a`），所以目前只用单核 kernel。
-- 无同步的多核 kernel（`program_id` 切分，各核只写自己的输出）单独压测稳定（`tools/mc_stress.cc`、`tools/mc_alt.cc`：单个、交替、链式依赖、单多核混用），但在 llama.cpp 里串成层链时偶发 NaN / 结果漂移 / `0x8006008a` 超时，原因未明，所以 ggml-axera 默认不用（`GGML_AXERA_CORES=4` 打开）。有别的进程同时用 NPU 时多核调用必然超时。
+- 无同步的多核 kernel（`program_id` 切分，各核只写自己的输出）单独压测稳定（`tools/mc_stress.cc`、`tools/mc_alt.cc`：单个、交替、链式依赖、单多核混用），但在 llama.cpp 里串成层链时偶发 NaN / 结果漂移 / `0x8006008a` 超时，原因未明，（10-16 之后镜像的新板上已稳定，ggml-axera 默认 `GGML_AXERA_CORES=4`，`=1` 只用单核 kernel）。有别的进程同时用 NPU 时多核调用必然超时。
 - 多核 kernel 的输入越界（如段 kernel 的 `nblk` 超出范围）会让多核一直失败到重启，单核不受影响。
 - c32768 的多核段 kernel 在板上核 1–3 结果错误（模拟器正确），多核段长用 16384。
 - affinity 掩码每个核占 2 位：`0x3`、`0xc`、`0x30`、`0xc0`。

@@ -1,7 +1,7 @@
 """Board bandwidth of runtime-weight GEMV: bf16 vs MXFP8, by output-channel tile (and input-channel tile).
 
 Compiles one single-core kernel per variant (x [1, K] bf16, w [N, K] runtime, out [1, N] f32) and copies it to
-<out_dir>/<fmt>_n<N>_k<K>_oc<T>_ic<I>.axmodel; time them on the board with ax_run_model (random inputs).
+<out_dir>/<fmt>_n<N>_k<K>_oc<T>_ic<I>_npu1.axmodel; time them on the board with ax_run_model (random inputs).
 Each variant runs once on the simulator against torch (dequantized weights for MX).
 
 Usage: python mx_tile_bench.py out_dir
@@ -84,7 +84,7 @@ def main():
                 ref = x.float() @ wdq.T
             c = torch.nn.functional.cosine_similarity(out.reshape(-1).double(), ref.reshape(-1).double(), dim=0).item()
             (path,) = glob.glob(f"{BUILD}/{tag}/cache/{fn.__name__}.*.compiled.axmodel")
-            shutil.copy(path, f"{out_dir}/{tag}.axmodel")
+            shutil.copy(path, f"{out_dir}/{tag}_npu1.axmodel")
             logger.info(f"{tag}: cos={c:.6f}")
 
 

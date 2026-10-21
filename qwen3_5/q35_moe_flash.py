@@ -144,8 +144,9 @@ def main():
             kernels.append((seg, "attn_fd_seg", f"qwen35_attn_fd_{seg}"))
         for sub, fn, dst in kernels:
             path = max(glob.glob(f"{BUILD}/{sub}/cache/{fn}.*.compiled.axmodel"), key=os.path.getmtime)
-            shutil.copy(path, f"{out_dir}/{dst}.axmodel")
-            logger.info(f"wrote {out_dir}/{dst}.axmodel {board_io.fix(f'{out_dir}/{dst}.axmodel')[:1]}")
+            dst = board_io.kernel_file(out_dir, dst)
+            shutil.copy(path, dst)
+            logger.info(f"wrote {dst} {board_io.fix(dst)[:1]}")
 
 
 if __name__ == "__main__":

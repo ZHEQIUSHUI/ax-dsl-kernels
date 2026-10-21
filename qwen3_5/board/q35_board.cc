@@ -81,7 +81,7 @@ static uint16_t bf16(float f) {
 
 int main(int argc, char** argv) {
     if (argc < 4) {
-        fprintf(stderr, "usage: %s data_dir gdn.axmodel attn.axmodel\n", argv[0]);
+        fprintf(stderr, "usage: %s data_dir gdn_npu1.axmodel attn_npu1.axmodel\n", argv[0]);
         return 1;
     }
     const std::string dir = argv[1];

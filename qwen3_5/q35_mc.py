@@ -11,11 +11,12 @@ CORES partials of the previous call: x = base + sum_c part[c], computed by every
               instead of the chunked delta rule
   attn_head_mc<P>   x = base + sum(part) -> base_out = x; per core HQ / CORES query heads (q pre-scaled, gate) and,
               on cores below HKV, KV head c (k / v f16 rows) -> as q35_flash attn_fd_head
-  mul_mat_bf16_n<C>_k<K>_x<CORES>   the GEMV of ggml/gguf_gemv_kernels.py (x [1, K] bf16, w [C, K] -> out [1, C]
+  mul_mat_bf16_n<C>_k<K>   the GEMV of ggml/gguf_gemv_kernels.py (x [1, K] bf16, w [C, K] -> out [1, C]
               f32), C / CORES weight rows per core: the output projection in decode
   attn_tail_mc<P>   the core's query heads of the attention output, sigmoid gate, o-projection partial -> part_out[c];
               then mlp_mc with base = the head's base_out
 
+Written as qwen35_<kernel><P>_npu<CORES>.axmodel (mul_mat_bf16_n<C>_k<K>_npu<CORES>.axmodel).
 Check on the simulator against torch (fp32 reference). Usage: MODEL=<hf dir> P=64 CORES=4 python q35_mc.py [kernel_dir]
 """
 import glob
@@ -36,6 +37,7 @@ from axnn.dsl.kernels.utils.causal_conv import stateful_runtime_causal_depthwise
 from axnn.dsl.kernels.utils.rope import rope
 from axnn.dsl.kernels.qwen_gdn_utils import (chunk_prefix_sum_fp32, gdn_gate, gdn_recurrent_step, gdn_stable_chunk,
                                              l2norm_lastdim)
+import board_io
 import q35_step as q
 
 P = int(os.environ.get("P", 64))
@@ -250,24 +252,24 @@ def main():
         k = kern(fn, sub)
         k[cores](*[args[n] for n in order])
         if cores > 1:
-            built.append((sub, fn.__name__, f"qwen35_{fn.__name__}{P}_x{CORES}"))
+            built.append((sub, fn.__name__, f"qwen35_{fn.__name__}{P}"))
 
     if "lm" in tests:
         a = dict(x=torch.randn((1, LM_K), dtype=torch.bfloat16), w=(torch.randn((LM_C, LM_K)) * LM_K**-0.5).bfloat16(),
                  out=zeros(1, LM_C, dt=torch.float32))
         ax.init(chip_num=1, core_num=CORES)
-        k = kern(mul_mat_bf16, f"lm_x{CORES}")
+        k = kern(mul_mat_bf16, f"lm_npu{CORES}")
         k[CORES](a["x"], a["w"], a["out"])
-        logger.info(f"mul_mat_bf16 n{LM_C} k{LM_K} x{CORES}: cos {cos(a['out'], a['x'].float() @ a['w'].float().T):.6f}")
-        built.append((f"lm_x{CORES}", "mul_mat_bf16", f"mul_mat_bf16_n{LM_C}_k{LM_K}_x{CORES}"))
+        logger.info(f"mul_mat_bf16 n{LM_C} k{LM_K} npu{CORES}: cos {cos(a['out'], a['x'].float() @ a['w'].float().T):.6f}")
+        built.append((f"lm_npu{CORES}", "mul_mat_bf16", f"mul_mat_bf16_n{LM_C}_k{LM_K}"))
 
     if "mlp" in tests:
         a = dict(q.mlp_args(W, "layers.0."), base=base, part=part, base_out=zeros(1, P, H),
                  part_out=zeros(CORES, P, H, dt=torch.float32))
-        run(mlp_mc, f"mlp{P}_x{CORES}", a, MLP_ORDER, CORES)
+        run(mlp_mc, f"mlp{P}_npu{CORES}", a, MLP_ORDER, CORES)
         x_ref, x2_ref = ref_mlp(a)
         x2 = a["base_out"].float() + a["part_out"].sum(0, keepdim=True)
-        logger.info(f"mlp_mc P={P} x{CORES}: base cos {cos(a['base_out'], x_ref):.6f}, out cos {cos(x2, x2_ref):.6f}, "
+        logger.info(f"mlp_mc P={P} npu{CORES}: base cos {cos(a['base_out'], x_ref):.6f}, out cos {cos(x2, x2_ref):.6f}, "
                     f"delta cos {cos(x2 - a['base_out'].float(), x2_ref - x_ref):.6f}")
 
     if "gdn" in tests:  # gdn_mc + mlp_mc vs the single-core prefill layer
@@ -278,10 +280,10 @@ def main():
         a = dict(ga, base=base, part=part, state_in=st0.clone(), conv_in=cv0.clone(), base_out=zeros(1, P, H),
                  part_out=zeros(CORES, P, H, dt=torch.float32), state_out=torch.zeros_like(st0),
                  conv_out=torch.zeros_like(cv0))
-        run(gdn_mc, f"gdn{P}_x{CORES}", a, GDN_ORDER, CORES)
+        run(gdn_mc, f"gdn{P}_npu{CORES}", a, GDN_ORDER, CORES)
         m = dict(q.mlp_args(W, "layers.0."), base=a["base_out"], part=a["part_out"], base_out=zeros(1, P, H),
                  part_out=zeros(CORES, P, H, dt=torch.float32))
-        run(mlp_mc, f"mlp{P}_x{CORES}", m, MLP_ORDER, CORES)
+        run(mlp_mc, f"mlp{P}_npu{CORES}", m, MLP_ORDER, CORES)
         out = m["base_out"].float() + m["part_out"].sum(0, keepdim=True)
         r = dict(g, x=x_in, state_in=st0.clone(), conv_in=cv0.clone(), out=zeros(1, P, H),
                  state_out=torch.zeros_like(st0), conv_out=torch.zeros_like(cv0))
@@ -289,7 +291,7 @@ def main():
             run(q.gdn_layer, "gdn_ref1", r, q.GDN_ORDER, 1)
         else:
             run(pf.gdn_layer_prefill, f"gdn_ref{P}", r, pf.GDN_ORDER, 1)
-        logger.info(f"gdn_mc P={P} x{CORES} vs the single-core layer: out cos {cos(out, r['out']):.6f}, state cos "
+        logger.info(f"gdn_mc P={P} npu{CORES} vs the single-core layer: out cos {cos(out, r['out']):.6f}, state cos "
                     f"{cos(a['state_out'], r['state_out']):.6f}, conv equal {torch.equal(a['conv_out'], r['conv_out'])}")
 
     if "head" in tests or "tail" in tests:  # vs q35_flash head (R = P) and torch
@@ -301,10 +303,10 @@ def main():
                             v_out=zeros(P, HKV * D, dt=torch.half))
         if "head" in tests:
             a = dict(att, base=base, part=part, cos=cos_t, sin=sin_t, base_out=zeros(1, P, H), **outs())
-            run(attn_head_mc, f"head{P}_x{CORES}", a, HEAD_ORDER, CORES)
+            run(attn_head_mc, f"head{P}_npu{CORES}", a, HEAD_ORDER, CORES)
             r = dict(att, x=x_in, cos=cos_t, sin=sin_t, **outs())
             run(fl.attn_fd_head, f"head_ref{P}", r, fl.HEAD_ORDER, 1)
-            logger.info(f"attn_head_mc P={P} x{CORES}: " + ", ".join(
+            logger.info(f"attn_head_mc P={P} npu{CORES}: " + ", ".join(
                 f"{n} cos {cos(a[n], r[n]):.6f}" for n in ("q_out", "gate_out", "k_out", "v_out")) +
                 f", base equal {torch.equal(a['base_out'], x_in)}")
         if "tail" in tests:
@@ -325,15 +327,15 @@ def main():
             at = ref_att.reshape(HKV, G, P, D).permute(2, 0, 1, 3).reshape(P, HQ, D)
             gt = (torch.randn((P, HQ, D))).bfloat16()
             a = dict(att, m_all=ma, l_all=la, o_all=oa, gate=gt, part_out=zeros(CORES, P, H, dt=torch.float32))
-            run(attn_tail_mc, f"tail{P}_x{CORES}", a, TAIL_ORDER, CORES)
+            run(attn_tail_mc, f"tail{P}_npu{CORES}", a, TAIL_ORDER, CORES)
             ref = (torch.sigmoid(gt.float()) * at.float()).reshape(1, P, HQ * D) @ att["w_o"].float().T
-            logger.info(f"attn_tail_mc P={P} x{CORES}: o cos {cos(a['part_out'].sum(0, keepdim=True), ref):.6f}")
+            logger.info(f"attn_tail_mc P={P} npu{CORES}: o cos {cos(a['part_out'].sum(0, keepdim=True), ref):.6f}")
 
     if out_dir:
         for sub, fn, name in built:
             (path,) = glob.glob(f"{BUILD}/{sub}/cache/{fn}.*.compiled.axmodel")
-            shutil.copy(path, f"{out_dir}/{name}.axmodel")
-            logger.info(f"wrote {out_dir}/{name}.axmodel")
+            shutil.copy(path, board_io.kernel_file(out_dir, name, CORES))
+            logger.info(f"wrote {board_io.kernel_file(out_dir, name, CORES)}")
 
 
 if __name__ == "__main__":

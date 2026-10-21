@@ -6,7 +6,7 @@ graphs, e.g. the Qwen3-TTS codec decoder), one kernel per shape:
 in ggml's MUL_MAT terms out = src1 . src0^T (out ne0 = N = src0 rows): src0 a weight, or for a convolution the im2col
 rows with the kernel as src1. The kernel holds MB rows of x on chip at a time and streams w past them.
 
-Each kernel is run once on the simulator against torch (random data).
+Each kernel (file <name>_npu1.axmodel, single-core) is run once on the simulator against torch (random data).
 Usage: SHAPES="<M>x<N>x<K>,..." python mm_kernels.py out_dir
 """
 import glob
@@ -78,7 +78,7 @@ def build(M, N, K, out_dir):
     c = torch.nn.functional.cosine_similarity(out.reshape(-1).double(), ref.reshape(-1).double(), dim=0).item()
     logger.info(f"{name} (x rows per pass {MB}, out columns {NB}): cos vs torch {c:.6f}")
     (path,) = glob.glob(f"{dump}/cache/mm.*.compiled.axmodel")
-    shutil.copy(path, f"{out_dir}/{name}.axmodel")
+    shutil.copy(path, f"{out_dir}/{name}_npu1.axmodel")
     os.chdir(cwd)
 
 

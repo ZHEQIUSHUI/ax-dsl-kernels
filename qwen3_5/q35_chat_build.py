@@ -4,7 +4,8 @@
 - lm_head kernel: final RMSNorm + one vocab chunk of the tied embedding (VC rows), called V/VC times per token.
   Checked on the simulator against torch for chunk 0.
 - Data (into <out>): embed.bin [V, H] bf16 (embedding lookup and lm_head weight), final_norm.bin fp32 (1 + w),
-  vocab.bin (per id: u32 length + raw bytes), meta.txt, eos.txt, and the axmodels.
+  vocab.bin (per id: u32 length + raw bytes), meta.txt, eos.txt, and the axmodels (lm_head_npu1.axmodel,
+  attn_npu1.axmodel; gdn_npu1.axmodel is q35_step's).
 
 Usage: LMAX=1024 BC=64 python q35_chat_build.py board_chat   (layer weights: link L*/ and layers.txt from board_q35)
 """
@@ -23,6 +24,7 @@ from transformers import AutoTokenizer
 import axnn.dsl as ax
 from axnn.dsl.kernels.utils import rmsnorm
 from axnn.dsl.kernels.utils.linear import linear
+import board_io
 import q35_step as q
 
 VC = int(os.environ.get("VC", 24832))  # 248320 = 10 x 24832，每块 97 个 256 行的权重 tile
@@ -96,8 +98,8 @@ def main():
     k_attn[1](*[case[n] for n in q.ATTN_ORDER])
     logger.info(f"attn_layer LMAX={q.LMAX} BC={q.BC} compiled, out finite={bool(case['out'].float().isfinite().all())}")
 
-    shutil.copy(axmodel("lm_head"), f"{OUT}/lm_head.axmodel")
-    shutil.copy(axmodel("attn_layer"), f"{OUT}/attn.axmodel")
+    shutil.copy(axmodel("lm_head"), board_io.kernel_file(OUT, "lm_head"))
+    shutil.copy(axmodel("attn_layer"), board_io.kernel_file(OUT, "attn"))
 
     emb.contiguous().view(torch.int16).numpy().tofile(f"{OUT}/embed.bin")
     norm.numpy().tofile(f"{OUT}/final_norm.bin")

@@ -270,15 +270,15 @@ def experts_check(out_dir):
     if CORES > 1:  # the multi-core gate-up kernel: the cores' partial sums against the same reference
         case["part_out"] = torch.zeros((CORES, 1, H))
         ax.init(chip_num=1, core_num=CORES)
-        k = kern(moe_experts_gu_mc, f"experts_gu{TOPK}_x{CORES}")
+        k = kern(moe_experts_gu_mc, f"experts_gu{TOPK}_npu{CORES}")
         k[CORES](*[case[n] for n in order(moe_experts_gu_mc)])
         ax.init(chip_num=1, core_num=1)
-        logger.info(f"moe_experts_gu_mc K={TOPK} x{CORES}: sum of partials cos vs torch "
+        logger.info(f"moe_experts_gu_mc K={TOPK} npu{CORES}: sum of partials cos vs torch "
                     f"{cos(case['part_out'].sum(0).reshape(H), ref):.6f}")
         if out_dir:
-            path = max(glob.glob(f"{BUILD}/experts_gu{TOPK}_x{CORES}/cache/moe_experts_gu_mc.*.compiled.axmodel"),
+            path = max(glob.glob(f"{BUILD}/experts_gu{TOPK}_npu{CORES}/cache/moe_experts_gu_mc.*.compiled.axmodel"),
                        key=os.path.getmtime)
-            dst = f"{out_dir}/qwen35moe_experts{TOPK}_gu_mxfp4_x{CORES}.axmodel"
+            dst = board_io.kernel_file(out_dir, f"qwen35moe_experts{TOPK}_gu_mxfp4", CORES)
             shutil.copy(path, dst)
             logger.info(f"wrote {dst}: {board_io.fix(dst)[:2]} ...")
         return
@@ -290,7 +290,7 @@ def experts_check(out_dir):
         logger.info(f"{fn.__name__} K={TOPK} FE={FE} H={H}: out cos vs torch {cos(case['out'].float(), ref):.6f}")
         if out_dir:
             path = max(glob.glob(f"{BUILD}/{sub}/cache/{fn.__name__}.*.compiled.axmodel"), key=os.path.getmtime)
-            dst = f"{out_dir}/{name}.axmodel"
+            dst = board_io.kernel_file(out_dir, name)
             shutil.copy(path, dst)
             logger.info(f"wrote {dst}: {board_io.fix(dst)[:2]} ...")
 
@@ -397,8 +397,9 @@ def layer_check(W, kind, il, k_layer, k_exp, order_l, args, out_dir, name):
                     f"{cos(ec['out'].float(), ref[:, t]):.6f}")
     if out_dir:
         path = max(glob.glob(f"{BUILD}/{name}/cache/{LAYER_FN[kind].__name__}.*.compiled.axmodel"), key=os.path.getmtime)
-        shutil.copy(path, f"{out_dir}/{name}.axmodel")
-        logger.info(f"wrote {out_dir}/{name}.axmodel: {board_io.fix(f'{out_dir}/{name}.axmodel')}")
+        dst = board_io.kernel_file(out_dir, name)
+        shutil.copy(path, dst)
+        logger.info(f"wrote {dst}: {board_io.fix(dst)}")
 
 
 def main():

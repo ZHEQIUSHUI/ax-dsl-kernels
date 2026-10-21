@@ -6,6 +6,9 @@ an FP4 tensor declared as uint8 in logical coordinates fails to run (twice its b
 tensor's last dimension halved to its bytes; the bytes the kernel reads do not change.
 
 Usage: python board_io.py model.axmodel [...]   (in place), or board_io.fix(path) from a build script.
+
+kernel_file(out_dir, name, cores): the file a kernel is written to, <name>_npu<cores>.axmodel (the NPU cores it was
+compiled for, 1 included; ggml-axera looks a kernel up by its name and GGML_AXERA_CORES).
 """
 import sys
 
@@ -33,6 +36,10 @@ def fix(path):
     if changed:
         onnx.save(m, path)
     return changed
+
+
+def kernel_file(out_dir, name, cores=1):
+    return f"{out_dir}/{name}_npu{cores}.axmodel"
 
 
 if __name__ == "__main__":

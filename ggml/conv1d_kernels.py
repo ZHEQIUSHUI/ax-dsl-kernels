@@ -10,7 +10,7 @@ MUL_MAT the backend then skips), as K matrix products accumulated in f32: out[:,
 takes channels-last input and writes bf16 only). Blocks of OB output channels (their K matrices on chip) and LT output
 steps (an input block with the (K - 1) * D steps after it, the taps its shifted windows).
 
-Each kernel is run once on the simulator against torch (random data).
+Each kernel (file <name>_npu1.axmodel, single-core) is run once on the simulator against torch (random data).
 Usage: SHAPES="<IC>x<OC>x<K>x<D>x<L>,..." python conv1d_kernels.py out_dir
 """
 import glob
@@ -69,7 +69,7 @@ def build(IC, OC, K, D, L, out_dir):
     c = torch.nn.functional.cosine_similarity(out.reshape(-1).double(), ref.reshape(-1).double(), dim=0).item()
     logger.info(f"{name} (output channels per block {OB}, steps per block {LT}): cos vs torch {c:.6f}")
     (path,) = glob.glob(f"{dump}/cache/conv1d.*.compiled.axmodel")
-    shutil.copy(path, f"{out_dir}/{name}.axmodel")
+    shutil.copy(path, f"{out_dir}/{name}_npu1.axmodel")
     os.chdir(cwd)
 
 

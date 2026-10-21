@@ -4,8 +4,8 @@ Reuses q35_step's layer kernels unchanged: proj() is swapped for an MX linear wh
 wrapper's extra *_s inputs, so the kernel bodies stay the bf16 ones. Every projection in the 24 layers and the
 lm_head is MXFP8; norms, conv, GDN parameters stay as before; the embedding table for the lookup stays bf16.
 
-Writes <out>/L<i>/<input>.bin (fp8 weights + u8 scales), layers.txt, lm_w.bin / lm_s.bin, the three axmodels, and
-copies embed.bin, final_norm.bin, vocab.bin, eos.txt, meta.txt from <bf16_dir>.
+Writes <out>/L<i>/<input>.bin (fp8 weights + u8 scales), layers.txt, lm_w.bin / lm_s.bin, the three axmodels
+({gdn,attn,lm_head}_npu1.axmodel), and copies embed.bin, final_norm.bin, vocab.bin, eos.txt, meta.txt from <bf16_dir>.
 Checks on the simulator: each MX kernel against the bf16 kernel on the same input (layer 0, layer 3, lm_head chunk 0).
 
 Usage: LMAX=1024 BC=64 python q35_mx_build.py board_chat board_mx
@@ -26,6 +26,7 @@ import axnn.dsl as ax
 from axnn.dsl.kernels.utils import rmsnorm
 from axnn.dsl.kernels.utils.linear import linear
 from axnn.frontend import graph_utils
+import board_io
 import q35_step as q
 import q35_chat_build as cb
 
@@ -233,9 +234,9 @@ def main():
     open(f"{OUT}/layers.txt", "w").write("\n".join(types) + "\n")
     dump(lw, f"{OUT}/lm_w.bin")
     dump(ls, f"{OUT}/lm_s.bin")
-    shutil.copy(axmodel("gdn_layer_mx"), f"{OUT}/gdn.axmodel")
-    shutil.copy(axmodel("attn_layer_mx"), f"{OUT}/attn.axmodel")
-    shutil.copy(axmodel("lm_head_mx"), f"{OUT}/lm_head.axmodel")
+    shutil.copy(axmodel("gdn_layer_mx"), board_io.kernel_file(OUT, "gdn"))
+    shutil.copy(axmodel("attn_layer_mx"), board_io.kernel_file(OUT, "attn"))
+    shutil.copy(axmodel("lm_head_mx"), board_io.kernel_file(OUT, "lm_head"))
     for f in ["embed.bin", "final_norm.bin", "vocab.bin", "eos.txt", "meta.txt"]:
         shutil.copy(f"{BF16_DIR}/{f}", f"{OUT}/{f}")
     logger.info(f"wrote {OUT}")

@@ -7,7 +7,8 @@
 R covers the im2col rows of one encoder call (mtmd feeds at most 8 one-second chunks: conv2d.2 800 rows per chunk,
 conv2d.3 208); the host pads the rest. Bias and GELU stay on the CPU.
 
-Check on the simulator against torch on random data. Usage: OC=480 K=4320 R=6400 python q3a_conv.py [kernel_dir]
+Written as qwen3a_conv_o<OC>_k<K>_r<R>_npu1.axmodel. Check on the simulator against torch on random data.
+Usage: OC=480 K=4320 R=6400 python q3a_conv.py [kernel_dir]
 """
 import glob
 import os
@@ -19,6 +20,7 @@ from loguru import logger
 
 import axnn.dsl as ax
 from axnn.dsl.kernels.utils.linear import linear
+import board_io
 
 OC, K, R = int(os.environ.get("OC", 480)), int(os.environ.get("K", 4320)), int(os.environ.get("R", 6400))
 OB = int(os.environ.get("OB", 96))  # output channels per pass (the w rows held on chip)
@@ -57,7 +59,7 @@ def main():
     logger.info(f"conv gemm OC={OC} K={K} R={R}: cos vs torch {c:.6f}")
     if out_dir:
         (path,) = glob.glob(f"{BUILD}/cache/conv_gemm.*.compiled.axmodel")
-        dst = f"{out_dir}/qwen3a_conv_o{OC}_k{K}_r{R}.axmodel"
+        dst = board_io.kernel_file(out_dir, f"qwen3a_conv_o{OC}_k{K}_r{R}")
         shutil.copy(path, dst)
         logger.info(f"wrote {dst}")
 

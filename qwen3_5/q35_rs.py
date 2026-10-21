@@ -6,7 +6,7 @@ in place as the prefill kernel), the state and the conv state after each earlier
 
 so a rejected draft rolls back to slot j without recomputation. The host binds each snapshot output to its plane of
 the llama.cpp recurrent cache (slot j at row j * mem_size + the sequence's row). Kernel
-qwen35_gdn_prefill<P>[_mx8]_rs.
+qwen35_gdn_prefill<P>[_mx8]_rs (file _npu1.axmodel).
 
 Check on the simulator against the decode kernel run P times: outputs, final state, every snapshot. Usage:
 MODEL=<hf dir> KVL=cell PCHUNK=4 [WFMT=mx8] [QW_RANDOM=1] python q35_rs.py [kernel_dir]
@@ -174,7 +174,7 @@ def main():
                 f"{torch.equal(case['conv_out'], cv)}, snapshots (state cos, conv equal) {snap}")
     if out_dir:
         path = max(glob.glob(f"{BUILD}/{sub}/cache/{gdn_rs.__name__}.*.compiled.axmodel"), key=os.path.getmtime)
-        dst = f"{out_dir}/qwen35_gdn_prefill{P}{'_mx8' if mx else ''}_rs.axmodel"
+        dst = board_io.kernel_file(out_dir, f"qwen35_gdn_prefill{P}{'_mx8' if mx else ''}_rs")
         shutil.copy(path, dst)
         logger.info(f"wrote {dst} {board_io.fix(dst)[:1]}")
 

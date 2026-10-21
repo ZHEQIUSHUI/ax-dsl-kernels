@@ -37,7 +37,7 @@ import q35_prefill as qp
 q = mo.q
 H, NE, FE, P, LMAX, BC = mo.H, mo.NE, mo.FE, qp.P, qp.LMAX, qp.BC
 S, G = int(os.environ.get("SLOTS", 32)), int(os.environ.get("SLOT_G", 8))
-CORES = int(os.environ.get("CORES", 1))  # slots kernel: S / CORES slots per core, no synchronization (_x<CORES>)
+CORES = int(os.environ.get("CORES", 1))  # slots kernel: S / CORES slots per core, no synchronization (_npu<CORES>)
 BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_moe_prefill"))
 NODEC = os.environ.get("NODEC") == "1"
 
@@ -108,11 +108,12 @@ def kern(fn, sub):
     return ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=True, dump_path=f"{BUILD}/{sub}")(fn)
 
 
-def publish(sub, fn, out_dir, name):
+def publish(sub, fn, out_dir, name, cores=1):
     if out_dir:
         path = max(glob.glob(f"{BUILD}/{sub}/cache/{fn.__name__}.*.compiled.axmodel"), key=os.path.getmtime)
-        shutil.copy(path, f"{out_dir}/{name}.axmodel")
-        logger.info(f"wrote {out_dir}/{name}.axmodel: {board_io.fix(f'{out_dir}/{name}.axmodel')[:2]} ...")
+        dst = board_io.kernel_file(out_dir, name, cores)
+        shutil.copy(path, dst)
+        logger.info(f"wrote {dst}: {board_io.fix(dst)[:2]} ...")
 
 
 def slots_check(out_dir):
@@ -131,14 +132,13 @@ def slots_check(out_dir):
         gu = (xi @ dq[0].T).bfloat16().float()
         a = (torch.nn.functional.silu(gu[:, :FE]) * gu[:, FE:]).bfloat16().float()
         ref[i] = rw[i].reshape(G, 1) * (a @ dq[1].T)
-    sfx = f"_x{CORES}" if CORES > 1 else ""
     ax.init(chip_num=1, core_num=CORES)
-    k = kern(moe_slots, f"slots{S}_g{G}{sfx}")
+    k = kern(moe_slots, f"slots{S}_g{G}_npu{CORES}")
     k[CORES](*[case[n] for n in mo.order(moe_slots)])
     ax.init(chip_num=1, core_num=1)
     logger.info(f"moe slots S={S} G={G}: out cos vs torch {mo.cos(case['out'], ref):.6f}, unused rows zero "
                 f"{bool((case['out'][S // 2 :, G // 2 :] == 0).all())}")
-    publish(f"slots{S}_g{G}{sfx}", moe_slots, out_dir, f"qwen35moe_slots{S}_g{G}_gu_mxfp4{sfx}")
+    publish(f"slots{S}_g{G}_npu{CORES}", moe_slots, out_dir, f"qwen35moe_slots{S}_g{G}_gu_mxfp4", CORES)
 
 
 def layer_check(W, kind, il, out_dir):

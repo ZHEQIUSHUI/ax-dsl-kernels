@@ -15,7 +15,8 @@ with 12 heads of 64; 2B / 4B: 24 x 1024, 16 x 64; 9B / 27B / 35B-A3B: 27 x 1152,
 The host orders the patches in merge order (each 2 x 2 group consecutive, as the HF processor and llama.cpp do) and
 pads N to the kernel's patch count (whole key blocks); padded rows are computed and ignored.
 
-Check on the simulator against transformers' Qwen3_5VisionModel, layer by layer. Usage:
+Written as qwen35_vit_<kernel><N>_h<H>_npu1.axmodel. Check on the simulator against transformers' Qwen3_5VisionModel,
+layer by layer. Usage:
   MODEL=<hf dir> N=256 python q35_vit.py [kernel_dir]
 """
 import glob
@@ -35,6 +36,7 @@ import axnn.dsl as ax
 from axnn.dsl.kernels.utils.activation import gelu_tanh
 from axnn.dsl.kernels.utils.linear import linear
 from axnn.dsl.kernels.utils.rope import rope
+import board_io
 
 MODEL = os.environ.get("MODEL") or sys.exit("set MODEL to the Qwen3.5 Hugging Face model directory")
 VC = json.load(open(f"{MODEL}/config.json"))["vision_config"]
@@ -240,7 +242,7 @@ def attn_random():
     logger.info(f"vit attn N={N} H={H} QB={QB} BC={BC} (n={n}, random): cos vs torch {cos(t['out'][:n], att):.6f}")
     if len(sys.argv) > 1:  # the kernel alone, e.g. a new attention block size for existing other kernels
         (path,) = glob.glob(f"{BUILD}/attn{N}/cache/vit_attn.*.compiled.axmodel")
-        dst = f"{os.path.abspath(sys.argv[1])}/qwen35_vit_attn{N}_h{H}.axmodel"
+        dst = board_io.kernel_file(os.path.abspath(sys.argv[1]), f"qwen35_vit_attn{N}_h{H}")
         shutil.copy(path, dst)
         logger.info(f"wrote {dst}")
 
@@ -338,7 +340,7 @@ def main():
         tag = f"h{H}"
         for sub, fn in built:
             (path,) = glob.glob(f"{BUILD}/{sub}/cache/{fn}.*.compiled.axmodel")
-            dst = f"{out_dir}/qwen35_{fn}{N}_{tag}.axmodel"
+            dst = board_io.kernel_file(out_dir, f"qwen35_{fn}{N}_{tag}")
             shutil.copy(path, dst)
             logger.info(f"wrote {dst}")
 

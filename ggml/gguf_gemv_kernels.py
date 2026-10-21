@@ -1,9 +1,10 @@
 """Precompile the decode GEMV kernels ggml-axera looks up, one per weight shape found in a GGUF.
 
-Kernel "mul_mat_bf16_n<C>_k<K>.axmodel": x [1, K] bf16, w [C, K] bf16 (runtime input), out [1, C] f32. Every BF16
-2-D weight shape [N, K] of the GGUF gets one, with C = N, or for N > MAX_N the largest multiple of 16 not above MAX_N
-that divides N; the backend then calls it N / C times (e.g. token_embd as the tied output projection). The conv1d
-weights are skipped (not matrix products). Each kernel is run once on the simulator against torch.
+Kernel "mul_mat_bf16_n<C>_k<K>" (file mul_mat_bf16_n<C>_k<K>_npu1.axmodel, single-core): x [1, K] bf16, w [C, K]
+bf16 (runtime input), out [1, C] f32. Every BF16 2-D weight shape [N, K] of the GGUF gets one, with C = N, or for
+N > MAX_N the largest multiple of 16 not above MAX_N that divides N; the backend then calls it N / C times (e.g.
+token_embd as the tied output projection). The conv1d weights are skipped (not matrix products). Each kernel is run
+once on the simulator against torch.
 
 Usage: PYTHONPATH=<llama.cpp>/gguf-py python gguf_gemv_kernels.py model.gguf out_dir
 SHAPES="<N>x<K>,..." adds shapes (e.g. a quantized GGUF's weights the backend converts to bf16); model.gguf "-" reads
@@ -81,7 +82,7 @@ def main():
         ref = x.float() @ w.float().T
         c = torch.nn.functional.cosine_similarity(out.reshape(-1).double(), ref.reshape(-1).double(), dim=0).item()
         (path,) = glob.glob(f"{BUILD}/{tag}/cache/mul_mat_bf16.*.compiled.axmodel")
-        shutil.copy(path, f"{out_dir}/mul_mat_bf16_{tag}.axmodel")
+        shutil.copy(path, f"{out_dir}/mul_mat_bf16_{tag}_npu1.axmodel")
         logger.info(f"{tag}: cos={c:.6f} ({', '.join(names[:2])}{'...' if len(names) > 2 else ''})")
         if c < 0.999:
             sys.exit(f"{tag}: kernel mismatch")

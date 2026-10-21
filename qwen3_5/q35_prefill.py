@@ -11,7 +11,7 @@ Inputs as the decode kernels in q35_step.py, with x/out [1, P, H] and cos/sin [P
 
 Check on the simulator: P tokens through the prefill kernels once vs the decode kernels P times (layer outputs,
 state, conv state, KV rows). Usage: MODEL=<hf dir> LMAX=4096 BC=64 PCHUNK=16 [WFMT=mx8] python q35_prefill.py
-[kernel_dir] (with kernel_dir: also copy qwen35_{gdn,attn}_prefill<P>[_mx8].axmodel there; Qwen3: qwen3_attn_*).
+[kernel_dir] (with kernel_dir: also copy qwen35_{gdn,attn}_prefill<P>[_mx8]_npu1.axmodel there; Qwen3: qwen3_attn_*).
 WFMT=mx8 builds the MXFP8 kernels (a s_* scale input per projection, as q35_mx_build.py) and checks them against the
 MXFP8 decode kernels.
 """
@@ -35,6 +35,7 @@ from axnn.dsl.kernels.utils.causal_conv import stateful_runtime_causal_depthwise
 from axnn.dsl.kernels.utils.rope import rope
 from axnn.dsl.kernels.qwen_gdn_utils import chunk_prefix_sum_fp32, gdn_gate, gdn_recurrent_step, gdn_stable_chunk
 from axnn.dsl.kernels.qwen_gdn_utils import l2norm_lastdim
+import board_io
 import q35_step as q
 
 P = int(os.environ.get("PCHUNK", 16))
@@ -326,8 +327,9 @@ def main():
                 continue
             tag = sfx + (kv_sfx if layer == "attn" else "")
             (path,) = glob.glob(f"{BUILD}/{layer}_pre{P}{tag}/cache/{fn.__name__}.*.compiled.axmodel")
-            shutil.copy(path, f"{out_dir}/{q.KP}_{layer}_prefill{P}{tag}.axmodel")
-            logger.info(f"wrote {out_dir}/{q.KP}_{layer}_prefill{P}{tag}.axmodel")
+            dst = board_io.kernel_file(out_dir, f"{q.KP}_{layer}_prefill{P}{tag}")
+            shutil.copy(path, dst)
+            logger.info(f"wrote {dst}")
 
 
 NODEC = os.environ.get("NODEC") == "1"  # only the prefill kernels (build, cycles), no token-by-token decode reference
