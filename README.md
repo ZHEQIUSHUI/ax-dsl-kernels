@@ -83,6 +83,27 @@ mul_mat_bf16_n<N>_k<K>.axmodel   输入 x [1, K] bf16、w [N, K] bf16；输出 o
 
 后端从 `GGML_AXERA_KERNEL_DIR` 按这个名字查找；找不到的形状回退到 CPU。
 
+没有模板的图（mtmd 的生成图：Qwen3-TTS 的 code predictor 和 codec 解码器）由后端交给 CPU 后端执行，其中有 kernel
+的矩阵乘放到 NPU：一行的走上面的 GEMV（同一输入的 q / k / v、gate / up 合并成一次），多行的走
+`ggml/mm_kernels.py` 按形状生成的 GEMM：
+
+```
+mm_bf16_m<M>_n<N>_k<K>.axmodel   输入 x [M, K]、w [N, K] bf16；输出 out [M, N] f32 = x · wᵀ（ggml 的 src1 · src0ᵀ）
+```
+
+卷积的 im2col 行是 w（N 很大，kernel 里按列分块）。Qwen3-TTS（12Hz 声码器，每次 72 帧）用到的形状：
+
+```
+SHAPES=72x1024x512,72x512x1024,72x512x256,72x2048x1024,1024x72x1536,144x1024x4096,144x4096x1024,144x2048x1024,\
+288x1024x4096,288x4096x1024,288x12288x1536,1536x288x7168,768x2304x5376,768x2304x768,2304x3840x768,\
+384x11520x2688,384x11520x384,11520x1536x384,192x46080x1344,192x46080x192,46080x576x192,96x138240x672,96x138240x96 \
+  python ggml/mm_kernels.py <kernel_dir>
+```
+
+code predictor 的 5 层（1024 宽，和 Qwen3-0.6B 同形状）用 Qwen3-0.6B 的融合 decode 层 kernel（`ggml_template_build.py`
+`WFMT=bf16`），拷成 `qwen3tts_cp_attn_kvc_c4096.axmodel`（talker 的同名 kernel 是另一种宽度）。MXFP8 版
+（`qwen3tts_cp_attn_mx8_kvc_c4096`）快约 15%，但 TTS-0.6B 用它时有的种子说不完（talker 不出结束 token），后端优先用 bf16 版。
+
 ## 已知限制（当前驱动）
 
 - 多核 kernel 内的 `sync_all` 会导致驱动崩溃，不要在共享板上跑。

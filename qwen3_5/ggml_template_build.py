@@ -116,14 +116,15 @@ def main():
         build_mx8(W, x)
         return
 
-    os.chdir(f"{BUILD}/gdn")
-    k_gdn = ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=True, dump_path=f"{BUILD}/gdn")(q.gdn_layer)
-    case = dict(q.gdn_args(W, 0), x=x, state_in=torch.zeros((q.NV, q.DK, q.DV)),
-                conv_in=torch.zeros((1, q.CONV - 1, 2 * q.KD + q.VD), dtype=torch.bfloat16),
-                out=torch.zeros((1, 1, q.H), dtype=torch.bfloat16), state_out=torch.zeros((q.NV, q.DK, q.DV)),
-                conv_out=torch.zeros((1, q.CONV - 1, 2 * q.KD + q.VD), dtype=torch.bfloat16))
-    k_gdn[1](*[case[n] for n in q.GDN_ORDER])
-    logger.info(f"gdn_layer compiled, out finite={bool(case['out'].float().isfinite().all())}")
+    if q.HYBRID:
+        os.chdir(f"{BUILD}/gdn")
+        k_gdn = ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=True, dump_path=f"{BUILD}/gdn")(q.gdn_layer)
+        case = dict(q.gdn_args(W, 0), x=x, state_in=torch.zeros((q.NV, q.DK, q.DV)),
+                    conv_in=torch.zeros((1, q.CONV - 1, 2 * q.KD + q.VD), dtype=torch.bfloat16),
+                    out=torch.zeros((1, 1, q.H), dtype=torch.bfloat16), state_out=torch.zeros((q.NV, q.DK, q.DV)),
+                    conv_out=torch.zeros((1, q.CONV - 1, 2 * q.KD + q.VD), dtype=torch.bfloat16))
+        k_gdn[1](*[case[n] for n in q.GDN_ORDER])
+        logger.info(f"gdn_layer compiled, out finite={bool(case['out'].float().isfinite().all())}")
 
     os.chdir(f"{BUILD}/attn")
     k_attn = ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=True, dump_path=f"{BUILD}/attn")(q.attn_layer)
@@ -138,11 +139,11 @@ def main():
     logger.info(f"attn_layer LMAX={q.LMAX} BC={q.BC} compiled, out finite={bool(case['out'].float().isfinite().all())}")
 
     for sub, name in (("gdn", "gdn_layer"), ("attn", "attn_layer")):
-        if KVC and sub == "gdn":
+        if (KVC or not q.HYBRID) and sub == "gdn":
             continue
         (path,) = glob.glob(f"{BUILD}/{sub}/cache/{name}.*.compiled.axmodel")
-        shutil.copy(path, f"{OUT}/qwen35_{sub}{KV_SFX if sub == 'attn' else ''}.axmodel")
-    logger.info(f"wrote {OUT}/qwen35_gdn.axmodel, qwen35_attn.axmodel")
+        shutil.copy(path, f"{OUT}/{q.KP}_{sub}{KV_SFX if sub == 'attn' else ''}.axmodel")
+    logger.info(f"wrote {OUT}/{q.KP}_gdn.axmodel, {q.KP}_attn.axmodel")
 
 
 if __name__ == "__main__":
