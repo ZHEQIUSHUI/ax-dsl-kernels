@@ -112,24 +112,27 @@ def mlp_ft(rows):
     return ft
 
 
-def mlp_residual(x1, ln2, w_gate, w_up, w_down, out):
+def mlp_block(x1, ln2, w_gate, w_up, w_down, tag=""):
+    """RMSNorm -> MLP + residual on x1, the result on chip (tag: a prefix of the layer's tensor names)"""
     h2 = rmsnorm(x1, ax.dsl.load(ln2).reshape(1, 1, H), eps=EPS)
     ft = mlp_ft(x1.shape[0] * x1.shape[1])
     if ft == F:
-        act = silu_mul(proj(h2, w_gate, "mlp_gate"), proj(h2, w_up, "mlp_up"), activation_output_dtype=ax.fp32,
+        act = silu_mul(proj(h2, w_gate, tag + "mlp_gate"), proj(h2, w_up, tag + "mlp_up"),
+                       activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
+        return ax.dsl.add(x1, proj(act, w_down, tag + "mlp_down"), output_dtype=ax.bf16)
+    acc = None  # F in passes of ft channels: their down-projection partials summed in fp32
+    for f0 in range(0, F, ft):
+        fs = slice(f0, f0 + ft)
+        act = silu_mul(proj(h2, slice_w(w_gate, rows=fs), f"{tag}mlp_gate{f0}"),
+                       proj(h2, slice_w(w_up, rows=fs), f"{tag}mlp_up{f0}"), activation_output_dtype=ax.fp32,
                        output_dtype=ax.bf16)
-        x2 = ax.dsl.add(x1, proj(act, w_down, "mlp_down"), output_dtype=ax.bf16)
-    else:  # F in passes of ft channels: their down-projection partials summed in fp32
-        acc = None
-        for f0 in range(0, F, ft):
-            fs = slice(f0, f0 + ft)
-            act = silu_mul(proj(h2, slice_w(w_gate, rows=fs), f"mlp_gate{f0}"),
-                           proj(h2, slice_w(w_up, rows=fs), f"mlp_up{f0}"), activation_output_dtype=ax.fp32,
-                           output_dtype=ax.bf16)
-            d = proj(act, slice_w(w_down, cols=fs), f"mlp_down{f0}", output_dtype=ax.fp32)
-            acc = d if acc is None else ax.dsl.add(acc, d, output_dtype=ax.fp32)
-        x2 = ax.dsl.add(x1, acc, output_dtype=ax.bf16)
-    ax.dsl.store(x2, r=out)
+        d = proj(act, slice_w(w_down, cols=fs), f"{tag}mlp_down{f0}", output_dtype=ax.fp32)
+        acc = d if acc is None else ax.dsl.add(acc, d, output_dtype=ax.fp32)
+    return ax.dsl.add(x1, acc, output_dtype=ax.bf16)
+
+
+def mlp_residual(x1, ln2, w_gate, w_up, w_down, out):
+    ax.dsl.store(mlp_block(x1, ln2, w_gate, w_up, w_down), r=out)
 
 
 def gdn_layer(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out, ln2, w_gate, w_up, w_down,
@@ -169,16 +172,16 @@ def gdn_layer(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_ou
     return out, state_out, conv_out
 
 
-def attn_layer(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nblk, mask, w_o, ln2, w_gate, w_up,
-               w_down, out):
-    xt = ax.dsl.load(x)  # [1, 1, H]
+def attn_block(xt, ln1, w_q, w_k, w_v, q_norm, k_norm, cos_t, sin_t, kc, vc, pos, nblk, mask, w_o, ln2, w_gate, w_up,
+               w_down, tag=""):
+    """one attention layer on xt [1, 1, H] (on chip): its K / V written into kc / vc, its output returned on chip
+    (tag: a prefix of the layer's tensor names, for several layers in one kernel)"""
     h = rmsnorm(xt, ax.dsl.load(ln1).reshape(1, 1, H), eps=EPS)
-    qg = proj(h, w_q, "attn_q").reshape(1, HQ, (2 if GATE else 1) * D)  # 每个头 [q | gate]（Qwen3 无 gate）
+    qg = proj(h, w_q, tag + "attn_q").reshape(1, HQ, (2 if GATE else 1) * D)  # 每个头 [q | gate]（Qwen3 无 gate）
     q = rmsnorm(qg[:, :, 0:D], ax.dsl.load(q_norm).reshape(1, 1, D), eps=EPS)
     gate = qg[:, :, D : 2 * D] if GATE else None
-    k = rmsnorm(proj(h, w_k, "attn_k").reshape(1, HKV, D), ax.dsl.load(k_norm).reshape(1, 1, D), eps=EPS)
-    v = proj(h, w_v, "attn_v").reshape(1, HKV, D)
-    cos_t, sin_t = ax.dsl.load(cos), ax.dsl.load(sin)  # [1, ROT/2]
+    k = rmsnorm(proj(h, w_k, tag + "attn_k").reshape(1, HKV, D), ax.dsl.load(k_norm).reshape(1, 1, D), eps=EPS)
+    v = proj(h, w_v, tag + "attn_v").reshape(1, HKV, D)
     q = rope(q, cos_t, sin_t, rotary_dim=ROT)
     k = rope(k, cos_t, sin_t, rotary_dim=ROT)
 
@@ -198,7 +201,7 @@ def attn_layer(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nbl
         ax.dsl.dynamic_st(v[:, hk : hk + 1, :].reshape(1, 1, D), src0, dst, one_row, dim=(0, 1),
                           output_shape=vc.shape, r=vc)
 
-    attn = ax.dsl.create_tensor((1, HQ, D), ax.bf16, ax.MemoryType.OCM, name="attn")
+    attn = ax.dsl.create_tensor((1, HQ, D), ax.bf16, ax.MemoryType.OCM, name=tag + "attn")
     kv_block_shape = ax.dsl.from_numpy(np.array([1, BC] if KVL == "head" else [BC], dtype=np.uint32))
     mask_block_shape = ax.dsl.from_numpy(np.array([1], dtype=np.uint32))
     block_stride = ax.dsl.from_numpy(np.array([BC], dtype=np.int32))
@@ -260,8 +263,15 @@ def attn_layer(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nbl
 
     gated = (sigmoid_mul(attn, gate, activation_output_dtype=ax.fp32, output_dtype=ax.bf16) if GATE else attn
              ).reshape(1, 1, HQ * D)
-    x1 = ax.dsl.add(xt, proj(gated, w_o, "attn_o"), output_dtype=ax.bf16)
-    mlp_residual(x1, ln2, w_gate, w_up, w_down, out)
+    x1 = ax.dsl.add(xt, proj(gated, w_o, tag + "attn_o"), output_dtype=ax.bf16)
+    return mlp_block(x1, ln2, w_gate, w_up, w_down, tag)
+
+
+def attn_layer(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nblk, mask, w_o, ln2, w_gate, w_up,
+               w_down, out):
+    x2 = attn_block(ax.dsl.load(x), ln1, w_q, w_k, w_v, q_norm, k_norm, ax.dsl.load(cos), ax.dsl.load(sin), kc, vc,
+                    pos, nblk, mask, w_o, ln2, w_gate, w_up, w_down)  # x [1, 1, H], cos / sin [1, ROT/2]
+    ax.dsl.store(x2, r=out)
     return out, kc, vc
 
 
