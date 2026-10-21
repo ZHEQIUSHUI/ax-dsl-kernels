@@ -100,6 +100,22 @@ SHAPES=72x1024x512,72x512x1024,72x512x256,72x2048x1024,1024x72x1536,144x1024x409
   python ggml/mm_kernels.py <kernel_dir>
 ```
 
+卷积（ggml 的 im2col + 矩阵乘）优先用 `ggml/conv1d_kernels.py` 的卷积 kernel，直接读 ggml 的 [通道, 时间] 布局，
+K 个错位矩阵乘 f32 累加，不生成 im2col（AxConvV2 在 AX8860 上只出 bf16，NCL 只支持 depthwise）：
+
+```
+conv1d_bf16_ic<IC>_oc<OC>_k<K>_d<D>_l<L>.axmodel   x [IC, L]、w [K, OC, IC] bf16；输出 out [OC, L - (K-1)·D] f32
+```
+
+Qwen3-TTS 声码器用到的（L 含因果卷积的左侧上下文）：
+
+```
+S="1024x1536x7x1x294 512x1024x3x1x74 96x1x7x1x138246"
+for ct in 768:2304 384:11520 192:46080 96:138240; do C=${ct%:*}; T=${ct#*:}
+  for d in 1 3 9; do S="$S ${C}x${C}x7x${d}x$((T+6*d))"; done; S="$S ${C}x${C}x1x1x$T"; done
+SHAPES=$(echo $S | tr ' ' ',') python ggml/conv1d_kernels.py <kernel_dir>
+```
+
 code predictor 的 5 层（1024 宽，和 Qwen3-0.6B 同形状）用 Qwen3-0.6B 的融合 decode 层 kernel（`ggml_template_build.py`
 `WFMT=bf16`），拷成 `qwen3tts_cp_attn_kvc_c4096.axmodel`（talker 的同名 kernel 是另一种宽度）。MXFP8 版
 （`qwen3tts_cp_attn_mx8_kvc_c4096`）快约 15%，但 TTS-0.6B 用它时有的种子说不完（talker 不出结束 token），后端优先用 bf16 版。
