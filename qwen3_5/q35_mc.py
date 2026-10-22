@@ -6,7 +6,8 @@ CORES partials of the previous call: x = base + sum_c part[c], computed by every
   mlp_mc<P>   x = base + sum(part); x2 = x + down(silu(gate(h)) * up(h)), h = rmsnorm(x): gate / up rows and the
               matching down columns per core -> base_out = x, part_out[c] = the core's down partial
   gdn_mc<P>   x = base + sum(part); the delta-net half of the layer for NV / CORES value heads per core (their q / k / v
-              / z rows, conv channels, state rows; b / a for all heads) -> base_out = x, part_out[c] = the core's
+              / z rows, conv channels, state rows; b / a for all heads; with NV > NK the core's NK / CORES key heads
+              and their value heads) -> base_out = x, part_out[c] = the core's
               out-projection partial (its heads' columns); then mlp_mc. P = 1 (decode): the recurrent step per head
               instead of the chunked delta rule
   attn_head_mc<P>   x = base + sum(part) -> base_out = x; per core HQ / CORES query heads (q pre-scaled, gate) and,
@@ -15,6 +16,13 @@ CORES partials of the previous call: x = base + sum_c part[c], computed by every
               f32), C / CORES weight rows per core: the output projection in decode
   attn_tail_mc<P>   the core's query heads of the attention output, sigmoid gate, o-projection partial -> part_out[c];
               then mlp_mc with base = the head's base_out
+  moe_pre_mc<P>   MoE models, in place of mlp_mc: x = base + sum(part), P / CORES tokens per core (each core reads all
+              of the dense part's weights, a few MB): h2 = rmsnorm(x), the shared expert with its sigmoid gate and the
+              router logits -> base_out = x + shared expert, h2_out, logits_out [1, P, NE] f32 (q35_moe.moe_pre);
+              the host routes the tokens to the experts (the slots kernel) and adds their results to base_out
+
+WFMT=mx8 also builds gdn_mc with MXFP8 q / k / v / z / b / a / out weights (the core's rows of qkv and z and
+columns of out sliced with their scales).
 
 Qwen3 (a config without delta-net layers: KP = qwen3): no gdn_mc, no output gate (no gate_out / gate), q_proj rows
 of q only; with more KV heads than cores each core takes HKV / CORES of them, and a core's query heads may span
@@ -43,10 +51,15 @@ import axnn.dsl as ax
 from axnn.dsl.kernels.utils import rmsnorm, silu_gate, silu_mul, sigmoid_mul
 from axnn.dsl.kernels.utils.causal_conv import stateful_runtime_causal_depthwise_conv1d_silu
 from axnn.dsl.kernels.utils.rope import rope
+from axnn.dsl.kernels.utils.linear import linear
 from axnn.dsl.kernels.qwen_gdn_utils import (chunk_prefix_sum_fp32, gdn_gate, gdn_recurrent_step, gdn_stable_chunk,
                                              l2norm_lastdim)
 import board_io
 import q35_step as q
+
+MOE = "num_experts" in q.cfg  # 35B-A3B: the layers end in the MoE's dense part (moe_pre_mc) instead of the MLP
+if MOE:
+    import q35_moe as mo  # q.mlp_args: the shared expert, router and shared gate
 
 WFMT = os.environ.get("WFMT", "bf16")
 MX = WFMT == "mx8"
@@ -60,7 +73,8 @@ BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_mc"))
 FC = F // CORES  # MLP rows per core
 NK, NV, DK, DV, KD, VD, CONV = q.NK, q.NV, q.DK, q.DV, q.KD, q.VD, q.CONV
 HQ, HKV, D, G, ROT = q.HQ, q.HKV, q.D, q.G, q.ROT
-NH = NV // CORES  # delta-net heads per core
+KHC = NK // CORES  # delta-net key heads per core
+REP = NV // NK  # value heads per key head
 QH = HQ // CORES  # query heads per core
 QW = (2 if q.GATE else 1) * D  # q_proj rows per query head ([q | gate] with the output gate)
 KH = max(1, HKV // CORES)  # KV heads per core (the cores below HKV when there are fewer)
@@ -90,6 +104,39 @@ def mlp_body(base, part, ln2, w_gate, w_up, w_down, base_out, part_out):
     ax.dsl.store(down, r=part_out[c : c + 1])
 
 
+def moe_pre_body(base, part, ln2, w_gate, w_up, w_down, w_router, w_shg, base_out, h2_out, logits_out):
+    c = ax.program_id(0)
+    TP = P // CORES
+    rows = slice(c * TP, (c + 1) * TP)
+    acc = ax.dsl.cast(ax.dsl.load(base[:, rows]), dtype=ax.fp32)
+    for k in range(CORES):
+        acc = ax.dsl.add(acc, ax.dsl.load(part[k : k + 1, rows]), output_dtype=ax.fp32)
+    x = ax.dsl.cast(acc, dtype=ax.bf16)  # [1, TP, H]
+    h2 = rmsnorm(x, ax.dsl.load(ln2).reshape(1, 1, H), eps=EPS)
+    act = silu_mul(q.proj(h2, w_gate, "sh_gate"), q.proj(h2, w_up, "sh_up"), activation_output_dtype=ax.fp32,
+                   output_dtype=ax.bf16)
+    sh = q.proj(act, w_down, "sh_down", output_dtype=ax.fp32)
+    g = ax.dsl.sum(ax.dsl.mul(h2, ax.dsl.load(w_shg).reshape(1, 1, H), output_dtype=ax.fp32), dim=-1, keepdim=True,
+                   output_dtype=ax.fp32)
+    ax.dsl.store(ax.dsl.add(x, ax.dsl.mul(sh, ax.dsl.sigmoid(g, output_dtype=ax.fp32), output_dtype=ax.fp32),
+                            output_dtype=ax.bf16), r=base_out[:, rows])
+    ax.dsl.store(h2, r=h2_out[:, rows])
+    logits = linear(h2, w_router, None, "router", output_dtype=ax.fp32, oc_tile_size=mo.NE)
+    ax.dsl.store(logits, r=logits_out[:, rows])
+
+
+def moe_pre_mc(base, part, ln2, w_gate, w_up, w_down, w_router, w_shg, base_out, h2_out, logits_out):
+    moe_pre_body(base, part, ln2, w_gate, w_up, w_down, w_router, w_shg, base_out, h2_out, logits_out)
+    return base_out, h2_out, logits_out
+
+
+def moe_pre_mc_mx(base, part, ln2, w_gate, s_gate, w_up, s_up, w_down, s_down, w_router, w_shg, base_out, h2_out,
+                  logits_out):
+    scales(w_gate, s_gate, w_up, s_up, w_down, s_down)
+    moe_pre_body(base, part, ln2, w_gate, w_up, w_down, w_router, w_shg, base_out, h2_out, logits_out)
+    return base_out, h2_out, logits_out
+
+
 def scales(*ws):
     """MXFP8: the scales of the kernel's weights (w, s pairs), looked up by q.proj / q.slice_w"""
     mb.SCALES.clear()
@@ -112,72 +159,92 @@ def mlp_mc_mx(base, part, ln2, w_gate, s_gate, w_up, s_up, w_down, s_down, base_
 
 def gdn_mc(base, part, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out, state_in, conv_in,
            base_out, part_out, state_out, conv_out):
-    assert NV == NK and NV % CORES == 0 and (P == 1 or P % CHUNK == 0) and not MX
+    gdn_body(base, part, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out, state_in, conv_in,
+             base_out, part_out, state_out, conv_out)
+    return base_out, part_out, state_out, conv_out
+
+
+def gdn_mc_mx(base, part, ln1, w_qkv, s_qkv, w_z, s_z, w_b, s_b, w_a, s_a, conv_w, a_log, dt_bias, norm_w, w_out, s_out,
+              state_in, conv_in, base_out, part_out, state_out, conv_out):
+    scales(w_qkv, s_qkv, w_z, s_z, w_b, s_b, w_a, s_a, w_out, s_out)
+    gdn_body(base, part, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out, state_in, conv_in,
+             base_out, part_out, state_out, conv_out)
+    return base_out, part_out, state_out, conv_out
+
+
+def gdn_body(base, part, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out, state_in, conv_in,
+             base_out, part_out, state_out, conv_out):
+    """The core's NK / CORES key heads and the value heads that use them: in the GGUF's tiled order (value head vh
+    uses key head vh % NK) REP = NV / NK strips of KHC consecutive value heads, vo * NK + c * KHC .. + KHC. Every
+    q / k / v channel, state row and out column belongs to one core (conv and state are updated in place)."""
+    assert NK % CORES == 0 and (REP == 1 or q.VORDER == "tiled") and (P == 1 or P % CHUNK == 0)
     c = ax.program_id(0)
     x = residual_in(base, part)
     if c == 0:
         ax.dsl.store(x, r=base_out)
     h = rmsnorm(x, ax.dsl.load(ln1).reshape(1, 1, H), eps=EPS)
-    hs = slice(c * NH, (c + 1) * NH)
-    # the core's channels of q, k, v (conv runs per channel), each [1, P, NH * D*]
-    mixed = []
-    for i, (off, w) in enumerate(((0, DK), (KD, DK), (2 * KD, DV))):
-        ch = slice(off + c * NH * w, off + (c + 1) * NH * w)
-        pr = q.proj(h, w_qkv[ch], f"gdn_qkv{i}")
-        mixed.append(stateful_runtime_causal_depthwise_conv1d_silu(pr, conv_w[ch], conv_in[:, :, ch],
-                                                                   conv_out[:, :, ch], CONV, f"gdn_conv{i}"))
-    qm = mixed[0].reshape(1, P, NH, DK)
-    km = mixed[1].reshape(1, P, NH, DK)
-    vm = mixed[2].reshape(1, P, NH, DV)
-    z = q.proj(h, w_z[c * NH * DV : (c + 1) * NH * DV], "gdn_z").reshape(1, P, NH, DV)
-    b = q.proj(h, w_b, "gdn_b")[:, :, hs]  # all heads (16 rows), then the core's
-    a = q.proj(h, w_a, "gdn_a")[:, :, hs]
+
+    def conv(off, n, i):  # the projection and causal conv of channels off .. off + n
+        ch = slice(off, off + n)
+        pr = q.proj(h, q.slice_w(w_qkv, rows=ch), f"gdn_qkv{i}")
+        return stateful_runtime_causal_depthwise_conv1d_silu(pr, conv_w[ch], conv_in[:, :, ch], conv_out[:, :, ch],
+                                                             CONV, f"gdn_conv{i}")
+
+    qm = conv(c * KHC * DK, KHC * DK, 0).reshape(1, P, KHC, DK)
+    km = conv(KD + c * KHC * DK, KHC * DK, 1).reshape(1, P, KHC, DK)
+    b_all = q.proj(h, w_b, "gdn_b")  # all value heads (NV rows), then the strip's
+    a_all = q.proj(h, w_a, "gdn_a")
     q_scale = ax.dsl.full(shape=(1,), dtype=ax.fp32, fill_value=DK**-0.5)
     if P == 1:  # decode: the recurrent step per head, as q35_step.gdn_layer
-        core = ax.dsl.create_tensor((1, 1, NH, DV), ax.bf16, name="gdn_core")
-        a_log_t, dt_bias_t = ax.dsl.load(a_log[hs]), ax.dsl.load(dt_bias[hs])
-        for j in range(NH):
-            q_tok = ax.dsl.mul(l2norm_lastdim(qm[:, :, j : j + 1, :].reshape(1, DK)), q_scale, output_dtype=ax.bf16)
-            k_tok = l2norm_lastdim(km[:, :, j : j + 1, :].reshape(1, DK))
-            g, beta = gdn_gate(a[:, :, j : j + 1].reshape(1, 1), b[:, :, j : j + 1].reshape(1, 1), a_log_t[j : j + 1],
-                               dt_bias_t[j : j + 1])
-            vh = c * NH + j
-            st = ax.dsl.load(state_in[vh : vh + 1]).reshape(DK, DV)
-            o_h, st = gdn_recurrent_step(q_tok, k_tok, vm[:, :, j : j + 1, :].reshape(1, DV), g, beta, st, ax.bf16)
-            ax.dsl.move(x=o_h.reshape(1, 1, 1, DV), r=core[:, :, j : j + 1, :])
-            ax.dsl.store(x=st.reshape(1, DK, DV), r=state_out[vh : vh + 1])
-        gdn_out(core, z, norm_w, w_out, part_out, c)
-        return base_out, part_out, state_out, conv_out
-    qn = ax.dsl.mul(l2norm_lastdim(qm), q_scale, output_dtype=ax.bf16)
-    kn = l2norm_lastdim(km)
-    g_all, beta_all = gdn_gate(a, b, ax.dsl.load(a_log[hs]), ax.dsl.load(dt_bias[hs]))  # [1, P, NH]
-    prefix_all = chunk_prefix_sum_fp32(g_all, CHUNK, "gdn_prefix_g")
-    exp_prefix_all = ax.dsl.exp(prefix_all, output_dtype=ax.fp32)
-    core = ax.dsl.create_tensor((1, P, NH, DV), ax.bf16, name="gdn_core")
-    st = ax.dsl.load(state_in[hs]).reshape(NH, DK, DV)
-    for c0 in range(0, P, CHUNK):
-        cs = slice(c0, c0 + CHUNK)
-        q_tile = ax.dsl.transpose(qn[:, cs], perm=(0, 2, 1, 3)).reshape(NH, CHUNK, DK)
-        k_tile = ax.dsl.transpose(kn[:, cs], perm=(0, 2, 1, 3)).reshape(NH, CHUNK, DK)
-        v_tile = ax.dsl.transpose(vm[:, cs], perm=(0, 2, 1, 3)).reshape(NH, CHUNK, DV)
-        prefix_g = ax.dsl.transpose(prefix_all[:, cs], perm=(0, 2, 1)).reshape(NH, CHUNK, 1)
-        exp_prefix_g = ax.dsl.transpose(exp_prefix_all[:, cs], perm=(0, 2, 1)).reshape(NH, CHUNK, 1)
-        beta = ax.dsl.transpose(beta_all[:, cs], perm=(0, 2, 1)).reshape(NH, CHUNK, 1)
-        out_tile, st = gdn_stable_chunk(q_tile, k_tile, v_tile, beta, st, prefix_g, exp_prefix_g, f"gdn_c{c0}",
-                                        solver="triton")
-        ax.dsl.move(x=ax.dsl.transpose(out_tile.reshape(1, NH, CHUNK, DV), perm=(0, 2, 1, 3)), r=core[:, cs])
-    ax.dsl.store(x=st.reshape(NH, DK, DV), r=state_out[hs])
-    gdn_out(core, z, norm_w, w_out, part_out, c)
-    return base_out, part_out, state_out, conv_out
-
-
-def gdn_out(core, z, norm_w, w_out, part_out, c):
-    """gated RMSNorm of the core's heads, their out-projection partial -> part_out[c]"""
-    normed = rmsnorm(core, ax.dsl.load(norm_w).reshape(1, 1, 1, DV), eps=EPS)
-    gated = silu_gate(normed, z, activation_output_dtype=ax.fp32, output_dtype=ax.bf16).reshape(1, P, NH * DV)
-    o = q.linear(gated, w_out[:, c * NH * DV : (c + 1) * NH * DV], None, "gdn_out", output_dtype=ax.fp32,
-                 oc_tile_size=q.oc_tile(NH * DV))
-    ax.dsl.store(o, r=part_out[c : c + 1])
+        qt = [ax.dsl.mul(l2norm_lastdim(qm[:, :, j : j + 1, :].reshape(1, DK)), q_scale, output_dtype=ax.bf16)
+              for j in range(KHC)]
+        kt = [l2norm_lastdim(km[:, :, j : j + 1, :].reshape(1, DK)) for j in range(KHC)]
+    else:
+        qn = ax.dsl.mul(l2norm_lastdim(qm), q_scale, output_dtype=ax.bf16)
+        kn = l2norm_lastdim(km)
+    o_sum = None
+    for vo in range(REP):
+        v0 = vo * NK + c * KHC  # the strip's first value head
+        vs = slice(v0, v0 + KHC)
+        t = "" if REP == 1 else str(vo)
+        vm = conv(2 * KD + v0 * DV, KHC * DV, 2 + vo).reshape(1, P, KHC, DV)
+        z = q.proj(h, q.slice_w(w_z, rows=slice(v0 * DV, (v0 + KHC) * DV)), "gdn_z" + t).reshape(1, P, KHC, DV)
+        b, a = b_all[:, :, vs], a_all[:, :, vs]
+        a_log_t, dt_bias_t = ax.dsl.load(a_log[vs]), ax.dsl.load(dt_bias[vs])
+        if P == 1:
+            core = ax.dsl.create_tensor((1, 1, KHC, DV), ax.bf16, name="gdn_core" + t)
+            for j in range(KHC):
+                g, beta = gdn_gate(a[:, :, j : j + 1].reshape(1, 1), b[:, :, j : j + 1].reshape(1, 1),
+                                   a_log_t[j : j + 1], dt_bias_t[j : j + 1])
+                vh = v0 + j
+                st = ax.dsl.load(state_in[vh : vh + 1]).reshape(DK, DV)
+                o_h, st = gdn_recurrent_step(qt[j], kt[j], vm[:, :, j : j + 1, :].reshape(1, DV), g, beta, st, ax.bf16)
+                ax.dsl.move(x=o_h.reshape(1, 1, 1, DV), r=core[:, :, j : j + 1, :])
+                ax.dsl.store(x=st.reshape(1, DK, DV), r=state_out[vh : vh + 1])
+        else:
+            g_all, beta_all = gdn_gate(a, b, a_log_t, dt_bias_t)  # [1, P, KHC]
+            prefix_all = chunk_prefix_sum_fp32(g_all, CHUNK, "gdn_prefix_g" + t)
+            exp_prefix_all = ax.dsl.exp(prefix_all, output_dtype=ax.fp32)
+            core = ax.dsl.create_tensor((1, P, KHC, DV), ax.bf16, name="gdn_core" + t)
+            st = ax.dsl.load(state_in[vs]).reshape(KHC, DK, DV)
+            for c0 in range(0, P, CHUNK):
+                cs = slice(c0, c0 + CHUNK)
+                q_tile = ax.dsl.transpose(qn[:, cs], perm=(0, 2, 1, 3)).reshape(KHC, CHUNK, DK)
+                k_tile = ax.dsl.transpose(kn[:, cs], perm=(0, 2, 1, 3)).reshape(KHC, CHUNK, DK)
+                v_tile = ax.dsl.transpose(vm[:, cs], perm=(0, 2, 1, 3)).reshape(KHC, CHUNK, DV)
+                prefix_g = ax.dsl.transpose(prefix_all[:, cs], perm=(0, 2, 1)).reshape(KHC, CHUNK, 1)
+                exp_prefix_g = ax.dsl.transpose(exp_prefix_all[:, cs], perm=(0, 2, 1)).reshape(KHC, CHUNK, 1)
+                beta = ax.dsl.transpose(beta_all[:, cs], perm=(0, 2, 1)).reshape(KHC, CHUNK, 1)
+                out_tile, st = gdn_stable_chunk(q_tile, k_tile, v_tile, beta, st, prefix_g, exp_prefix_g,
+                                                f"gdn{t}_c{c0}", solver="triton")
+                ax.dsl.move(x=ax.dsl.transpose(out_tile.reshape(1, KHC, CHUNK, DV), perm=(0, 2, 1, 3)), r=core[:, cs])
+            ax.dsl.store(x=st.reshape(KHC, DK, DV), r=state_out[vs])
+        # gated RMSNorm of the strip's heads, their out-projection partial
+        normed = rmsnorm(core, ax.dsl.load(norm_w).reshape(1, 1, 1, DV), eps=EPS)
+        gated = silu_gate(normed, z, activation_output_dtype=ax.fp32, output_dtype=ax.bf16).reshape(1, P, KHC * DV)
+        o = q.proj(gated, q.slice_w(w_out, cols=slice(v0 * DV, (v0 + KHC) * DV)), "gdn_out" + t, output_dtype=ax.fp32)
+        o_sum = o if o_sum is None else ax.dsl.add(o_sum, o, output_dtype=ax.fp32)
+    ax.dsl.store(o_sum, r=part_out[c : c + 1])
 
 
 def head_body(base, part, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, base_out, q_out, gate_out, k_out, v_out):
@@ -307,6 +374,8 @@ TAIL_ORDER = ["m_all", "l_all", "o_all", "gate", "w_o", "part_out"]
 # the kernels of this config and weight format: (function, parameter order)
 _ng = "" if q.GATE else "_ng"
 MLP_FN = mlp_mc_mx if MX else mlp_mc
+GDN_FN = gdn_mc_mx if MX else gdn_mc
+MOE_FN = moe_pre_mc_mx if MX else moe_pre_mc
 HEAD_FN = globals()["attn_head_mc" + ("_mx" if MX else "") + _ng]
 TAIL_FN = globals()["attn_tail_mc" + ("_mx" if MX else "") + _ng]
 
@@ -398,24 +467,45 @@ def main():
     if "gdn" in tests:  # gdn_mc + mlp_mc vs the single-core prefill layer
         st0 = torch.randn((NV, DK, DV)) * 0.02
         cv0 = (torch.randn((1, CONV - 1, 2 * KD + VD)) * 0.1).bfloat16()
-        g = q.gdn_args(W, 0)
-        ga = {k: v for k, v in g.items() if k not in ("ln2", "w_gate", "w_up", "w_down")}
+        g, _ = mx_args(q.gdn_args(W, 0), ["w_qkv", "w_z", "w_b", "w_a", "w_out", "w_gate", "w_up", "w_down"])
+        mw = ("ln2", "w_gate", "w_up", "w_down", "s_gate", "s_up", "s_down")
+        ga = {k: v for k, v in g.items() if k not in mw}
         a = dict(ga, base=base, part=part, state_in=st0.clone(), conv_in=cv0.clone(), base_out=zeros(1, P, H),
                  part_out=zeros(CORES, P, H, dt=torch.float32), state_out=torch.zeros_like(st0),
                  conv_out=torch.zeros_like(cv0))
-        run(gdn_mc, f"gdn{P}_npu{CORES}", a, GDN_ORDER, CORES, "gdn_mc")
-        m = dict(q.mlp_args(W, "layers.0."), base=a["base_out"], part=a["part_out"], base_out=zeros(1, P, H),
+        run(GDN_FN, f"gdn{P}{sfx}_npu{CORES}", a, order(GDN_FN), CORES, "gdn_mc")
+        if MOE:  # the reference layer up to its residual (no MoE part): out = x + the delta net
+            q.mlp_residual = lambda x1, ln2, w_gate, w_up, w_down, out: ax.dsl.store(x1, r=out)
+        m = dict({k: v for k, v in g.items() if k in mw}, base=a["base_out"], part=a["part_out"], base_out=zeros(1, P, H),
                  part_out=zeros(CORES, P, H, dt=torch.float32))
-        run(mlp_mc, f"mlp{P}_npu{CORES}", m, MLP_ORDER, CORES, "mlp_mc")
-        out = m["base_out"].float() + m["part_out"].sum(0, keepdim=True)
+        if not MOE:
+            run(MLP_FN, f"mlp{P}{sfx}_npu{CORES}", m, order(MLP_FN), CORES, "mlp_mc")
+            out = m["base_out"].float() + m["part_out"].sum(0, keepdim=True)
+        else:
+            out = a["base_out"].float() + a["part_out"].sum(0, keepdim=True)
         r = dict(g, x=x_in, state_in=st0.clone(), conv_in=cv0.clone(), out=zeros(1, P, H),
                  state_out=torch.zeros_like(st0), conv_out=torch.zeros_like(cv0))
-        if P == 1:
-            run(q.gdn_layer, "gdn_ref1", r, q.GDN_ORDER, 1)
-        else:
-            run(pf.gdn_layer_prefill, f"gdn_ref{P}", r, pf.GDN_ORDER, 1)
+        # the single-core layer in the same weight format (MXFP8: the MX decode / prefill kernels)
+        ref_fn = (mb.gdn_layer_mx if MX else q.gdn_layer) if P == 1 else (pf.gdn_layer_prefill_mx if MX else pf.gdn_layer_prefill)
+        run(ref_fn, f"gdn_ref{P}{sfx}", r, order(ref_fn), 1)
         logger.info(f"gdn_mc P={P} npu{CORES} vs the single-core layer: out cos {cos(out, r['out']):.6f}, state cos "
-                    f"{cos(a['state_out'], r['state_out']):.6f}, conv equal {torch.equal(a['conv_out'], r['conv_out'])}")
+                    f"{cos(a['state_out'], r['state_out']):.6f}, conv equal {torch.equal(a['conv_out'], r['conv_out'])} (differing "
+                    f"{(a['conv_out'] != r['conv_out']).sum().item()} of {a['conv_out'].numel()}, max diff "
+                    f"{(a['conv_out'].float() - r['conv_out'].float()).abs().max().item():.3g})")
+
+    if "moe" in tests:  # moe_pre_mc vs torch (MXFP8: on the dequantized weights)
+        ma, md = mx_args(q.mlp_args(W, "layers.0."), ["w_gate", "w_up", "w_down"])
+        a = dict(ma, base=base, part=part, base_out=zeros(1, P, H), h2_out=zeros(1, P, H),
+                 logits_out=zeros(1, P, mo.NE, dt=torch.float32))
+        run(MOE_FN, f"moe{P}{sfx}_npu{CORES}", a, order(MOE_FN), CORES, "moe_pre_mc")
+        x = x_in.float()
+        h2 = (x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + EPS) * md["ln2"].float()).bfloat16().float()
+        sh = (torch.nn.functional.silu(h2 @ md["w_gate"].float().T) * (h2 @ md["w_up"].float().T)) @ md["w_down"].float().T
+        bo = x + sh * torch.sigmoid(h2 @ md["w_shg"].float().reshape(H, 1))
+        lg = h2 @ md["w_router"].float().T
+        logger.info(f"moe_pre_mc P={P} {WFMT} npu{CORES}: base cos {cos(a['base_out'], bo):.6f}, h2 cos "
+                    f"{cos(a['h2_out'], h2):.6f}, logits cos {cos(a['logits_out'], lg):.6f}, top-8 agree "
+                    f"{(a['logits_out'].topk(8, -1).indices.sort(-1).values == lg.topk(8, -1).indices.sort(-1).values).float().mean().item():.4f}")
 
     if "head" in tests or "tail" in tests:  # vs q35_flash head (R = P) and torch
         att, att_deq = mx_args(dict(q.attn_args(W, 3)), ["w_q", "w_k", "w_v", "w_o"])

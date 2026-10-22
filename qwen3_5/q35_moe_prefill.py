@@ -7,7 +7,8 @@
       the routed experts of P tokens grouped by expert: S slots, each one expert (w_c<s> gate-up [2 FE, H] and w_d<s>
       [H, FE] MXFP4 with s_* E8M0 scales, the layout of qwen35moe_experts<K>_gu_mxfp4) on up to G token rows:
       out[s, g] = rw[s, g] * down_s(silu(gate_s x[s, g]) * up_s x[s, g])   x [S, G, H] bf16, rw [S, G] f32,
-      out [S, G, H] f32. The host gathers each slot's rows from h2, binds the slot's expert weights, and adds the rows
+      out [S, G, H] f32 (SLOT_OUT=bf16: bf16, named _bo: half the bytes for the host to read back). The host gathers
+      each slot's rows from h2, binds the slot's expert weights, and adds the rows
       of out to the tokens' base (unused rows: rw 0)
 
 Checks on the simulator: the layer kernels on P tokens against the decode kernels (q35_moe) token by token; the slots
@@ -37,6 +38,7 @@ import q35_prefill as qp
 q = mo.q
 H, NE, FE, P, LMAX, BC = mo.H, mo.NE, mo.FE, qp.P, qp.LMAX, qp.BC
 S, G = int(os.environ.get("SLOTS", 32)), int(os.environ.get("SLOT_G", 8))
+OUT_BF = os.environ.get("SLOT_OUT") == "bf16"  # the slots kernel's out in bf16 (qwen35moe_slots..._bo)
 CORES = int(os.environ.get("CORES", 1))  # slots kernel: S / CORES slots per core, no synchronization (_npu<CORES>)
 BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_moe_prefill"))
 NODEC = os.environ.get("NODEC") == "1"
@@ -87,9 +89,12 @@ def moe_slots(x, rw, {ins}, out):
         gu = linear(h, wc, sc, f"s{{i}}_gate_up", output_dtype=ax.bf16, oc_tile_size=mo.oc_tile_fp4(H))
         a = silu_mul(gu[:, :, :FE], gu[:, :, FE:], activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
         d = linear(a, wd, sd, f"s{{i}}_down", output_dtype=ax.fp32, oc_tile_size=mo.oc_tile_fp4(FE))
-        ax.dsl.store(ax.dsl.mul(d, r.reshape(1, G, 1), output_dtype=ax.fp32), r=out[i : i + 1])
+        ax.dsl.store(ax.dsl.mul(d, r.reshape(1, G, 1), output_dtype=OUT_DT), r=out[i : i + 1])
     return out
 """
+
+
+OUT_DT = ax.bf16 if OUT_BF else ax.fp32
 
 
 def _define(src, name):
@@ -121,7 +126,8 @@ def slots_check(out_dir):
     x = torch.randn((S, G, H)).bfloat16()
     rw = torch.rand((S, G))
     rw[S // 2 :, G // 2 :] = 0  # unused rows
-    case, ref = dict(x=x, rw=rw, out=torch.zeros((S, G, H))), torch.zeros((S, G, H))
+    case = dict(x=x, rw=rw, out=torch.zeros((S, G, H), dtype=torch.bfloat16 if OUT_BF else torch.float32))
+    ref = torch.zeros((S, G, H))
     for i in range(S):
         dq = []
         for n, shape in (("c", (2 * FE, H)), ("d", (H, FE))):
@@ -133,12 +139,13 @@ def slots_check(out_dir):
         a = (torch.nn.functional.silu(gu[:, :FE]) * gu[:, FE:]).bfloat16().float()
         ref[i] = rw[i].reshape(G, 1) * (a @ dq[1].T)
     ax.init(chip_num=1, core_num=CORES)
-    k = kern(moe_slots, f"slots{S}_g{G}_npu{CORES}")
+    k = kern(moe_slots, f"slots{S}_g{G}{'_bo' if OUT_BF else ''}_npu{CORES}")
     k[CORES](*[case[n] for n in mo.order(moe_slots)])
     ax.init(chip_num=1, core_num=1)
     logger.info(f"moe slots S={S} G={G}: out cos vs torch {mo.cos(case['out'], ref):.6f}, unused rows zero "
                 f"{bool((case['out'][S // 2 :, G // 2 :] == 0).all())}")
-    publish(f"slots{S}_g{G}_npu{CORES}", moe_slots, out_dir, f"qwen35moe_slots{S}_g{G}_gu_mxfp4", CORES)
+    bo = "_bo" if OUT_BF else ""
+    publish(f"slots{S}_g{G}{bo}_npu{CORES}", moe_slots, out_dir, f"qwen35moe_slots{S}_g{G}_gu_mxfp4{bo}", CORES)
 
 
 def layer_check(W, kind, il, out_dir):

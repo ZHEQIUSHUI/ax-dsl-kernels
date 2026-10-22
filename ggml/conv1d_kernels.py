@@ -10,7 +10,10 @@ MUL_MAT the backend then skips), as K matrix products accumulated in f32: out[:,
 takes channels-last input and writes bf16 only). Blocks of OB output channels (their K matrices on chip) and LT output
 steps (an input block with the (K - 1) * D steps after it, the taps its shifted windows).
 
-Each kernel (file <name>_npu1.axmodel, single-core) is run once on the simulator against torch (random data).
+CORES=<n> splits each kernel over n cores without synchronization: each core takes OC / n output channels, else
+(OW = L - (K - 1) * D steps) OW / n output steps; shapes that split neither way are skipped.
+
+Each kernel (file <name>_npu<CORES>.axmodel) is run once on the simulator against torch (random data).
 Usage: SHAPES="<IC>x<OC>x<K>x<D>x<L>,..." python conv1d_kernels.py out_dir
 """
 import glob
@@ -26,6 +29,7 @@ import axnn.dsl as ax
 BUILD = os.path.abspath(os.environ.get("DUMP", "out_conv1d"))
 WB = int(os.environ.get("WB", 1024 * 1024))  # bytes of one output-channel block's weights on chip
 XB = int(os.environ.get("XB", 2 * 1024 * 1024))  # bytes of one time block's input and output on chip
+CORES = int(os.environ.get("CORES", 1))
 
 
 def divisor_at_most(n, m, multiple=1):
@@ -39,13 +43,22 @@ def divisor_at_most(n, m, multiple=1):
 def build(IC, OC, K, D, L, out_dir):
     OW = L - (K - 1) * D
     halo = (K - 1) * D
-    OB = divisor_at_most(OC, max(1, WB // (IC * K * 2)))
-    LT = divisor_at_most(OW, max(16, XB // (IC * 2 + OB * 4)), 16)
+    if CORES == 1 or OC % CORES == 0:
+        OCC, OWC = OC // CORES, OW  # output channels, steps per core
+    elif OW % CORES == 0:
+        OCC, OWC = OC, OW // CORES
+    else:
+        logger.warning(f"conv1d ic{IC} oc{OC} k{K} d{D} l{L}: splits over {CORES} cores neither way, skipped")
+        return
+    OB = divisor_at_most(OCC, max(1, WB // (IC * K * 2)))
+    LT = divisor_at_most(OWC, max(16, XB // (IC * 2 + OB * 4)), 16)
 
     def conv1d(x, w, out):
-        for o0 in range(0, OC, OB):
+        c = ax.program_id(0)
+        oc1, t1 = (c * OCC, 0) if OCC < OC else (0, c * OWC)
+        for o0 in range(oc1, oc1 + OCC, OB):
             wb = [ax.dsl.load(w[k : k + 1, o0 : o0 + OB]).reshape(OB, IC) for k in range(K)]  # K x [OB, IC]
-            for t0 in range(0, OW, LT):
+            for t0 in range(t1, t1 + OWC, LT):
                 xb = ax.dsl.load(x[:, t0 : t0 + LT + halo])  # [IC, LT + halo]
                 acc = ax.dsl.create_tensor((OB, LT), ax.fp32, name=f"acc{o0}_{t0}")
                 for k in range(K):
@@ -64,19 +77,19 @@ def build(IC, OC, K, D, L, out_dir):
     wk = w.permute(2, 0, 1).contiguous()  # [K, OC, IC], as the backend repacks ggml's [OC][IC][K]
     out = torch.zeros((OC, OW))
     conv1d.__name__ = "conv1d"
-    ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=True, dump_path=dump)(conv1d)[1](x, wk, out)
+    ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=True, dump_path=dump)(conv1d)[CORES](x, wk, out)
     ref = torch.nn.functional.conv1d(x.float()[None], w.float(), dilation=D)[0]
     c = torch.nn.functional.cosine_similarity(out.reshape(-1).double(), ref.reshape(-1).double(), dim=0).item()
     logger.info(f"{name} (output channels per block {OB}, steps per block {LT}): cos vs torch {c:.6f}")
     (path,) = glob.glob(f"{dump}/cache/conv1d.*.compiled.axmodel")
-    shutil.copy(path, f"{out_dir}/{name}_npu1.axmodel")
+    shutil.copy(path, f"{out_dir}/{name}_npu{CORES}.axmodel")
     os.chdir(cwd)
 
 
 def main():
     out_dir = os.path.abspath(sys.argv[1])
     os.makedirs(out_dir, exist_ok=True)
-    ax.init(chip_num=1, core_num=1)
+    ax.init(chip_num=1, core_num=CORES)
     for sh in filter(None, os.environ.get("SHAPES", "").split(",")):
         build(*(int(v) for v in sh.split("x")), out_dir)
 
