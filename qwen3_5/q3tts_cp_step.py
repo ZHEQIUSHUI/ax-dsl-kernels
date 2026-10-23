@@ -7,7 +7,7 @@ predictor position instead of the projection GEMV, the layer stack and the head 
 Inputs: e [1, 1, HT] bf16 (the step's embedding row), the packs (members "L<j>.<name>", "LP.w_pin" / "LP.b_pin" /
 "LP.norm"), w_head [V, H] bf16 (this step's codebook head, bound per call), cs [2, ROT/2], pn [2] (pos, nblk), mask
 [LMAX / BC, BC]; outputs logits [1, V], kc<j> / vc<j> (the predictor's resident KV, in place). Written as
-qwen3tts_cp_step<NL>_mx8_c<LMAX>_npu<C> with a .layout. Checked on the simulator against torch on the dequantized
+qwen3tts_cp_step<NL>_mx8_h<HT>_c<LMAX>_npu<C> with a .layout. Checked on the simulator against torch on the dequantized
 weights.
 
 Usage: MODEL=<predictor cfg dir> HT=2048 KVL=cell LMAX=16 BC=16 CORES=4 python q3tts_cp_step.py <dir>
@@ -205,7 +205,7 @@ def main():
         logger.info(f"cp step pos {pos}: logits cos vs torch {co:.6f}, argmax same {top_same}")
         worst = min(worst, co)
     path = max(glob.glob(f"{build}/k/cache/cp_step.*.compiled.axmodel"), key=os.path.getmtime)
-    name = f"qwen3tts_cp_step{NL}{K.FMT}_c{LMAX}"
+    name = f"qwen3tts_cp_step{NL}{K.FMT}_h{HT}_c{LMAX}"  # (HT: the talker's width, the 1.7B's 2048 or the 0.6B's 1024)
     dst = board_io.kernel_file(out_dir, name, CORES)
     shutil.copy(path, dst)
     with open(dst[: -len(".axmodel")] + ".layout", "w") as f:
