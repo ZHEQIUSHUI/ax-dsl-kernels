@@ -2,7 +2,7 @@
 on CORES NPU cores in one call per layer, the cores synchronized through shared OCM (tensor pub / sub) between the
 halves of the layer, as q3tts_cp_mc.py:
 
-  gdn_layer   every core: rmsnorm of x; its NK / CORES key heads and the value heads that use them (gdn_body:
+  gdn_layer   every core: rmsnorm of x; its NK / CORES key heads and the value heads that use them (as q35_mc.gdn_body:
               their q / k / v channels of the projection and causal conv, conv and state rows in place, the recurrent
               step, gated rmsnorm), the out-projection partial of their columns -> shared part_a[c]; pub / sub;
               x1 = x + sum_c part_a[c]; its F / CORES MLP channels -> shared part_m[c]; pub / sub; x2 = x1 + sum

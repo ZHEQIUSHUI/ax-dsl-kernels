@@ -340,11 +340,12 @@ def check(kind, W, out_dir):
     path = max(glob.glob(f"{L.BUILD}/{kind}4pk/cache/{fn.__name__}.*.compiled.axmodel"), key=os.path.getmtime)
     pre = f"_prefill{P}" if P > 1 else ""
     pk = "_pk2" if IOMIN else "_pk"
-    name = f"{q.KP}_gdn{pre}{FMT}{pk}" if kind == "gdn" else f"{q.KP}_attn{pre}{FMT}{pk}_kvc_c{LMAX}"  # layout: blocking
-    # the single-core kernel too (the backend binds the layer through it; any weight format)
-    p1 = max(glob.glob(f"{L.BUILD}/{kind}1/cache/{single.__name__}.*.compiled.axmodel"), key=os.path.getmtime)
-    n1 = f"{q.KP}_gdn{pre}{FMT}" if kind == "gdn" else f"{q.KP}_attn{pre}{FMT}_kvc_c{LMAX}"
-    shutil.copy(p1, board_io.kernel_file(out_dir, n1, 1))
+    fmt = FMT
+    name = f"{q.KP}_gdn{pre}{fmt}{pk}" if kind == "gdn" else f"{q.KP}_attn{pre}{fmt}{pk}_kvc_c{LMAX}"  # layout: blocking
+    if True:  # the single-core kernel too (the backend binds the layer through it; any weight format)
+        p1 = max(glob.glob(f"{L.BUILD}/{kind}1/cache/{single.__name__}.*.compiled.axmodel"), key=os.path.getmtime)
+        n1 = f"{q.KP}_gdn{pre}{FMT}" if kind == "gdn" else f"{q.KP}_attn{pre}{FMT}_kvc_c{LMAX}"
+        shutil.copy(p1, board_io.kernel_file(out_dir, n1, 1))
     dst = board_io.kernel_file(out_dir, name, L.CORES)
     shutil.copy(path, dst)
     write_layout(kind, dst, sizes)

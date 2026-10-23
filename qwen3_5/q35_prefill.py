@@ -73,10 +73,10 @@ def gdn_layer_prefill(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm
     b = q.proj(h, w_b, "gdn_b")
     a = q.proj(h, w_a, "gdn_a")
     C = 2 * KD + VD
-    # the depthwise convolution in channel blocks of its q / k / v parts, each channel's arithmetic unchanged. Blocked
-    # once the whole convolution's input, product and output no longer fit a job's OCM as bf16 (27B; the compiler places
-    # the 2B / 9B ones whole, whose kernels stay as built); a block is sized so they fit as fp32
-    if (P + q.CONV - 1) * C * 2 * 3 > q.ROWS_OCM:
+    if (P + q.CONV - 1) * C * 2 * 3 > q.ROWS_OCM:  # input, product, output of every channel over a job's OCM (27B):
+        # the depthwise convolution in its q / k / v channels, each channel's arithmetic unchanged
+        # the depthwise convolution in channel blocks of its q / k / v parts (fp32 input, product, output of a block
+        # within a job's OCM), each channel's arithmetic unchanged
         w = 2048
         while (P + q.CONV - 1) * w * 4 * 3 > q.ROWS_OCM and w > 128:
             w //= 2

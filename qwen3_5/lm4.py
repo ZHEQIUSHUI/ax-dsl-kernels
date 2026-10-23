@@ -1,15 +1,13 @@
 """the output projection with MXFP4 weights on CORES cores: mul_mat_mx4_n<C>_k<K> (x [1, K] bf16, w [C, K] E2M1 pairs,
 s [C, K / 32] E8M0 -> out [1, C] f32), C / CORES rows per core. Checked on the simulator against torch on the
-dequantized weights. Usage: [LM_QUANT=moe] [LM_TILE=<rows>] LM_C=248320 LM_K=4096 CORES=4 python lm4.py <dir>"""
+dequantized weights. Usage: LM_C=248320 LM_K=4096 CORES=4 python lm4.py <dir>"""
 import glob, os, shutil, sys
 import torch
 from loguru import logger
 import axnn.dsl as ax
 from axnn.dsl.kernels.utils.linear import linear
 import board_io
-# the MXFP4 quantizer (E2M1 codes + E8M0 scales, as ggml's): q35_layer_pk's for the dense models, q35_moe's for the MoE
-# ones (LM_QUANT=moe: q35_layer_pk does not import with an MoE config)
-K = __import__("q35_moe" if os.environ.get("LM_QUANT", "pk") == "moe" else "q35_layer_pk")
+import q35_layer_pk as K
 
 C, KK, CORES = int(os.environ.get("LM_C", 248320)), int(os.environ.get("LM_K", 4096)), int(os.environ.get("CORES", 4))
 TILE = int(os.environ.get("LM_TILE", 0)) or max(16, min(1024, (256 * 1024) // (KK // 2)))  # rows per tile
