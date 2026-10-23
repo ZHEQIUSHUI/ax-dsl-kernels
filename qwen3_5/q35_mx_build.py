@@ -99,20 +99,20 @@ def oc_tile_fp4(cols):
 
 def proj_mx(x, w, name, output_dtype=ax.bf16):
     s, s2 = SCALES.get(id(w)), SCALES2.get(id(w))
-    if s2 is not None:  # NVFP4
-        return linear(x, w, s, name, weight_scale2=s2, output_dtype=output_dtype, oc_tile_size=oc_tile_fp4(w.shape[1]))
-    tile = oc_tile_fp8(w.shape[1]) if s is not None else q.oc_tile(w.shape[1])
+    nv = dict(weight_scale2=s2) if s2 is not None else {}  # NVFP4: its tensor scale2
+    gs = NVG if s2 is not None else GROUP
+    tile = oc_tile_fp4(w.shape[1]) if s2 is not None else oc_tile_fp8(w.shape[1]) if s is not None else q.oc_tile(w.shape[1])
     if PRJ_ROWS and s is not None:
         tile = min(PRJ_ROWS, w.shape[0])
         if PRJ_KSPLIT and w.shape[1] > PRJ_KSPLIT and x.shape[-2] * w.shape[0] * 4 <= (2 << 20):  # fp32 sum within 2 MB
             acc = None
             for k0 in range(0, w.shape[1], PRJ_KSPLIT):
                 ks = slice(k0, min(k0 + PRJ_KSPLIT, w.shape[1]))
-                part = linear(x[..., ks], slice_w_mx(w, cols=ks), SCALES.get(id(w))[:, ks.start // GROUP : ks.stop // GROUP],
-                              f"{name}_k{k0}", output_dtype=ax.bf16, oc_tile_size=tile)
+                part = linear(x[..., ks], slice_w_mx(w, cols=ks), s[:, ks.start // gs : ks.stop // gs],
+                              f"{name}_k{k0}", output_dtype=ax.bf16, oc_tile_size=tile, **nv)
                 acc = ax.dsl.cast(part, dtype=ax.fp32) if acc is None else ax.dsl.add(acc, part, output_dtype=ax.fp32)
             return ax.dsl.cast(acc, dtype=output_dtype)
-    return linear(x, w, s, name, output_dtype=output_dtype, oc_tile_size=tile)
+    return linear(x, w, s, name, output_dtype=output_dtype, oc_tile_size=tile, **nv)
 
 
 def slice_w_mx(w, rows=slice(None), cols=slice(None)):

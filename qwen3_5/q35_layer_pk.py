@@ -33,10 +33,16 @@ ALIGN = 64
 PACKS = {"pw": torch.float8_e4m3fn, "ps": torch.float8_e8m0fnu, "pf": torch.float32, "pb": torch.bfloat16}
 # WFMT4=1: the layer weights in MXFP4 (E2M1 pairs, low nibble first, an E8M0 scale per 32: the 35B experts' format) in
 # the pack p4 (torch counts a byte per element pair, the kernel an element per value)
-MX4 = os.environ.get("WFMT4", "0") == "1"
+# WFMT=nv4: every projection in NVFP4 instead (q35_mx_build.NV4): elements in p4, E4M3 scales in ps, the FP32 tensor
+# scale2 t_<x> in pf; pw stays an (empty) input of another dtype
+NVF = mb.NV4
+MX4 = os.environ.get("WFMT4", "0") == "1" or NVF
 if MX4:
     PACKS = {"p4": torch.float4_e2m1fn_x2, **PACKS}
-BYTE_TYPES = (torch.float8_e4m3fn, torch.float8_e8m0fnu, torch.float4_e2m1fn_x2)
+if NVF:
+    PACKS.update(pw=torch.float8_e5m2, ps=torch.float8_e4m3fn)
+BYTE_TYPES = (torch.float8_e4m3fn, torch.float8_e8m0fnu, torch.float4_e2m1fn_x2, torch.float8_e5m2)
+SG = mb.NVG if NVF else mb.GROUP  # inputs per scale
 
 
 E2M1 = torch.tensor([0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0])
@@ -55,7 +61,7 @@ def quant_mxfp4(w):
 
 # MIX=1 (with WFMT4=1): only the MLP (w_gate, w_up, w_down) in MXFP4, the rest MXFP8 (kernels _mx4m)
 MIX = os.environ.get("MIX", "0") == "1"
-FMT = "_mx4m" if MX4 and MIX else "_mx4" if MX4 else "_mx8"
+FMT = "_nv4" if NVF else "_mx4m" if MX4 and MIX else "_mx4" if MX4 else "_mx8"
 MLP_W = ("w_gate", "w_up", "w_down")
 
 
@@ -67,6 +73,9 @@ def mx4_args(a, names):
         names = [n for n in names if n in MLP_W]
     a = dict(a)
     for n in names:
+        if NVF and n in a and torch.is_tensor(a[n]):
+            a[n], a["s_" + n[2:]], a["t_" + n[2:]] = mb.quant_nvfp4(a[n].float())
+            continue
         if n in a and torch.is_tensor(a[n]):
             pk, sc = quant_mxfp4(a[n].float())
             a[n], a["s_" + n[2:]] = pk.view(torch.float4_e2m1fn_x2), sc.view(torch.float8_e8m0fnu)
@@ -102,7 +111,7 @@ def block_args(a):
     for n, bw in BW.items():
         if n in a:
             a[n] = blocked(a[n], bw)
-            a["s_" + n[2:]] = blocked(a["s_" + n[2:]], bw // mb.GROUP)
+            a["s_" + n[2:]] = blocked(a["s_" + n[2:]], bw // SG)
     return a
 
 
@@ -120,6 +129,8 @@ def slice_blocked(w, rows=slice(None), cols=slice(None)):
     s = mb.SCALES.get(id(w))
     if s is not None:
         mb.SCALES[id(ws)] = s[j * R : (j + 1) * R]
+    if id(w) in mb.SCALES2:
+        mb.SCALES2[id(ws)] = mb.SCALES2[id(w)]
     return ws
 
 
@@ -171,10 +182,13 @@ def unpack(kind, pw, ps, pf, pb=None, p4=None):
             numel *= s
         m[n] = src[p][off : off + numel].reshape(*shape)
     mb.SCALES.clear()
+    mb.SCALES2.clear()
     BLK.clear()
     for n in list(m):
         if n.startswith("w_") and "s_" + n[2:] in m:
             mb.SCALES[id(m[n])] = m["s_" + n[2:]]
+            if "t_" + n[2:] in m:
+                mb.SCALES2[id(m[n])] = m["t_" + n[2:]]
     for n in list(m):
         if BLOCK and n in BW:
             BLK[id(m[n])] = (m[n].shape[0] // (FULL_COLS[kind][n] // BW[n]), BW[n])
@@ -214,9 +228,11 @@ def attn_layer_mx_pk(x, pw, ps, pf, cos, sin, kc, vc, pos, nblk, mask, out):  # 
 def blk_info(kind, n):
     """" blk <rows> <cols> <strip width>" (elements, before blocking) of a blocked member, else """""
     w = n if n.startswith("w_") else "w_" + n[2:]
+    if n.startswith("t_"):  # an NVFP4 scale2: one float, not blocked
+        return ""
     if not BLOCK or w not in BW or w not in FULL_COLS.get(kind, {}):
         return ""
-    g = 1 if n == w else mb.GROUP
+    g = 1 if n == w else SG
     cols, bw = FULL_COLS[kind][w] // g, BW[w] // g
     if SPEC[kind][n][0] == "p4":  # the backend copies bytes: two fp4 values per byte
         cols, bw = cols // 2, bw // 2
@@ -266,6 +282,8 @@ def write_layout(kind, dst, sizes):
 
 def check(kind, W, out_dir):
     single = L.refs()[0 if kind == "gdn" else 1]  # the single-core kernel (decode or prefill P) of the same IO
+    if NVF:  # its NVFP4 twin: t_<x> after each s_<x>
+        single = mb.nv_twin(single)
     names = L.order(single)
     conv = (lambda a, names: mx4_args(a, names)) if MX4 else (lambda a, names: mb.mx_args(a, names)[0])
     if kind == "gdn":
