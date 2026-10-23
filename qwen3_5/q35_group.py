@@ -62,9 +62,14 @@ FULL = {}  # (j, w_<x>) -> columns before blocking
 GL, AL = (mb.nv_twin(mb.gdn_layer_mx), mb.nv_twin(mb.attn_layer_mx)) if K.NVF else (mb.gdn_layer_mx, mb.attn_layer_mx)
 
 
+KEEP_SHM = os.environ.get("KEEP_SHM", "0") == "1"
+PARTS = []  # this call's shared slots (KEEP_SHM)
+
+
 def reduce(c, x, partial, tag):
     """x + the cores' fp32 partials, through a shared OCM slot of its own"""
     part = ax.dsl.create_tensor((CORES, 1, H), ax.fp32, ax.MemoryType.SHARED_OCM, name="part_" + tag)
+    PARTS.append(part)
     ax.dsl.move(r=part[c : c + 1], x=partial.reshape(1, 1, H))
     axd.pub(part)
     axd.sub(part)
@@ -289,6 +294,7 @@ def group_body(x, packs, cs, pn, mask, out, io):
     mb.SCALES.clear()
     mb.SCALES2.clear()
     K.BLK.clear()
+    PARTS.clear()
     xt = ax.dsl.load(x)
     for j, kind in enumerate(KINDS):
         m = members(packs, j)
@@ -297,7 +303,15 @@ def group_body(x, packs, cs, pn, mask, out, io):
         else:
             xt = attn_layer(c, xt, m, cs, pn, mask, io[j][0], io[j][1], f"L{j}_")
     if c == 0:
-        ax.dsl.store(xt, r=out)
+        if KEEP_SHM:  # every slot read again here: alive (its space not reused) until the end of the call
+            z = None
+            for pt in PARTS:
+                e = pt[0:1, :, 0:1]
+                z = e if z is None else ax.dsl.add(z, e, output_dtype=ax.fp32)
+            z = ax.dsl.mul(z, ax.dsl.zeros(shape=(1, 1, 1), dtype=ax.fp32), output_dtype=ax.fp32)
+            ax.dsl.store(ax.dsl.add(xt, ax.dsl.cast(z, dtype=ax.bf16), output_dtype=ax.bf16), r=out)
+        else:
+            ax.dsl.store(xt, r=out)
     if LMHEAD:
         m = members(packs, "M")
         hn = rmsnorm(xt, ax.dsl.load(m["norm"]).reshape(1, 1, H), eps=EPS)
