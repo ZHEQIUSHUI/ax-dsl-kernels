@@ -80,7 +80,12 @@ def oc_tile_fp8(cols):
 # inside a tile and accumulates there). 9B prefill 128 with PRJ_ROWS=256: gdn 1.74 -> 1.20 ms, attn 1.90 -> 1.42 ms per
 # call on the board. Input-channel tiles accumulated through MatMul NMC (linear's ic_tile_size) are not used: on the board
 # their results change from run to run
+# PRJ_KSPLIT=<channels> (with PRJ_ROWS): a projection of a larger K (MLP down) as whole-K linears over K slices of that
+# many channels, the slices' bf16 results summed in fp32 by explicit adds and cast once (when that sum fits 2 MB: the
+# multi-core kernels' column blocks). 9B prefill 128 with 4096: gdn 1.051 -> 0.929M cycles, attn 1.147 -> 0.939M,
+# cos 0.999989 against the single-core kernel (whole K: 0.999977)
 PRJ_ROWS = int(os.environ.get("PRJ_ROWS", 0))
+PRJ_KSPLIT = int(os.environ.get("PRJ_KSPLIT", 0))
 
 
 def proj_mx(x, w, name, output_dtype=ax.bf16):
@@ -88,6 +93,14 @@ def proj_mx(x, w, name, output_dtype=ax.bf16):
     tile = oc_tile_fp8(w.shape[1]) if s is not None else q.oc_tile(w.shape[1])
     if PRJ_ROWS and s is not None:
         tile = min(PRJ_ROWS, w.shape[0])
+        if PRJ_KSPLIT and w.shape[1] > PRJ_KSPLIT and x.shape[-2] * w.shape[0] * 4 <= (2 << 20):  # fp32 sum within 2 MB
+            acc = None
+            for k0 in range(0, w.shape[1], PRJ_KSPLIT):
+                ks = slice(k0, min(k0 + PRJ_KSPLIT, w.shape[1]))
+                part = linear(x[..., ks], slice_w_mx(w, cols=ks), SCALES.get(id(w))[:, ks.start // GROUP : ks.stop // GROUP],
+                              f"{name}_k{k0}", output_dtype=ax.bf16, oc_tile_size=tile)
+                acc = ax.dsl.cast(part, dtype=ax.fp32) if acc is None else ax.dsl.add(acc, part, output_dtype=ax.fp32)
+            return ax.dsl.cast(acc, dtype=output_dtype)
     return linear(x, w, s, name, output_dtype=output_dtype, oc_tile_size=tile)
 
 
