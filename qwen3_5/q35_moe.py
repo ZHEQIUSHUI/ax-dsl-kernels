@@ -113,34 +113,7 @@ def moe_experts_gu(h2, base, rw, {ins}, out):
 """
 
 
-def _experts_gu_mc_src(k, cores):
-    """moe_experts_gu on cores NPU cores without synchronization: core c takes experts c * k / cores .. and writes its
-    fp32 partial sum (core 0 with the base) to part_out[c]; the host adds the cores' rows"""
-    ins = ", ".join(f"w_c{i}, s_c{i}, w_d{i}, s_d{i}" for i in range(k))
-    return f"""
-def moe_experts_gu_mc(h2, base, rw, {ins}, part_out):
-    c = ax.program_id(0)
-    h = ax.dsl.load(h2)  # [1, 1, H] bf16
-    r = ax.dsl.load(rw)  # [1, K] f32
-    acc = ax.dsl.cast(ax.dsl.load(base), dtype=ax.fp32) if c == 0 else None
-    ws = [{", ".join(f"(w_c{i}, s_c{i}, w_d{i}, s_d{i})" for i in range(k))}]
-    for i, (wc, sc, wd, sd) in enumerate(ws):
-        if i // ({k} // {cores}) != c:
-            continue
-        gu = linear(h, wc, sc, f"e{{i}}_gate_up", output_dtype=ax.bf16, oc_tile_size=oc_tile_fp4(H))
-        a = silu_mul(gu[:, :, :FE], gu[:, :, FE:], activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
-        d = linear(a, wd, sd, f"e{{i}}_down", output_dtype=ax.fp32, oc_tile_size=oc_tile_fp4(FE))
-        y = ax.dsl.mul(d, r[:, i : i + 1].reshape(1, 1, 1), output_dtype=ax.fp32)
-        acc = y if acc is None else ax.dsl.add(acc, y, output_dtype=ax.fp32)
-    ax.dsl.store(acc.reshape(1, 1, H), r=part_out[c : c + 1])
-    return part_out
-"""
-
-
 _define(_experts_src(TOPK), f"moe_experts{TOPK}")  # moe_experts(h2, base, rw, w_g0, s_g0, ..., out)
-CORES = int(os.environ.get("CORES", 1))
-if CORES > 1:
-    _define(_experts_gu_mc_src(TOPK, CORES), f"moe_experts_gu_mc{TOPK}")
 _define(_experts_gu_src(TOPK), f"moe_experts_gu{TOPK}")  # moe_experts_gu(h2, base, rw, w_c0, s_c0, w_d0, ..., out)
 
 
@@ -199,8 +172,8 @@ def attn_layer_moe(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos,
 
 
 WFMT = os.environ.get("WFMT", "bf16")
-if WFMT == "mx8":
-    import q35_mx_build as mb  # MXFP8 projections (scales looked up per weight); router and gate stay bf16
+if WFMT in ("mx8", "nv4"):
+    import q35_mx_build as mb  # MXFP8 (or NVFP4) projections (scales looked up per weight); router and gate stay bf16
 
     def gdn_layer_moe_mx(x, ln1, w_qkv, s_qkv, w_z, s_z, w_b, s_b, w_a, s_a, conv_w, a_log, dt_bias, norm_w, w_out,
                          s_out, ln2, w_gate, s_gate, w_up, s_up, w_down, s_down, w_router, w_shg, state_in, conv_in,
@@ -224,12 +197,15 @@ if WFMT == "mx8":
                        w_up, w_down, w_router, w_shg, out, h2_out, logits_out)
         return out, kc, vc, h2_out, logits_out
 
+    if mb.NV4:  # the NVFP4 inputs: t_<n> (scale2) beside each s_<n>
+        gdn_layer_moe_mx, attn_layer_moe_mx = mb.nv_twin(gdn_layer_moe_mx), mb.nv_twin(attn_layer_moe_mx)
+
 
 def order(fn):
     return list(fn.__code__.co_varnames[: fn.__code__.co_argcount])
 
 
-LAYER_FN = ({"gdn": gdn_layer_moe_mx, "attn": attn_layer_moe_mx} if WFMT == "mx8" else
+LAYER_FN = ({"gdn": gdn_layer_moe_mx, "attn": attn_layer_moe_mx} if WFMT in ("mx8", "nv4") else
             {"gdn": gdn_layer_moe, "attn": attn_layer_moe})
 
 
@@ -267,21 +243,6 @@ def experts_check(out_dir):
             g, u = case[f"{n}_g{i}"].view(torch.uint8), case[f"{n}_u{i}"].view(torch.uint8)
             c = torch.cat([g, u])
             case[f"{n}_c{i}"] = c.view(torch.float4_e2m1fn_x2) if n == "w" else c.view(torch.float8_e8m0fnu)
-    if CORES > 1:  # the multi-core gate-up kernel: the cores' partial sums against the same reference
-        case["part_out"] = torch.zeros((CORES, 1, H))
-        ax.init(chip_num=1, core_num=CORES)
-        k = kern(moe_experts_gu_mc, f"experts_gu{TOPK}_npu{CORES}")
-        k[CORES](*[case[n] for n in order(moe_experts_gu_mc)])
-        ax.init(chip_num=1, core_num=1)
-        logger.info(f"moe_experts_gu_mc K={TOPK} npu{CORES}: sum of partials cos vs torch "
-                    f"{cos(case['part_out'].sum(0).reshape(H), ref):.6f}")
-        if out_dir:
-            path = max(glob.glob(f"{BUILD}/experts_gu{TOPK}_npu{CORES}/cache/moe_experts_gu_mc.*.compiled.axmodel"),
-                       key=os.path.getmtime)
-            dst = board_io.kernel_file(out_dir, f"qwen35moe_experts{TOPK}_gu_mxfp4", CORES)
-            shutil.copy(path, dst)
-            logger.info(f"wrote {dst}: {board_io.fix(dst)[:2]} ...")
-        return
     for fn, sub, name in ((moe_experts, f"experts{TOPK}", f"qwen35moe_experts{TOPK}_mxfp4"),
                           (moe_experts_gu, f"experts_gu{TOPK}", f"qwen35moe_experts{TOPK}_gu_mxfp4")):
         case["out"] = torch.zeros((1, 1, H), dtype=torch.bfloat16)

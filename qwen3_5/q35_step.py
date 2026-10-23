@@ -173,9 +173,9 @@ def gdn_layer(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_ou
 
 
 def attn_block(xt, ln1, w_q, w_k, w_v, q_norm, k_norm, cos_t, sin_t, kc, vc, pos, nblk, mask, w_o, ln2, w_gate, w_up,
-               w_down, tag=""):
+               w_down, tag="", mlp=True):
     """one attention layer on xt [1, 1, H] (on chip): its K / V written into kc / vc, its output returned on chip
-    (tag: a prefix of the layer's tensor names, for several layers in one kernel)"""
+    (tag: a prefix of the layer's tensor names, for several layers in one kernel; mlp=False: x1, before the MLP)"""
     h = rmsnorm(xt, ax.dsl.load(ln1).reshape(1, 1, H), eps=EPS)
     qg = proj(h, w_q, tag + "attn_q").reshape(1, HQ, (2 if GATE else 1) * D)  # 每个头 [q | gate]（Qwen3 无 gate）
     q = rmsnorm(qg[:, :, 0:D], ax.dsl.load(q_norm).reshape(1, 1, D), eps=EPS)
@@ -264,14 +264,14 @@ def attn_block(xt, ln1, w_q, w_k, w_v, q_norm, k_norm, cos_t, sin_t, kc, vc, pos
     gated = (sigmoid_mul(attn, gate, activation_output_dtype=ax.fp32, output_dtype=ax.bf16) if GATE else attn
              ).reshape(1, 1, HQ * D)
     x1 = ax.dsl.add(xt, proj(gated, w_o, tag + "attn_o"), output_dtype=ax.bf16)
-    return mlp_block(x1, ln2, w_gate, w_up, w_down, tag)
+    return mlp_block(x1, ln2, w_gate, w_up, w_down, tag) if mlp else x1
 
 
 def attn_layer(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nblk, mask, w_o, ln2, w_gate, w_up,
                w_down, out):
-    x2 = attn_block(ax.dsl.load(x), ln1, w_q, w_k, w_v, q_norm, k_norm, ax.dsl.load(cos), ax.dsl.load(sin), kc, vc,
-                    pos, nblk, mask, w_o, ln2, w_gate, w_up, w_down)  # x [1, 1, H], cos / sin [1, ROT/2]
-    ax.dsl.store(x2, r=out)
+    x1 = attn_block(ax.dsl.load(x), ln1, w_q, w_k, w_v, q_norm, k_norm, ax.dsl.load(cos), ax.dsl.load(sin), kc, vc,
+                    pos, nblk, mask, w_o, ln2, w_gate, w_up, w_down, mlp=False)  # x [1, 1, H], cos / sin [1, ROT/2]
+    mlp_residual(x1, ln2, w_gate, w_up, w_down, out)  # by name: q35_moe replaces it with the MoE's dense part
     return out, kc, vc
 
 
