@@ -97,10 +97,9 @@ def dequant_w(w, s):
     return mb.dequant(w, s).float()
 
 
-def main():
-    sys.modules["q3tts_cp_step"] = sys.modules[__name__]
-    out_dir = os.path.abspath(sys.argv[1])
-    os.makedirs(out_dir, exist_ok=True)
+def build_packs():
+    """the predictor's layers (random MXFP8 weights of the config's shapes), the projection and the final norm in
+    their packs: (packs, pack sizes, element sizes, the layers' raw args, the extra weights)"""
     W = q.Weights(q.MODEL)
     torch.manual_seed(0)
     args, raw = [], []
@@ -136,6 +135,73 @@ def main():
         tns = tns.view(torch.uint8) if es[p] == 1 else tns
         pk[p][off : off + tns.numel()] = tns
     pk = {p: (pk[p].view(dt) if es[p] == 1 else pk[p]) for p, dt in Qg.PDT.items()}
+    return pk, sizes, es, raw, extra
+
+
+def rms(v, w):
+    return v * torch.rsqrt(v.pow(2).mean(-1, keepdim=True) + EPS) * w
+
+
+def ref_layers(x, pos, raw, kref):
+    """torch reference of the layers at position pos on the dequantized weights (f32), x [H]; kref the K / V rows"""
+    LMAX, BC, HKV, D = L.LMAX, L.BC, L.HKV, L.D
+    cs_, sn_ = L.rope_rows(pos)
+    cos_f, sin_f = cs_.float().reshape(-1), sn_.float().reshape(-1)
+
+    def rot(t):  # NEOX rope over the whole head (ROT = D)
+        h = t.shape[-1] // 2
+        return torch.cat([t[..., :h] * cos_f - t[..., h:] * sin_f, t[..., h:] * cos_f + t[..., :h] * sin_f], -1)
+
+    for j in range(NL):
+        a = raw[j]
+        wq, wk, wv = (dequant_w(a[f"w_{n}"], a.get(f"s_{n}")) for n in ("q", "k", "v"))
+        wo = dequant_w(a["w_o"], a.get("s_o"))
+        h = rms(x, a["ln1"].float())
+        qh = rot(rms((wq @ h).reshape(L.HQ, D), a["q_norm"].float()))
+        kh = rot(rms((wk @ h).reshape(HKV, D), a["k_norm"].float()))
+        vh = (wv @ h).reshape(HKV, D)
+        kref[j][0][pos], kref[j][1][pos] = kh.reshape(-1), vh.reshape(-1)
+        kk_ = kref[j][0][: pos + 1].reshape(pos + 1, HKV, D)
+        vv_ = kref[j][1][: pos + 1].reshape(pos + 1, HKV, D)
+        att = []
+        for hq in range(L.HQ):
+            hk = hq // L.G
+            sc = (kk_[:, hk] @ qh[hq]) / math.sqrt(D)
+            att.append(torch.softmax(sc, 0) @ vv_[:, hk])
+        x1 = x + wo @ torch.cat(att)
+        h2 = rms(x1, a["ln2"].float())
+        wg, wu, wd = (dequant_w(a[f"w_{n}"], a.get(f"s_{n}")) for n in ("gate", "up", "down"))
+        g = wg @ h2
+        x = x1 + wd @ (g * torch.sigmoid(g) * (wu @ h2))
+    return x
+
+
+def write_kernel(path, out_dir, name, sizes, es):
+    """the compiled kernel as <name>_npu<CORES>.axmodel in out_dir with its .layout: "<pack> - 0 <bytes>" per pack,
+    "<member> <pack> <offset> <bytes> [blk <rows> <cols> <bw>]" per member"""
+    dst = board_io.kernel_file(out_dir, name, CORES)
+    shutil.copy(path, dst)
+    with open(dst[: -len(".axmodel")] + ".layout", "w") as f:
+        for p in Qg.PDT:
+            f.write(f"{p} - 0 {sizes[p] * es[p]}\n")
+        for key, (p, off, shape) in Qg.SPEC.items():
+            lj, n = key.split(".", 1)
+            numel = int(np.prod(shape))
+            w = n if n.startswith("w_") else "w_" + n[2:]
+            blk = ""
+            if lj != "LP" and w in K.BW and (int(lj[1:]), w) in Qg.FULL:
+                gs = 1 if n == w else mb.GROUP
+                cols, bw = Qg.FULL[(int(lj[1:]), w)] // gs, K.BW[w] // gs
+                blk = f" blk {numel // cols} {cols} {bw}"
+            f.write(f"{key} {p} {off * es[p]} {numel * es[p]}{blk}\n")
+    return dst
+
+
+def main():
+    sys.modules["q3tts_cp_step"] = sys.modules[__name__]
+    out_dir = os.path.abspath(sys.argv[1])
+    os.makedirs(out_dir, exist_ok=True)
+    pk, sizes, es, raw, extra = build_packs()
     w_head = (torch.randn((V, H)) * H**-0.5).bfloat16()
     src, outs = kernel_source()
     build = os.path.abspath(os.environ.get("DUMP", "out_q3tts_cp_step"))
@@ -169,36 +235,7 @@ def main():
         x = e.float().reshape(H if not PROJ else HT)
         if PROJ:
             x = (extra["w_pin"].float() @ x + extra["b_pin"]).bfloat16().float()
-        cos_f, sin_f = cs_.float().reshape(-1), sn_.float().reshape(-1)
-
-        def rms(v, w):
-            return v * torch.rsqrt(v.pow(2).mean(-1, keepdim=True) + EPS) * w
-
-        def rot(t):  # NEOX rope over the whole head (ROT = D)
-            h = t.shape[-1] // 2
-            return torch.cat([t[..., :h] * cos_f - t[..., h:] * sin_f, t[..., h:] * cos_f + t[..., :h] * sin_f], -1)
-
-        for j in range(NL):
-            a = raw[j]
-            wq, wk, wv = (dequant_w(a[f"w_{n}"], a.get(f"s_{n}")) for n in ("q", "k", "v"))
-            wo = dequant_w(a["w_o"], a.get("s_o"))
-            h = rms(x, a["ln1"].float())
-            qh = rot(rms((wq @ h).reshape(L.HQ, D), a["q_norm"].float()))
-            kh = rot(rms((wk @ h).reshape(HKV, D), a["k_norm"].float()))
-            vh = (wv @ h).reshape(HKV, D)
-            kref[j][0][pos], kref[j][1][pos] = kh.reshape(-1), vh.reshape(-1)
-            kk_ = kref[j][0][: pos + 1].reshape(pos + 1, HKV, D)
-            vv_ = kref[j][1][: pos + 1].reshape(pos + 1, HKV, D)
-            att = []
-            for hq in range(L.HQ):
-                hk = hq // L.G
-                s = (kk_[:, hk] @ qh[hq]) / math.sqrt(D)
-                att.append(torch.softmax(s, 0) @ vv_[:, hk])
-            x1 = x + wo @ torch.cat(att)
-            h2 = rms(x1, a["ln2"].float())
-            wg, wu, wd = (dequant_w(a[f"w_{n}"], a.get(f"s_{n}")) for n in ("gate", "up", "down"))
-            g = wg @ h2
-            x = x1 + wd @ (g * torch.sigmoid(g) * (wu @ h2))
+        x = ref_layers(x, pos, raw, kref)
         ref = w_head.float() @ rms(x, extra["norm"])
         co = float(torch.nn.functional.cosine_similarity(case["logits"].reshape(-1), ref, 0))
         top_same = int(case["logits"].reshape(-1).argmax()) == int(ref.argmax())
@@ -206,21 +243,7 @@ def main():
         worst = min(worst, co)
     path = max(glob.glob(f"{build}/k/cache/cp_step.*.compiled.axmodel"), key=os.path.getmtime)
     name = f"qwen3tts_cp_step{NL}{K.FMT}_h{HT}_c{LMAX}"  # (HT: the talker's width, the 1.7B's 2048 or the 0.6B's 1024)
-    dst = board_io.kernel_file(out_dir, name, CORES)
-    shutil.copy(path, dst)
-    with open(dst[: -len(".axmodel")] + ".layout", "w") as f:
-        for p in Qg.PDT:
-            f.write(f"{p} - 0 {sizes[p] * es[p]}\n")
-        for key, (p, off, shape) in Qg.SPEC.items():
-            lj, n = key.split(".", 1)
-            numel = int(np.prod(shape))
-            w = n if n.startswith("w_") else "w_" + n[2:]
-            blk = ""
-            if lj != "LP" and w in K.BW and (int(lj[1:]), w) in Qg.FULL:
-                gs = 1 if n == w else mb.GROUP
-                cols, bw = Qg.FULL[(int(lj[1:]), w)] // gs, K.BW[w] // gs
-                blk = f" blk {numel // cols} {cols} {bw}"
-            f.write(f"{key} {p} {off * es[p]} {numel * es[p]}{blk}\n")
+    dst = write_kernel(path, out_dir, name, sizes, es)
     logger.info(f"wrote {dst} and its layout (worst logits cos {worst:.6f})")
 
 
