@@ -112,8 +112,19 @@ def mlp_ft(rows):
     return ft
 
 
+ROWS_OCM = 6_900_000  # a job's OCM (6923264 bytes usable): the fp32 down-projection partials (acc, d, sum) of all rows
+
+
 def mlp_block(x1, ln2, w_gate, w_up, w_down, tag=""):
-    """RMSNorm -> MLP + residual on x1, the result on chip (tag: a prefix of the layer's tensor names)"""
+    """RMSNorm -> MLP + residual on x1, the result on chip (tag: a prefix of the layer's tensor names); the rows in
+    halves while three [rows, H] fp32 partials exceed a job's OCM (27B prefill: 128 x 5120), each row's arithmetic
+    unchanged"""
+    if x1.shape[1] > 1 and x1.shape[1] % 2 == 0 and x1.shape[0] * x1.shape[1] * H * 4 * 3 > ROWS_OCM:
+        half = x1.shape[1] // 2
+        r = ax.dsl.create_tensor(tuple(x1.shape), ax.bf16, name=tag + "mlp_rows")
+        ax.dsl.move(r=r[:, :half], x=mlp_block(x1[:, :half], ln2, w_gate, w_up, w_down, tag + "r0_"))
+        ax.dsl.move(r=r[:, half:], x=mlp_block(x1[:, half:], ln2, w_gate, w_up, w_down, tag + "r1_"))
+        return r
     h2 = rmsnorm(x1, ax.dsl.load(ln2).reshape(1, 1, H), eps=EPS)
     ft = mlp_ft(x1.shape[0] * x1.shape[1])
     if ft == F:
@@ -173,9 +184,9 @@ def gdn_layer(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_ou
 
 
 def attn_block(xt, ln1, w_q, w_k, w_v, q_norm, k_norm, cos_t, sin_t, kc, vc, pos, nblk, mask, w_o, ln2, w_gate, w_up,
-               w_down, tag=""):
+               w_down, tag="", mlp=True):
     """one attention layer on xt [1, 1, H] (on chip): its K / V written into kc / vc, its output returned on chip
-    (tag: a prefix of the layer's tensor names, for several layers in one kernel)"""
+    (tag: a prefix of the layer's tensor names, for several layers in one kernel; mlp=False: x1, before the MLP)"""
     h = rmsnorm(xt, ax.dsl.load(ln1).reshape(1, 1, H), eps=EPS)
     qg = proj(h, w_q, tag + "attn_q").reshape(1, HQ, (2 if GATE else 1) * D)  # 每个头 [q | gate]（Qwen3 无 gate）
     q = rmsnorm(qg[:, :, 0:D], ax.dsl.load(q_norm).reshape(1, 1, D), eps=EPS)
@@ -189,11 +200,11 @@ def attn_block(xt, ln1, w_q, w_k, w_v, q_norm, k_norm, cos_t, sin_t, kc, vc, pos
     one_row = ax.dsl.from_numpy(np.array([1, 1] if KVL == "head" else [1], dtype=np.uint32))
     src0 = ax.dsl.from_numpy(np.zeros(shape=(2 if KVL == "head" else 1,), dtype=np.uint32))
     p = ax.dsl.cast(ax.dsl.load(pos), dtype=ax.uint32)
-    if KVL == "cell":
-        ax.dsl.dynamic_st(ax.dsl.cast(k.reshape(1, HKV * D), dtype=ax.fp16), src0, p, one_row, dim=(0,),
-                          output_shape=kc.shape, r=kc)
-        ax.dsl.dynamic_st(ax.dsl.cast(v.reshape(1, HKV * D), dtype=ax.fp16), src0, p, one_row, dim=(0,),
-                          output_shape=vc.shape, r=vc)
+    if KVL == "cell":  # select_scatter / index_select: any cache size (dynamic_st / dynamic_ld stop at 64 MB)
+        ax.dsl.select_scatter(ax.dsl.cast(k.reshape(1, HKV * D), dtype=ax.fp16), ax.dsl.cast(p, dtype=ax.int32), dim=0,
+                              r=kc)
+        ax.dsl.select_scatter(ax.dsl.cast(v.reshape(1, HKV * D), dtype=ax.fp16), ax.dsl.cast(p, dtype=ax.int32), dim=0,
+                              r=vc)
     for hk in range(HKV if KVL == "head" else 0):
         dst = ax.dsl.concat(ax.dsl.from_numpy(np.array([hk], dtype=np.uint32)), p, dim=0)
         ax.dsl.dynamic_st(k[:, hk : hk + 1, :].reshape(1, 1, D), src0, dst, one_row, dim=(0, 1),
@@ -227,13 +238,15 @@ def attn_block(xt, ln1, w_q, w_k, w_v, q_norm, k_norm, cos_t, sin_t, kc, vc, pos
                 off = ax.dsl.concat(head, t0, dim=0)
                 kj = ax.dsl.dynamic_ld(kc, off, kv_block_shape, dim=(0, 1), output_shape=(1, BC, D)).reshape(BC, D)
                 vj = ax.dsl.dynamic_ld(vc, off, kv_block_shape, dim=(0, 1), output_shape=(1, BC, D)).reshape(BC, D)
-            else:  # BC cells x both heads, then this head's columns
-                kb = ax.dsl.dynamic_ld(kc, t0, kv_block_shape, dim=(0,), output_shape=(BC, HKV * D))
-                vb = ax.dsl.dynamic_ld(vc, t0, kv_block_shape, dim=(0,), output_shape=(BC, HKV * D))
-                kj = ax.dsl.cast(kb[:, hk * D : (hk + 1) * D], dtype=ax.bf16)
-                vj = ax.dsl.cast(vb[:, hk * D : (hk + 1) * D], dtype=ax.bf16)
-            mj = ax.dsl.dynamic_ld(mask, ax.dsl.cast(index, dtype=ax.uint32), mask_block_shape, dim=(0,),
-                                   output_shape=(1, BC))
+            else:  # block `index`, this head's columns
+                nb = kc.shape[0] // BC
+                kj = ax.dsl.cast(ax.dsl.index_select(kc.reshape(nb, BC, HKV, D)[:, :, hk : hk + 1, :], index, dim=0)
+                                 .reshape(BC, D), dtype=ax.bf16)
+                vj = ax.dsl.cast(ax.dsl.index_select(vc.reshape(nb, BC, HKV, D)[:, :, hk : hk + 1, :], index, dim=0)
+                                 .reshape(BC, D), dtype=ax.bf16)
+            mj = (ax.dsl.index_select(mask.reshape(kc.shape[0] // BC, 1, BC), index, dim=0).reshape(1, BC)
+                  if KVL == "cell" else ax.dsl.dynamic_ld(mask, ax.dsl.cast(index, dtype=ax.uint32), mask_block_shape,
+                                                         dim=(0,), output_shape=(1, BC)))
             m_s = ax.dsl.create_tensor(shape=(G, 1 + BC + 1), dtype=ax.bf16)
             ax.dsl.move(r=m_s[:, :1], x=mi)
             ax.dsl.move(r=m_s[:, -1:], x=zero_col)
@@ -264,14 +277,14 @@ def attn_block(xt, ln1, w_q, w_k, w_v, q_norm, k_norm, cos_t, sin_t, kc, vc, pos
     gated = (sigmoid_mul(attn, gate, activation_output_dtype=ax.fp32, output_dtype=ax.bf16) if GATE else attn
              ).reshape(1, 1, HQ * D)
     x1 = ax.dsl.add(xt, proj(gated, w_o, tag + "attn_o"), output_dtype=ax.bf16)
-    return mlp_block(x1, ln2, w_gate, w_up, w_down, tag)
+    return mlp_block(x1, ln2, w_gate, w_up, w_down, tag) if mlp else x1
 
 
 def attn_layer(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nblk, mask, w_o, ln2, w_gate, w_up,
                w_down, out):
-    x2 = attn_block(ax.dsl.load(x), ln1, w_q, w_k, w_v, q_norm, k_norm, ax.dsl.load(cos), ax.dsl.load(sin), kc, vc,
-                    pos, nblk, mask, w_o, ln2, w_gate, w_up, w_down)  # x [1, 1, H], cos / sin [1, ROT/2]
-    ax.dsl.store(x2, r=out)
+    x1 = attn_block(ax.dsl.load(x), ln1, w_q, w_k, w_v, q_norm, k_norm, ax.dsl.load(cos), ax.dsl.load(sin), kc, vc,
+                    pos, nblk, mask, w_o, ln2, w_gate, w_up, w_down, mlp=False)  # x [1, 1, H], cos / sin [1, ROT/2]
+    mlp_residual(x1, ln2, w_gate, w_up, w_down, out)  # by name: q35_moe replaces it with the MoE's dense part
     return out, kc, vc
 
 
