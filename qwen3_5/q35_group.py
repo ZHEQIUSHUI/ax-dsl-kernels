@@ -39,6 +39,8 @@ import q35_step as q
 
 assert L.MX and not L.MOE and L.P == 1 and K.BLOCK
 G = int(os.environ.get("G", 4))
+# KVX=1: the KV heads split over the cores and exchanged through shared OCM (needs HKV % CORES == 0)
+KVX = os.environ.get("KVX", "0") == "1"
 # LMHEAD=1 (the group covers every layer): also the final norm and the output projection (tied embedding rows, in the
 # layers' weight format, or LMFMT=mx8 / mx4), logits [1, V] f32 as one more output; V / CORES rows per core
 LMHEAD = os.environ.get("LMHEAD", "0") == "1"
@@ -132,19 +134,52 @@ def attn_layer(c, xt, m, cs, pn, mask, kc, vc, t):
     qh = rmsnorm(qg[:, :, 0:D], ax.dsl.load(m["q_norm"]).reshape(1, 1, D), eps=EPS)
     qh = rope(qh, cos_t, sin_t, rotary_dim=ROT)
     hk0, hk1 = (c * QH) // G_, ((c + 1) * QH - 1) // G_
-    # every core projects all KV heads and writes the whole row (the same code on every core: the same bytes), then
-    # reads only after its own write (L.kv_write's zero scales the queries): no core depends on another's DDR write
-    k = rmsnorm(q.proj(h, m["w_k"], t + "attn_k").reshape(1, HKV, D), ax.dsl.load(m["k_norm"]).reshape(1, 1, D), eps=EPS)
-    k = rope(k, cos_t, sin_t, rotary_dim=ROT)
-    v = q.proj(h, m["w_v"], t + "attn_v").reshape(1, HKV, D)
-    p = ax.dsl.cast(ax.dsl.load(pn[0:1]), dtype=ax.uint32)
-    zero = L.kv_write(kc, vc, k, v, p, 1).reshape(1, 1)
     scale = ax.dsl.full(shape=(1,), dtype=ax.fp32, fill_value=1.0 / math.sqrt(D))
     attn = ax.dsl.create_tensor((1, QH, D), ax.bf16, ax.MemoryType.OCM, name=t + "attn")
-    if L.DEC_SPLIT:  # the blocks over the cores, all query heads (q35_layer_mc.attention_split)
+    p = ax.dsl.cast(ax.dsl.load(pn[0:1]), dtype=ax.uint32)
+    if KVX:
+        # each core projects HKV / CORES KV heads; the K / V rows (and, splitting the blocks, the scaled queries) go
+        # through shared OCM in one exchange, then every core writes the whole K / V row itself and reads only after
+        # its own write: the KV weights read once per call, not once per core
+        HC, QD = HKV // CORES, QH * D
+        ks = slice(c * HC * D, (c + 1) * HC * D)
+        kc_ = rmsnorm(q.proj(h, q.slice_w(m["w_k"], rows=ks), t + "attn_k").reshape(1, HC, D),
+                      ax.dsl.load(m["k_norm"]).reshape(1, 1, D), eps=EPS)
+        kc_ = rope(kc_, cos_t, sin_t, rotary_dim=ROT)
+        vc_ = q.proj(h, q.slice_w(m["w_v"], rows=ks), t + "attn_v").reshape(1, HC, D)
         qs = ax.dsl.mul(qh.reshape(QH, D), scale, output_dtype=ax.bf16)
-        qs = ax.dsl.add(qs, ax.dsl.cast(zero, dtype=ax.bf16), output_dtype=ax.bf16)  # exact: + 0
-        L.attention_split(c, qs, kc, vc, pn[1:2], mask, attn, t)
+        W_ = (QD if L.DEC_SPLIT else 0) + 2 * HC * D
+        ex = ax.dsl.create_tensor((CORES, W_), ax.bf16, ax.MemoryType.SHARED_OCM, name=t + "qkv_all")
+        o0 = QD if L.DEC_SPLIT else 0
+        if L.DEC_SPLIT:
+            ax.dsl.move(r=ex[c : c + 1, 0:QD], x=qs.reshape(1, QD))
+        ax.dsl.move(r=ex[c : c + 1, o0 : o0 + HC * D], x=kc_.reshape(1, HC * D))
+        ax.dsl.move(r=ex[c : c + 1, o0 + HC * D : o0 + 2 * HC * D], x=vc_.reshape(1, HC * D))
+        axd.pub(ex)
+        axd.sub(ex)
+        k = ax.dsl.create_tensor((CORES, HC * D), ax.bf16, ax.MemoryType.OCM, name=t + "k_row")
+        v = ax.dsl.create_tensor((CORES, HC * D), ax.bf16, ax.MemoryType.OCM, name=t + "v_row")
+        ax.dsl.move(r=k, x=ex[:, o0 : o0 + HC * D])
+        ax.dsl.move(r=v, x=ex[:, o0 + HC * D : o0 + 2 * HC * D])
+        zero = L.kv_write(kc, vc, k.reshape(1, HKV, D), v.reshape(1, HKV, D), p, 1).reshape(1, 1)
+        if L.DEC_SPLIT:
+            qa = ax.dsl.create_tensor((CORES, QD), ax.bf16, ax.MemoryType.OCM, name=t + "q_heads")
+            ax.dsl.move(r=qa, x=ex[:, 0:QD])
+            qa = qa.reshape(L.HQ, D)
+            qa = ax.dsl.add(qa, ax.dsl.cast(zero, dtype=ax.bf16), output_dtype=ax.bf16)  # exact: + 0
+            attention_split_qa(c, qa, kc, vc, pn[1:2], mask, attn, t)
+    else:
+        # every core projects all KV heads and writes the whole row (the same code on every core: the same bytes), then
+        # reads only after its own write (L.kv_write's zero scales the queries): no core depends on another's DDR write
+        k = rmsnorm(q.proj(h, m["w_k"], t + "attn_k").reshape(1, HKV, D), ax.dsl.load(m["k_norm"]).reshape(1, 1, D),
+                    eps=EPS)
+        k = rope(k, cos_t, sin_t, rotary_dim=ROT)
+        v = q.proj(h, m["w_v"], t + "attn_v").reshape(1, HKV, D)
+        zero = L.kv_write(kc, vc, k, v, p, 1).reshape(1, 1)
+        if L.DEC_SPLIT:  # the blocks over the cores, all query heads (q35_layer_mc.attention_split)
+            qs = ax.dsl.mul(qh.reshape(QH, D), scale, output_dtype=ax.bf16)
+            qs = ax.dsl.add(qs, ax.dsl.cast(zero, dtype=ax.bf16), output_dtype=ax.bf16)  # exact: + 0
+            L.attention_split(c, qs, kc, vc, pn[1:2], mask, attn, t)
     j = 0
     for hk in range(hk0, (hk1 + 1) if not L.DEC_SPLIT else hk0):
         j1 = min(QH, (hk + 1) * G_ - c * QH)
@@ -156,6 +191,75 @@ def attn_layer(c, xt, m, cs, pn, mask, kc, vc, t):
              else attn).reshape(1, 1, QH * D)
     o = q.proj(gated, q.slice_w(m["w_o"], cols=slice(c * QH * D, (c + 1) * QH * D)), t + "attn_o", output_dtype=ax.fp32)
     return mlp(c, reduce(c, xt, o, t + "a"), m, t)
+
+
+def attention_split_qa(c, qa, kc, vc, nblk, mask, attn, tag=""):
+    """q35_layer_mc.attention_split on the queries of all heads qa [HQ, D] (scaled, + 0 after the own KV write) the
+    caller exchanged already: the cache blocks over the cores, partials merged per core's own heads into attn"""
+    import ml_dtypes
+    HQ, QH, D, HKV, BC, NBLK, G_ = L.HQ, L.QH, L.D, L.HKV, L.BC, L.NBLK, L.G
+    minus_1 = ax.dsl.from_numpy(np.full(shape=(1,), dtype=ml_dtypes.bfloat16, fill_value=-1))
+    range_start = ax.dsl.from_numpy(np.array([c], dtype=np.int32), prefix=f"{tag}split_start")
+    range_step = ax.dsl.from_numpy(np.array([CORES], dtype=np.int32), prefix=f"{tag}split_step")
+    range_stop = ax.dsl.load(nblk)
+    oi = ax.dsl.zeros(shape=(HQ, D), dtype=ax.bf16)
+    li = ax.dsl.zeros(shape=(HQ,), dtype=ax.fp32)
+    mi = ax.dsl.full(shape=(HQ, 1), dtype=ax.bf16, fill_value=-3e38)
+    zero_col = ax.dsl.zeros(shape=(HQ, 1), dtype=ax.bf16)
+    index = ax.dsl.zeros(shape=(1,), dtype=ax.int32)
+
+    def body(index, kc, vc, mask, qa, mi, li, oi, zero_col, minus_1):
+        loop_mi, loop_li, loop_oi = mi, li, oi
+        kb = ax.dsl.cast(ax.dsl.index_select(kc.reshape(NBLK, BC, HKV * D), index, dim=0).reshape(BC, HKV * D),
+                         dtype=ax.bf16)
+        vb = ax.dsl.cast(ax.dsl.index_select(vc.reshape(NBLK, BC, HKV * D), index, dim=0).reshape(BC, HKV * D),
+                         dtype=ax.bf16)
+        mj = L.mask_block(mask, index, 1)
+        m_s = ax.dsl.create_tensor(shape=(HQ, 1 + BC + 1), dtype=ax.bf16)
+        ax.dsl.move(r=m_s[:, :1], x=mi)
+        ax.dsl.move(r=m_s[:, -1:], x=zero_col)
+        for hk in range(HKV):
+            sj = ax.dsl.matmul(qa[hk * G_ : (hk + 1) * G_, :], kb[:, hk * D : (hk + 1) * D], transposed=True,
+                               output_dtype=ax.bf16)
+            ax.dsl.add(sj, mj, output_dtype=ax.bf16, r=m_s[hk * G_ : (hk + 1) * G_, 1 : 1 + BC])
+        m_next = ax.dsl.max(m_s[:, : 1 + BC], dim=-1, keepdim=True)
+        m_s = ax.dsl.sub(m_s, m_next, r=m_s)
+        pj = ax.dsl.exp(m_s[:, 1 : 1 + BC])
+        p32 = ax.dsl.exp(m_s[:, 1 : 1 + BC], output_dtype=ax.fp32)
+        lij = ax.dsl.sum(p32, dim=-1, output_dtype=ax.fp32)
+        ratio = ax.dsl.exp(m_s[:, :1], output_dtype=ax.fp32).reshape(HQ)
+        ratio_li = ax.dsl.mul(li, ratio, output_dtype=ax.fp32)
+        ax.dsl.add(ratio_li, lij, r=loop_li, output_dtype=ax.fp32)
+        oij = ax.dsl.create_tensor(shape=(HQ, D), dtype=ax.fp32)
+        for hk in range(HKV):
+            ax.dsl.matmul(pj[hk * G_ : (hk + 1) * G_, :], vb[:, hk * D : (hk + 1) * D], output_dtype=ax.fp32,
+                          r=oij[hk * G_ : (hk + 1) * G_, :])
+        ratio_oi = ax.dsl.mul(ratio.reshape(HQ, 1), oi, output_dtype=ax.fp32)
+        ax.dsl.add(ratio_oi, oij, r=loop_oi, output_dtype=ax.bf16)
+        ax.dsl.mul(m_s[:, -1:], minus_1, r=loop_mi)
+        return (kc, vc, mask, qa, loop_mi, loop_li, loop_oi, zero_col, minus_1)
+
+    (kc, vc, mask, qa, mi, li, oi, zero_col, minus_1) = ax.dsl.range(
+        index, range_start, range_stop, range_step, body, kc, vc, mask, qa, mi, li, oi, zero_col, minus_1)
+    part = ax.dsl.create_tensor((CORES, HQ, 2 + D), ax.fp32, ax.MemoryType.SHARED_OCM, name=tag + "attn_part")
+    ax.dsl.move(r=part[c : c + 1, :, 0:1], x=ax.dsl.cast(mi, dtype=ax.fp32).reshape(1, HQ, 1))
+    ax.dsl.move(r=part[c : c + 1, :, 1:2], x=li.reshape(1, HQ, 1))
+    ax.dsl.move(r=part[c : c + 1, :, 2:], x=ax.dsl.cast(oi, dtype=ax.fp32).reshape(1, HQ, D))
+    axd.pub(part)
+    axd.sub(part)
+    hs = slice(c * QH, (c + 1) * QH)
+    m_all = part[0:1, hs, 0:1].reshape(QH, 1)
+    for k_ in range(1, CORES):
+        m_all = ax.dsl.maximum(m_all, part[k_ : k_ + 1, hs, 0:1].reshape(QH, 1))
+    l_sum, o_sum = None, None
+    for k_ in range(CORES):
+        w = ax.dsl.exp(ax.dsl.sub(part[k_ : k_ + 1, hs, 0:1].reshape(QH, 1), m_all, output_dtype=ax.fp32),
+                       output_dtype=ax.fp32)
+        lw = ax.dsl.mul(part[k_ : k_ + 1, hs, 1:2].reshape(QH, 1), w, output_dtype=ax.fp32)
+        ow = ax.dsl.mul(part[k_ : k_ + 1, hs, 2:].reshape(QH, D), w, output_dtype=ax.fp32)
+        l_sum = lw if l_sum is None else ax.dsl.add(l_sum, lw, output_dtype=ax.fp32)
+        o_sum = ow if o_sum is None else ax.dsl.add(o_sum, ow, output_dtype=ax.fp32)
+    ax.dsl.div(o_sum, l_sum, output_dtype=ax.bf16, r=attn.reshape(QH, D))
 
 
 def members(src, j):
@@ -282,7 +386,8 @@ def main():
     fn = __import__(modname).group_kernel
     single = {"gdn": L.kern(mb.gdn_layer_mx, "g1"), "attn": L.kern(mb.attn_layer_mx, "a1")}  # MXFP8 or MXFP4 args
     os.chdir(f"{build}/grp")
-    kg = ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=True, dump_path=f"{build}/grp")(fn)
+    PERF = os.environ.get("PERF") == "1"  # simulator trace of the group kernel (DUMP_DSL_PERF artifacts in <DUMP>/grp)
+    kg = ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=not PERF, dump_dsl_perf=PERF, dump_path=f"{build}/grp")(fn)
     LMAX, BC, NV, DK, DV, CONV, KD, VD, HKV, D = L.LMAX, L.BC, L.NV, L.DK, L.DV, L.CONV, L.KD, L.VD, L.HKV, L.D
     state = {r: [torch.zeros((NV, DK, DV)) if k == "gdn" else torch.zeros((LMAX, HKV * D), dtype=torch.half)
                  for k in KINDS] for r in ("1", "4")}
@@ -338,11 +443,11 @@ def main():
             logger.info(f"group {tag} step {step}: logits cos {L.cos(case['logits'], hn @ dq.T):.6f}")
         cval = L.cos(o, ref)
         same = bool(torch.equal(o.view(torch.int16), ref.view(torch.int16)))
-        sc = min(L.cos(state["4"][j], state["1"][j]) for j, k in enumerate(KINDS) if k == "gdn")
+        sc = min([L.cos(state["4"][j], state["1"][j]) for j, k in enumerate(KINDS) if k == "gdn"] or [1.0])
         logger.info(f"group {tag} step {step}: out cos {cval:.6f} (bitwise {same}), worst gdn state cos {sc:.6f}")
         worst = min(worst, cval)
     path = max(glob.glob(f"{build}/grp/cache/group_kernel.*.compiled.axmodel"), key=os.path.getmtime)
-    name = f"{q.KP}_group{G}_{tag}{K.FMT}{'_lm' + LMFMT[-1] if LMHEAD else ''}_kvc_c{LMAX}"
+    name = f"{q.KP}_group{G}_{tag}{K.FMT}{os.environ.get('NAMESFX', '')}{'_lm' + LMFMT[-1] if LMHEAD else ''}_kvc_c{LMAX}"
     dst = board_io.kernel_file(out_dir, name, CORES)
     shutil.copy(path, dst)
     with open(dst[: -len(".axmodel")] + ".layout", "w") as f:
