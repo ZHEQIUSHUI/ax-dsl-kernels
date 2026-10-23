@@ -6,9 +6,11 @@ codec decoder's causal convolutions), one kernel per shape, read in ggml's layou
                                               -> out [OC, L - (K - 1) * D] f32
 
 out[o][t] = sum over i, k of w[o][i][k] * x[i][t + k * D], ggml's ggml_conv_1d(w, x, 1, 0, D) (whose im2col and
-MUL_MAT the backend then skips), as K matrix products accumulated in f32: out[:, t] += w[k] . x[:, t + k * D] (AxConvV2
-takes channels-last input and writes bf16 only). Blocks of OB output channels (their K matrices on chip) and LT output
-steps (an input block with the (K - 1) * D steps after it, the taps its shifted windows).
+MUL_MAT the backend then skips), as one matrix product over K * IC (AxConvV2 takes channels-last input and writes bf16
+only): the K taps' matrices side by side on chip [OB, K * IC], the input block's K shifted windows stacked on chip
+[K * IC, LT]. No product accumulates into another's output (the NPU's add-assign of f32 outputs gave results that
+differed between runs on the board). Blocks of OB output channels and LT output steps (an input block with the
+(K - 1) * D steps after it).
 
 CORES=<n> splits each kernel over n cores without synchronization: each core takes OC / n output channels, else
 (OW = L - (K - 1) * D steps) OW / n output steps; shapes that split neither way are skipped.
@@ -51,18 +53,26 @@ def build(IC, OC, K, D, L, out_dir):
         logger.warning(f"conv1d ic{IC} oc{OC} k{K} d{D} l{L}: splits over {CORES} cores neither way, skipped")
         return
     OB = divisor_at_most(OCC, max(1, WB // (IC * K * 2)))
-    LT = divisor_at_most(OWC, max(16, XB // (IC * 2 + OB * 4)), 16)
+    LT = divisor_at_most(OWC, max(16, XB // (IC * 2 * (K + 1 if K > 1 else 1) + OB * 4)), 16)
 
     def conv1d(x, w, out):
         c = ax.program_id(0)
         oc1, t1 = (c * OCC, 0) if OCC < OC else (0, c * OWC)
         for o0 in range(oc1, oc1 + OCC, OB):
-            wb = [ax.dsl.load(w[k : k + 1, o0 : o0 + OB]).reshape(OB, IC) for k in range(K)]  # K x [OB, IC]
+            if K == 1:
+                wb = ax.dsl.load(w[0:1, o0 : o0 + OB]).reshape(OB, IC)
+            else:
+                wb = ax.dsl.create_tensor((OB, K * IC), ax.bf16, ax.MemoryType.OCM, name=f"w{o0}")  # [OB, K * IC]
+                for k in range(K):
+                    ax.dsl.move(r=wb[:, k * IC : (k + 1) * IC], x=ax.dsl.load(w[k : k + 1, o0 : o0 + OB]).reshape(OB, IC))
             for t0 in range(t1, t1 + OWC, LT):
                 xb = ax.dsl.load(x[:, t0 : t0 + LT + halo])  # [IC, LT + halo]
-                acc = ax.dsl.create_tensor((OB, LT), ax.fp32, name=f"acc{o0}_{t0}")
-                for k in range(K):
-                    ax.dsl.matmul(wb[k], xb[:, k * D : k * D + LT], output_dtype=ax.fp32, output_add_assign=k > 0, r=acc)
+                xk = xb
+                if K > 1:
+                    xk = ax.dsl.create_tensor((K * IC, LT), ax.bf16, ax.MemoryType.OCM, name=f"x{o0}_{t0}")
+                    for k in range(K):
+                        ax.dsl.move(r=xk[k * IC : (k + 1) * IC], x=xb[:, k * D : k * D + LT])
+                acc = ax.dsl.matmul(wb, xk, output_dtype=ax.fp32)
                 ax.dsl.store(acc, r=out[o0 : o0 + OB, t0 : t0 + LT])
         return out
 
