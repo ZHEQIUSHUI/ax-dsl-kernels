@@ -62,14 +62,11 @@ FULL = {}  # (j, w_<x>) -> columns before blocking
 GL, AL = (mb.nv_twin(mb.gdn_layer_mx), mb.nv_twin(mb.attn_layer_mx)) if K.NVF else (mb.gdn_layer_mx, mb.attn_layer_mx)
 
 
-KEEP_SHM = os.environ.get("KEEP_SHM", "1") == "1"  # on by default
-PARTS = []  # this call's shared slots (KEEP_SHM)
 
 
 def reduce(c, x, partial, tag):
     """x + the cores' fp32 partials, through a shared OCM slot of its own"""
-    part = ax.dsl.create_tensor((CORES, 1, H), ax.fp32, ax.MemoryType.SHARED_OCM, name="part_" + tag)
-    PARTS.append(part)
+    part = L.shm_tensor((CORES, 1, H), ax.fp32, name="part_" + tag)
     ax.dsl.move(r=part[c : c + 1], x=partial.reshape(1, 1, H))
     axd.pub(part)
     axd.sub(part)
@@ -156,7 +153,7 @@ def attn_layer(c, xt, m, cs, pn, mask, kc, vc, t):
         vc_ = q.proj(h, q.slice_w(m["w_v"], rows=ks), t + "attn_v").reshape(1, HC, D)
         qs = ax.dsl.mul(qh.reshape(QH, D), scale, output_dtype=ax.bf16)
         W_ = (QD if L.DEC_SPLIT else 0) + 2 * HC * D
-        ex = ax.dsl.create_tensor((CORES, W_), ax.bf16, ax.MemoryType.SHARED_OCM, name=t + "qkv_all")
+        ex = L.shm_tensor((CORES, W_), ax.bf16, name=t + "qkv_all")
         o0 = QD if L.DEC_SPLIT else 0
         if L.DEC_SPLIT:
             ax.dsl.move(r=ex[c : c + 1, 0:QD], x=qs.reshape(1, QD))
@@ -248,7 +245,7 @@ def attention_split_qa(c, qa, kc, vc, nblk, mask, attn, tag=""):
 
     (kc, vc, mask, qa, mi, li, oi, zero_col, minus_1) = ax.dsl.range(
         index, range_start, range_stop, range_step, body, kc, vc, mask, qa, mi, li, oi, zero_col, minus_1)
-    part = ax.dsl.create_tensor((CORES, HQ, 2 + D), ax.fp32, ax.MemoryType.SHARED_OCM, name=tag + "attn_part")
+    part = L.shm_tensor((CORES, HQ, 2 + D), ax.fp32, name=tag + "attn_part")
     ax.dsl.move(r=part[c : c + 1, :, 0:1], x=ax.dsl.cast(mi, dtype=ax.fp32).reshape(1, HQ, 1))
     ax.dsl.move(r=part[c : c + 1, :, 1:2], x=li.reshape(1, HQ, 1))
     ax.dsl.move(r=part[c : c + 1, :, 2:], x=ax.dsl.cast(oi, dtype=ax.fp32).reshape(1, HQ, D))
@@ -294,7 +291,6 @@ def group_body(x, packs, cs, pn, mask, out, io):
     mb.SCALES.clear()
     mb.SCALES2.clear()
     K.BLK.clear()
-    PARTS.clear()
     L.SHM_LIVE.clear()
     xt = ax.dsl.load(x)
     for j, kind in enumerate(KINDS):
@@ -304,12 +300,7 @@ def group_body(x, packs, cs, pn, mask, out, io):
         else:
             xt = attn_layer(c, xt, m, cs, pn, mask, io[j][0], io[j][1], f"L{j}_")
     if c == 0:
-        if KEEP_SHM:  # every slot read again here: alive (its space not reused) until the end of the call; each read
-            # selected away by a false condition (no arithmetic: a -inf / NaN in a slot cannot reach out)
-            L.SHM_LIVE.extend(PARTS)  # with the layers' own (split attention's q / merge slots)
-            ax.dsl.store(L.keep_shm(xt), r=out)
-        else:
-            ax.dsl.store(xt, r=out)
+        ax.dsl.store(L.keep_shm(xt), r=out)  # every shared OCM tensor of the call read once more (q35_layer_mc)
     if LMHEAD:
         m = members(packs, "M")
         hn = rmsnorm(xt, ax.dsl.load(m["norm"]).reshape(1, 1, H), eps=EPS)
