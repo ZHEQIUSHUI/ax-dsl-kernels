@@ -859,12 +859,17 @@ def check_gdn(W, out_dir):
     for step in range(STEPS):
         x = tokens(W, step * P)
         res = {}
-        for r, k, n in (("1", k1, 1), ("4", k4, CORES)):
+        for r, k, n in (("1", k1, 1), ("4", k4, CORES))[1 if NOREF else 0 :]:
             case = dict(a, x=x, state_in=st[r], conv_in=cv[r], out=torch.zeros((1, P, H), dtype=torch.bfloat16),
                         state_out=torch.zeros_like(st[r]), conv_out=torch.zeros_like(cv[r]), **moe_outs())
             os.chdir(f"{BUILD}/gdn{r}")
             run(k, n, case, names_)
             st[r], cv[r], res[r] = case["state_out"], case["conv_out"], case
+        if NOREF:  # no single-core kernel of this shape (35B GDN prefill P=256): finite outputs only
+            fin = bool(res["4"]["out"].float().isfinite().all())
+            logger.info(f"{names('gdn')} npu{CORES} step {step}: no reference, out finite {fin}")
+            worst = min(worst, 1.0 if fin else 0.0)
+            continue
         co, cs = cos(res["4"]["out"], res["1"]["out"]), cos(st["4"], st["1"])
         if MOE:
             co = min(co, *(cos(res["4"][n], res["1"][n]) for n in ("h2_out", "logits_out")))
@@ -1088,8 +1093,13 @@ def pk_lps(p):
 PK_SPEC = {}
 
 
+PK_NOBLK = [False]  # prefill packs: no column blocks (the prefill bodies slice their weights themselves)
+
+
 def pk_blocks(n):
     """the column blocks (element ranges, in storage order: core-major) of a member split by columns over the cores"""
+    if PK_NOBLK[0]:
+        return None
     if n in ("w_out", "s_out"):  # GDN out projection: per core its REP strips of KHC value heads
         bl = [((vo * NK + c * KHC) * DV, (vo * NK + c * KHC + KHC) * DV) for c in range(CORES) for vo in range(REP)]
     elif n in ("w_o", "s_o"):  # attention o projection: the core's query heads
@@ -1251,6 +1261,76 @@ def check_full_pk(W, out_dir, kind):
     logger.info(f"wrote {dst} and its layout")
 
 
+PK_FN = {}  # packed prefill kernels: the unpacked kernel each wraps
+
+
+def pk_variant(fn, key, a):
+    """a packed version of kernel fn: fn's inputs that a holds (the layer's weights) replaced by the packs pw / ps / pf /
+    pb (q35_layer_mc's layout `key`), the others (activations, state, KV, rope, mask) and the outputs kept by name"""
+    import importlib
+    import inspect
+    names = order(fn)
+    rest = [n for n in names if not torch.is_tensor(a.get(n))]
+    ins = [n for n in rest if n not in ("out", "state_out", "conv_out", "h2_out", "logits_out")]
+    outs = [n for n in rest if n not in ins]
+    ret = [ln.strip() for ln in inspect.getsource(fn).splitlines() if ln.strip().startswith("return ")][-1]
+    PK_FN[key] = fn
+    call = ", ".join(f"{n}=m[{n!r}]" if torch.is_tensor(a.get(n)) else f"{n}={n}" for n in names)
+    src = (f"import q35_layer_mc as S\n\n\ndef {fn.__name__}_pk({', '.join(ins + ['pw', 'ps', 'pf', 'pb'] + outs)}):\n"
+           f"    m = S.pk_unpack({key!r}, pw, ps, pf, pb)\n    S.PK_FN[{key!r}]({call})\n    {ret}\n")
+    mod = f"pkvar_{key}"
+    os.makedirs(BUILD, exist_ok=True)
+    open(f"{BUILD}/{mod}.py", "w").write(src)
+    if BUILD not in sys.path:
+        sys.path.insert(0, BUILD)
+    importlib.invalidate_caches()
+    return getattr(importlib.import_module(mod), f"{fn.__name__}_pk")
+
+
+def check_pre_pk(W, out_dir, kind):
+    """the packed prefill kernel (four cores, this PCHUNK) against the unpacked one (mine()): the same inputs, the
+    layer's weights in the packs (no column blocks); written as <name>_pk with its .layout"""
+    torch.manual_seed(0)
+    mc = mine()[0 if kind == "gdn" else 1]
+    if kind == "gdn":
+        a = mb.mx_args(q.gdn_args(W, 0), mb.GDN_W)[0] if MX else q.gdn_args(W, 0)
+        io = dict(state_in=torch.randn((NV, DK, DV)) * 0.1,
+                  conv_in=(torch.randn((1, CONV - 1, 2 * KD + VD)) * 0.1).bfloat16(), state_out=torch.zeros((NV, DK, DV)),
+                  conv_out=torch.zeros((1, CONV - 1, 2 * KD + VD), dtype=torch.bfloat16))
+    else:
+        li = q.LAYERS.index("full_attention")
+        a = q.attn_args(W, li)
+        a = mb.mx_args(a, mb.ATTN_W)[0] if MX and not (MOE and P > 1) else a
+        cs, sn = rope_rows(0)
+        io = dict(cos=cs, sin=sn, kc=torch.zeros((LMAX, HKV * D), dtype=torch.half),
+                  vc=torch.zeros((LMAX, HKV * D), dtype=torch.half), pos=torch.tensor([0], dtype=torch.int32),
+                  nblk=torch.tensor([(P - 1) // BC + 1], dtype=torch.int32), mask=mask_rows(0))
+    if "w_shg" in a:
+        a["w_shg"] = a["w_shg"].bfloat16()
+    key = f"pre{kind}"
+    PK_NOBLK[0] = True
+    sizes = pk_layout(key, a, order(mc))
+    fpk = pk_variant(mc, key, a)
+    base = dict(x=tokens(W, 0), out=torch.zeros((1, P, H), dtype=torch.bfloat16), **moe_outs())
+    ref = dict(a, **base, **{n: t.clone() for n, t in io.items()})
+    got = dict(pk_packed(key, a, sizes), **{n: t.clone() for n, t in base.items()}, **{n: t.clone() for n, t in io.items()})
+    for case, fn, sub in ((ref, mc, f"pre_{kind}"), (got, fpk, f"prepk_{kind}")):
+        if kind == "attn":
+            q.RESIDENT.update(kc=case["kc"].clone(), vc=case["vc"].clone())
+        run(kern(fn, sub), CORES, case, order(fn))
+        q.RESIDENT.clear()
+    outs = [n for n in ("out", "h2_out", "logits_out", "state_out", "conv_out", "kc", "vc") if n in ref]
+    same = {n: bool(torch.equal(got[n].contiguous().view(torch.uint8), ref[n].contiguous().view(torch.uint8))) for n in outs}
+    logger.info(f"{names(kind)} packed npu{CORES}: bitwise vs unpacked {same}, packs {sizes}")
+    path = max(glob.glob(f"{BUILD}/prepk_{kind}/cache/{fpk.__name__}.*.compiled.axmodel"), key=os.path.getmtime)
+    dst = board_io.kernel_file(out_dir, names(kind) + "_pk", CORES)
+    shutil.copy(path, dst)
+    board_io.fix(dst)
+    pk_write_layout(key, dst, sizes)
+    PK_NOBLK[0] = False
+    logger.info(f"wrote {dst} and its layout")
+
+
 def main():
     out_dir = os.path.abspath(sys.argv[1])
     os.makedirs(out_dir, exist_ok=True)
@@ -1263,6 +1343,9 @@ def main():
             check_full(W, out_dir, kind)
         if f"pk{kind}" in only and MOE and P == 1:
             check_full_pk(W, out_dir, kind)
+    for kind in ("gdn", "attn"):
+        if f"pkpre{kind}" in only and P > 1 and (kind == "attn" or q.HYBRID):
+            check_pre_pk(W, out_dir, kind)
     if "lm" in only:
         check_lm(out_dir)
     if "experts" in only and MOE and P == 1:
@@ -1274,4 +1357,5 @@ def main():
 
 
 if __name__ == "__main__":
+    sys.modules["q35_layer_mc"] = sys.modules["__main__"]  # generated kernels import this module: the same PK_SPEC
     main()
