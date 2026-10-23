@@ -74,9 +74,20 @@ def oc_tile_fp8(cols):
     return max(16, min(256, (512 * 1024) // cols))  # fp8 一行 1 字节，tile 仍约 512 KB 封顶 256 行
 
 
+# MX projection tiles. Default: OC tiles of about 512 KB of weights over the whole K, which leaves wide-K projections
+# with few output rows per tile (9B MLP down: 58 rows over K 12288, 27B: 50 over 17408) and prefill far from the matmul
+# peak. PRJ_ROWS=<rows>: every MX projection in tiles of that many output rows over the whole K (the backend splits K
+# inside a tile and accumulates there). 9B prefill 128 with PRJ_ROWS=256: gdn 1.74 -> 1.20 ms, attn 1.90 -> 1.42 ms per
+# call on the board. Input-channel tiles accumulated through MatMul NMC (linear's ic_tile_size) are not used: on the board
+# their results change from run to run
+PRJ_ROWS = int(os.environ.get("PRJ_ROWS", 0))
+
+
 def proj_mx(x, w, name, output_dtype=ax.bf16):
     s = SCALES.get(id(w))
     tile = oc_tile_fp8(w.shape[1]) if s is not None else q.oc_tile(w.shape[1])
+    if PRJ_ROWS and s is not None:
+        tile = min(PRJ_ROWS, w.shape[0])
     return linear(x, w, s, name, output_dtype=output_dtype, oc_tile_size=tile)
 
 
