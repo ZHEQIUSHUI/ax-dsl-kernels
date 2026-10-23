@@ -60,7 +60,7 @@ def attn_layer_prefill_moe(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, 
     return out, kc, vc, h2_out, logits_out
 
 
-if mo.WFMT == "mx8":  # MXFP8 projections (q35_mx_build via q35_moe); router and gate stay bf16
+if mo.WFMT in ("mx8", "nv4"):  # MXFP8 / NVFP4 projections (q35_mx_build via q35_moe); router and gate stay bf16
     mb = mo.mb
 
     def gdn_layer_prefill_moe_mx(x, ln1, w_qkv, s_qkv, w_z, s_z, w_b, s_b, w_a, s_a, conv_w, a_log, dt_bias, norm_w,
@@ -73,6 +73,9 @@ if mo.WFMT == "mx8":  # MXFP8 projections (q35_mx_build via q35_moe); router and
         gdn_layer_prefill_moe(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out, ln2, w_gate, w_up,
                               w_down, w_router, w_shg, state_in, conv_in, out, h2_out, logits_out, state_out, conv_out)
         return out, h2_out, logits_out, state_out, conv_out
+
+    if mb.NV4:
+        gdn_layer_prefill_moe_mx = mb.nv_twin(gdn_layer_prefill_moe_mx)
 
 
 def _slots_src(n):
@@ -156,6 +159,31 @@ def moe_slots_px(h2, tok, rw, e_gw, e_gs, e_dw, e_ds, out):
         sd = ax.dsl.index_select(e_ds, e, dim=0).reshape(H, FE // 32)
         h = ax.dsl.index_select(h2, ax.dsl.load(tok[i : i + 1, 1:]).reshape(G), dim=0).reshape(1, G, H)  # [1, G, H] bf16
         r = ax.dsl.load(rw[i : i + 1])  # [1, G] f32
+        gu = linear(h, wc, sc, f"s{i}_gate_up", output_dtype=ax.bf16, oc_tile_size=mo.oc_tile_fp4(H))
+        a = silu_mul(gu[:, :, :FE], gu[:, :, FE:], activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
+        d = linear(a, wd, sd, f"s{i}_down", output_dtype=ax.fp32, oc_tile_size=mo.oc_tile_fp4(FE))
+        ax.dsl.store(ax.dsl.mul(d, r.reshape(1, G, 1), output_dtype=OUT_DT), r=out[i : i + 1])
+    return out
+
+
+def moe_slots_px2(h2, tok, rw, e_gw, e_gs, e_dw, e_ds, out):
+    """moe_slots_px with the next slot's weights and rows fetched before this slot's matmuls (software pipelining:
+    the DMA of slot i + 1 under the compute of slot i)"""
+    c = ax.program_id(0)
+    sl = list(range(c * (S // CORES), (c + 1) * (S // CORES)))
+
+    def fetch(i):
+        e = ax.dsl.load(sid_of(tok, i))
+        return (ax.dsl.index_select(e_gw, e, dim=0).reshape(2 * FE, H), ax.dsl.index_select(e_gs, e, dim=0).reshape(2 * FE, H // 32),
+                ax.dsl.index_select(e_dw, e, dim=0).reshape(H, FE), ax.dsl.index_select(e_ds, e, dim=0).reshape(H, FE // 32),
+                ax.dsl.index_select(h2, ax.dsl.load(tok[i : i + 1, 1:]).reshape(G), dim=0).reshape(1, G, H),
+                ax.dsl.load(rw[i : i + 1]))
+
+    nxt = fetch(sl[0])
+    for j, i in enumerate(sl):
+        wc, sc, wd, sd, h, r = nxt
+        if j + 1 < len(sl):
+            nxt = fetch(sl[j + 1])
         gu = linear(h, wc, sc, f"s{i}_gate_up", output_dtype=ax.bf16, oc_tile_size=mo.oc_tile_fp4(H))
         a = silu_mul(gu[:, :, :FE], gu[:, :, FE:], activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
         d = linear(a, wd, sd, f"s{i}_down", output_dtype=ax.fp32, oc_tile_size=mo.oc_tile_fp4(FE))

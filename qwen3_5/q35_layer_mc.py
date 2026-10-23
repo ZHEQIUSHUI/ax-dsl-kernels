@@ -2,7 +2,7 @@
 on CORES NPU cores in one call per layer, the cores synchronized through shared OCM (tensor pub / sub) between the
 halves of the layer, as q3tts_cp_mc.py:
 
-  gdn_layer   every core: rmsnorm of x; its NK / CORES key heads and the value heads that use them (gdn_body:
+  gdn_layer   every core: rmsnorm of x; its NK / CORES key heads and the value heads that use them (as q35_mc.gdn_body:
               their q / k / v channels of the projection and causal conv, conv and state rows in place, the recurrent
               step, gated rmsnorm), the out-projection partial of their columns -> shared part_a[c]; pub / sub;
               x1 = x + sum_c part_a[c]; its F / CORES MLP channels -> shared part_m[c]; pub / sub; x2 = x1 + sum
@@ -45,11 +45,14 @@ import q35_step as q
 MOE = "num_experts" in q.cfg  # 35B-A3B: the MLP replaced by the MoE's dense part, the experts a kernel of their own
 if MOE:
     import q35_moe as mo  # q.mlp_args: the shared expert, router and its gate
-MX = os.environ.get("WFMT", "bf16") == "mx8"
+MX = os.environ.get("WFMT", "bf16") in ("mx8", "nv4")  # nv4: the projections in NVFP4 (q35_mx_build.NV4)
+NV4 = os.environ.get("WFMT") == "nv4"
 if MX:
     import q35_mx_build as mb  # q.proj / q.slice_w: the MX linear, weight slices carry their scales
 CORES = int(os.environ.get("CORES", 4))
 STEPS = int(os.environ.get("STEPS", 2))
+TOPK_OUT = os.environ.get("TOPK_OUT") == "1"  # MoE prefill: also the router's top-K per token (topk_v / topk_i, _tk)
+TK = {}  # the top-K outputs of the kernel being traced (topk wrappers -> finish_pre)
 SAVE = os.environ.get("SAVE")  # attention check: torch.save each step's outputs to <SAVE>_<step>.pt
 NOREF = os.environ.get("NOREF") == "1"  # attention: build the four-core kernel without the single-core reference run
 BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_layer_mc"))
@@ -60,7 +63,7 @@ QH, FC = HQ // CORES, F // CORES  # query heads, MLP channels per core
 QW = (2 if q.GATE else 1) * D  # q_proj rows per query head ([q | gate])
 KHC, REP = max(1, NK // CORES), NV // NK  # delta-net key heads per core, value heads per key head
 assert HQ % CORES == 0 and F % CORES == 0 and q.KVL == "cell"
-SFX = "_mx8" if MX else ""
+SFX = "_nv4" if NV4 else "_mx8" if MX else ""
 
 
 PFX = [""]  # a prefix of every named tensor of a layer (several layers in one kernel: q35_moe_group.py)
@@ -431,6 +434,19 @@ def finish_pre(c, x1_c, ln2, w_gate, w_up, w_down, out, moe):
     rs = slice(c * ne, (c + 1) * ne)
     logits = linear(h2, moe["w_router"][rs], None, "router", output_dtype=ax.fp32, oc_tile_size=ne)
     ax.dsl.store(logits, r=moe["logits_out"][:, :, rs])
+    if TK:  # the top-K experts of each token: all logits through shared OCM (no core reads another's DDR writes),
+        # each core its P / CORES tokens' top-K: the raw logits (descending) and their experts
+        K, tp = mo.TOPK, P // CORES
+        lg = ax.dsl.create_tensor((P, mo.NE), ax.fp32, ax.MemoryType.SHARED_OCM, name="logits_all")
+        ax.dsl.move(r=lg[:, rs], x=logits.reshape(P, ne))
+        axd.pub(lg)
+        axd.sub(lg)
+        tr = slice(c * tp, (c + 1) * tp)
+        vals = ax.dsl.create_tensor((tp, K), ax.fp32, name="topk_vals")
+        ids = ax.dsl.create_tensor((tp, K), ax.int32, name="topk_ids")
+        ax.dsl.topk(lg[tr], k=K, dim=-1, r_values=vals, r_indices=ids)
+        ax.dsl.store(vals, r=TK["v"][tr])
+        ax.dsl.store(ids, r=TK["i"][tr])
 
 
 def gdn_pre_body(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out, ln2, w_gate, w_up, w_down,
@@ -647,6 +663,9 @@ if MOE:
                   w_down, out, dict(w_router=w_router, w_shg=w_shg, h2_out=h2_out, logits_out=logits_out))
         return out, kc, vc, h2_out, logits_out
 
+    if NV4:  # the NVFP4 inputs: t_<n> (scale2) beside each s_<n>
+        gdn_layer_moe_mx, attn_layer_moe_mx = mb.nv_twin(gdn_layer_moe_mx), mb.nv_twin(attn_layer_moe_mx)
+
     def _experts_src(k):
         """q35_moe.moe_experts_gu (each expert's gate and up rows in one weight) on the cores: core c takes experts
         c * k / CORES .., their weighted fp32 sum into shared part[c]; pub / sub; core 0 adds base and stores out"""
@@ -856,6 +875,9 @@ if MOE and P == 1:
                   w_down, out, dict(w_router=w_router, w_shg=w_shg, e_gw=e_gw, e_gs=e_gs, e_dw=e_dw, e_ds=e_ds))
         return out, kc, vc
 
+    if NV4:
+        gdn_layer_full_mx, attn_layer_full_mx = mb.nv_twin(gdn_layer_full_mx), mb.nv_twin(attn_layer_full_mx)
+
 
 def order(fn):
     return list(fn.__code__.co_varnames[: fn.__code__.co_argcount])
@@ -892,8 +914,35 @@ def refs():
     return (mb.gdn_layer_mx, mb.attn_layer_mx) if MX else (q.gdn_layer, q.attn_layer)
 
 
+TK_FN = {}
+
+
+def with_topk(fn):
+    """fn (a MoE prefill layer kernel) with the router's top-K outputs topk_v [P, K] f32 / topk_i [P, K] int32 after its
+    own (finish_pre writes them through TK); same name"""
+    import importlib
+    import inspect
+    names_ = order(fn)
+    ret = [ln.strip() for ln in inspect.getsource(fn).splitlines() if ln.strip().startswith("return ")][-1]
+    TK_FN[fn.__name__] = fn
+    src = (f"import q35_layer_mc as S\n\n\ndef {fn.__name__}({', '.join(names_ + ['topk_v', 'topk_i'])}):\n"
+           f"    S.TK.update(v=topk_v, i=topk_i)\n    S.TK_FN[{fn.__name__!r}]({', '.join(names_)})\n    S.TK.clear()\n"
+           f"    {ret}, topk_v, topk_i\n")
+    mod = f"tkvar_{fn.__name__}"
+    os.makedirs(BUILD, exist_ok=True)
+    open(f"{BUILD}/{mod}.py", "w").write(src)
+    if BUILD not in sys.path:
+        sys.path.insert(0, BUILD)
+    importlib.invalidate_caches()
+    return getattr(importlib.import_module(mod), fn.__name__)
+
+
 def mine():
     """this script's kernels: gdn, attn (MoE prefill attention in bf16, as q35_moe_prefill)"""
+    if MOE and P > 1 and TOPK_OUT:
+        if "tk" not in TK_FN:
+            TK_FN["tk"] = (with_topk(gdn_layer_moe_mx if MX else gdn_layer_moe), with_topk(attn_layer_moe))
+        return TK_FN["tk"]
     if MOE:
         return (gdn_layer_moe_mx if MX else gdn_layer_moe), (attn_layer_moe_mx if MX and P == 1 else attn_layer_moe)
     return (gdn_layer_mx, attn_layer_mx) if MX else (gdn_layer, attn_layer)
@@ -902,9 +951,10 @@ def mine():
 def names(kind):
     kp = "qwen35moe" if MOE else q.KP
     pre = f"_prefill{P}" if P > 1 else ""
+    tk = "_tk" if MOE and P > 1 and TOPK_OUT else ""
     if kind == "gdn":
-        return f"{kp}_gdn{pre}{SFX}"
-    return f"{kp}_attn{pre}{'' if MOE and P > 1 else SFX}_kvc_c{LMAX}"
+        return f"{kp}_gdn{pre}{SFX}{tk}"
+    return f"{kp}_attn{pre}{'' if MOE and P > 1 else SFX}{tk}_kvc_c{LMAX}"
 
 
 def tokens(W, t0):
@@ -925,13 +975,18 @@ def mask_rows(t0):
 
 
 def moe_outs():
-    return dict(h2_out=torch.zeros((1, P, H), dtype=torch.bfloat16), logits_out=torch.zeros((1, P, mo.NE))) if MOE else {}
+    if not MOE:
+        return {}
+    o = dict(h2_out=torch.zeros((1, P, H), dtype=torch.bfloat16), logits_out=torch.zeros((1, P, mo.NE)))
+    if P > 1 and TOPK_OUT:
+        o.update(topk_v=torch.zeros((P, mo.TOPK)), topk_i=torch.zeros((P, mo.TOPK), dtype=torch.int32))
+    return o
 
 
 def check_gdn(W, out_dir):
     single, mc = refs()[0], mine()[0]
-    names_ = order(single)
-    assert names_ == order(mc), (names_, order(mc))
+    names_ = order(mc) if NOREF else order(single)  # (NOREF: the four-core kernel may add outputs, e.g. top-K)
+    assert NOREF or names_ == order(mc), (names_, order(mc))
     a = q.gdn_args(W, 0)
     a = mb.mx_args(a, mb.GDN_W)[0] if MX else a
     k1, k4 = kern(single, "gdn1"), kern(mc, "gdn4")
@@ -941,12 +996,17 @@ def check_gdn(W, out_dir):
     for step in range(STEPS):
         x = tokens(W, step * P)
         res = {}
-        for r, k, n in (("1", k1, 1), ("4", k4, CORES)):
+        for r, k, n in (("1", k1, 1), ("4", k4, CORES))[1 if NOREF else 0 :]:
             case = dict(a, x=x, state_in=st[r], conv_in=cv[r], out=torch.zeros((1, P, H), dtype=torch.bfloat16),
                         state_out=torch.zeros_like(st[r]), conv_out=torch.zeros_like(cv[r]), **moe_outs())
             os.chdir(f"{BUILD}/gdn{r}")
             run(k, n, case, names_)
             st[r], cv[r], res[r] = case["state_out"], case["conv_out"], case
+        if NOREF:  # no single-core kernel of this shape (35B GDN prefill P=256): finite outputs only
+            fin = bool(res["4"]["out"].float().isfinite().all())
+            logger.info(f"{names('gdn')} npu{CORES} step {step}: no reference, out finite {fin}")
+            worst = min(worst, 1.0 if fin else 0.0)
+            continue
         co, cs = cos(res["4"]["out"], res["1"]["out"]), cos(st["4"], st["1"])
         if MOE:
             co = min(co, *(cos(res["4"][n], res["1"][n]) for n in ("h2_out", "logits_out")))
@@ -958,13 +1018,14 @@ def check_gdn(W, out_dir):
     path = max(glob.glob(f"{BUILD}/gdn4/cache/{mc.__name__}.*.compiled.axmodel"), key=os.path.getmtime)
     dst = board_io.kernel_file(out_dir, names("gdn"), CORES)
     shutil.copy(path, dst)
+    board_io.fix(dst)  # FP4 inputs (NVFP4) as bytes: the board runtime misreads FLOAT4E2M1 ones
     logger.info(f"wrote {dst} (worst cos {worst:.6f})")
 
 
 def check_attn(W, out_dir):
     single, mc = refs()[1], mine()[1]
-    names_ = order(single)
-    assert names_ == order(mc), (names_, order(mc))
+    names_ = order(mc) if NOREF else order(single)
+    assert NOREF or names_ == order(mc), (names_, order(mc))
     li = q.LAYERS.index("full_attention")
     a = q.attn_args(W, li)
     a = mb.mx_args(a, mb.ATTN_W)[0] if MX and not (MOE and P > 1) else a
@@ -1006,6 +1067,7 @@ def check_attn(W, out_dir):
     path = max(glob.glob(f"{BUILD}/attn4/cache/{mc.__name__}.*.compiled.axmodel"), key=os.path.getmtime)
     dst = board_io.kernel_file(out_dir, names("attn"), CORES)
     shutil.copy(path, dst)
+    board_io.fix(dst)  # FP4 inputs (NVFP4) as bytes: the board runtime misreads FLOAT4E2M1 ones
     logger.info(f"wrote {dst} (worst cos {worst:.6f})")
 
 
@@ -1147,7 +1209,7 @@ def check_full(W, out_dir, kind):
     logger.info(f"{kind} layer + MoE in one call npu{CORES}: experts {sorted(ids)}, out cos vs layer + host routing "
                 f"+ experts kernel {cos(got['out'], e['out']):.6f}")
     path = max(glob.glob(f"{BUILD}/full_{kind}/cache/{full.__name__}.*.compiled.axmodel"), key=os.path.getmtime)
-    name = "qwen35moe_layer_gdn_mx8" if kind == "gdn" else f"qwen35moe_layer_attn_mx8_kvc_c{LMAX}"
+    name = f"qwen35moe_layer_gdn{SFX}" if kind == "gdn" else f"qwen35moe_layer_attn{SFX}_kvc_c{LMAX}"
     dst = board_io.kernel_file(out_dir, name, CORES)
     shutil.copy(path, dst)
     logger.info(f"wrote {dst}: {board_io.fix(dst)[:3]}")
@@ -1157,12 +1219,24 @@ def check_full(W, out_dir, kind):
 # q35_layer_pk.py: one input per dtype, members at ALIGN-byte offsets in the order of the kernel's inputs, a .layout
 # file next to the kernel for the backend; the expert planes stay inputs of their own)
 PK_ALIGN = 64
-PK_PACKS = {"pw": torch.float8_e4m3fn, "ps": torch.float8_e8m0fnu, "pf": torch.float32, "pb": torch.bfloat16}
+PK_PACKS = ({"pw": torch.float4_e2m1fn_x2, "ps": torch.float8_e4m3fn, "pf": torch.float32, "pb": torch.bfloat16} if NV4 else
+            {"pw": torch.float8_e4m3fn, "ps": torch.float8_e8m0fnu, "pf": torch.float32, "pb": torch.bfloat16})
+PK_RAW = (torch.float8_e4m3fn, torch.float8_e8m0fnu, torch.float4_e2m1fn_x2)  # packed as bytes
+
+
+def pk_lps(p):
+    """logical elements per stored element of pack p: 2 for FP4 (the DSL addresses E2M1 pairs by element)"""
+    return 2 if PK_PACKS[p] == torch.float4_e2m1fn_x2 else 1
 PK_SPEC = {}
+
+
+PK_NOBLK = [False]  # prefill packs: no column blocks (the prefill bodies slice their weights themselves)
 
 
 def pk_blocks(n):
     """the column blocks (element ranges, in storage order: core-major) of a member split by columns over the cores"""
+    if PK_NOBLK[0]:
+        return None
     if n in ("w_out", "s_out"):  # GDN out projection: per core its REP strips of KHC value heads
         bl = [((vo * NK + c * KHC) * DV, (vo * NK + c * KHC + KHC) * DV) for c in range(CORES) for vo in range(REP)]
     elif n in ("w_o", "s_o"):  # attention o projection: the core's query heads
@@ -1171,7 +1245,8 @@ def pk_blocks(n):
         bl = [(c * FC, (c + 1) * FC) for c in range(CORES)]
     else:
         return None
-    return bl if n.startswith("w_") else [(a // 32, b // 32) for a, b in bl]
+    gs = mb.NVG if NV4 else 32  # scale blocks: one scale per group of input channels
+    return bl if n.startswith("w_") else [(a // gs, b // gs) for a, b in bl]
 
 
 def pk_layout(kind, a, names):
@@ -1191,44 +1266,56 @@ def pk_layout(kind, a, names):
 
 
 def pk_packed(kind, a, sizes):
-    pk = {p: torch.zeros(max(1, sizes[p]), dtype=torch.uint8 if dt in (torch.float8_e4m3fn, torch.float8_e8m0fnu)
-                         else dt) for p, dt in PK_PACKS.items()}
+    """the packs of layer args a: each member at its offset (stored elements), column blocks one after the other"""
+    pk = {p: torch.zeros(max(1, sizes[p]), dtype=torch.uint8 if dt in PK_RAW else dt) for p, dt in PK_PACKS.items()}
     for n, (p, off, shape, bl) in PK_SPEC[kind].items():
-        t = a[n]
-        if bl:  # the column blocks one after the other, each [rows, columns] contiguous
-            t = torch.cat([t[:, x:y].reshape(-1) for x, y in bl])
+        t, lps = a[n], pk_lps(p)
+        if bl:  # the column blocks one after the other, each [rows, columns] contiguous (FP4: columns in pairs)
+            t = torch.cat([t[:, x // lps : y // lps].reshape(-1) for x, y in bl])
         t = t.reshape(-1)
-        if t.dtype in (torch.float8_e4m3fn, torch.float8_e8m0fnu):
+        if t.dtype in PK_RAW:
             t = t.view(torch.uint8)
         pk[p][off : off + t.numel()] = t
-    return {p: (pk[p].view(dt) if dt in (torch.float8_e4m3fn, torch.float8_e8m0fnu) else pk[p])
-            for p, dt in PK_PACKS.items()}
+    return {p: (pk[p].view(dt) if dt in PK_RAW else pk[p]) for p, dt in PK_PACKS.items()}
+
+
+def pk_member(src, p, off, shape, bl):
+    """a member of a pack (src: pack name -> kernel input) in the DSL's logical elements: a tensor, or the column
+    blocks of a column-split weight as Cols"""
+    lps = pk_lps(p)
+    if bl:
+        rows, blocks, o = shape[0], {}, off
+        for x, y in bl:
+            n = rows * (y - x) // lps
+            blocks[(x, y)] = src[p][o * lps : (o + n) * lps].reshape(rows, y - x)
+            o += n
+        return Cols(blocks)
+    numel = 1
+    for d in shape:
+        numel *= d
+    return src[p][off * lps : (off + numel) * lps].reshape(*shape[:-1], shape[-1] * lps)
+
+
+def pk_register(m):
+    """the scales of the unpacked weights of m (name -> member): s_<n> for w_<n>, NVFP4 also t_<n> (scale2)"""
+    mb.SCALES.clear()
+    mb.SCALES2.clear()
+    gs = mb.NVG if NV4 else 32
+    for n in list(m):
+        if not (n.startswith("w_") and "s_" + n[2:] in m):
+            continue
+        w, sc, s2 = m[n], m["s_" + n[2:]], m.get("t_" + n[2:])
+        for blk, bs in ([(b, sc.blocks[(x // gs, y // gs)]) for (x, y), b in w.blocks.items()] if isinstance(w, Cols)
+                        else [(w, sc)]):
+            mb.SCALES[id(blk)] = bs
+            if s2 is not None:
+                mb.SCALES2[id(blk)] = s2
 
 
 def pk_unpack(kind, pw, ps, pf, pb):
     src = dict(pw=pw, ps=ps, pf=pf, pb=pb)
-    m = {}
-    for n, (p, off, shape, bl) in PK_SPEC[kind].items():
-        if bl:
-            rows, blocks, o = shape[0], {}, off
-            for x, y in bl:
-                blocks[(x, y)] = src[p][o : o + rows * (y - x)].reshape(rows, y - x)
-                o += rows * (y - x)
-            m[n] = Cols(blocks)
-            continue
-        numel = 1
-        for d in shape:
-            numel *= d
-        m[n] = src[p][off : off + numel].reshape(*shape)
-    mb.SCALES.clear()
-    for n in list(m):
-        if n.startswith("w_") and "s_" + n[2:] in m:
-            w, sc = m[n], m["s_" + n[2:]]
-            if isinstance(w, Cols):
-                for (x, y), blk in w.blocks.items():
-                    mb.SCALES[id(blk)] = sc.blocks[(x // 32, y // 32)]
-            else:
-                mb.SCALES[id(w)] = sc
+    m = {n: pk_member(src, p, off, shape, bl) for n, (p, off, shape, bl) in PK_SPEC[kind].items()}
+    pk_register(m)
     return m
 
 
@@ -1243,8 +1330,9 @@ def pk_write_layout(kind, dst, sizes):
             for d in shape:
                 numel *= d
             # column blocks: rows, bytes per source row, then each block's byte range in a row (stored block by block)
+            lps = pk_lps(p)
             extra = "" if not bl else f" {shape[0]} {shape[1] * es[p]} " + ",".join(
-                f"{x * es[p]}:{y * es[p]}" for x, y in bl)
+                f"{x // lps * es[p]}:{y // lps * es[p]}" for x, y in bl)
             f.write(f"{n} {p} {off * es[p]} {numel * es[p]}{extra}\n")
 
 
@@ -1302,11 +1390,88 @@ def check_full_pk(W, out_dir, kind):
     logger.info(f"{kind} whole layer packed npu{CORES}: out cos vs unpacked {cos(got['out'], ref['out']):.6f} "
                 f"(bitwise {same}), packs {sizes}")
     path = max(glob.glob(f"{BUILD}/fpk_{kind}/cache/{fpk.__name__}.*.compiled.axmodel"), key=os.path.getmtime)
-    name = "qwen35moe_layer_gdn_mx8_pkc" if kind == "gdn" else f"qwen35moe_layer_attn_mx8_pkc_kvc_c{LMAX}"
+    name = f"qwen35moe_layer_gdn{SFX}_pkc" if kind == "gdn" else f"qwen35moe_layer_attn{SFX}_pkc_kvc_c{LMAX}"
     dst = board_io.kernel_file(out_dir, name, CORES)
     shutil.copy(path, dst)
     board_io.fix(dst)
     pk_write_layout(kind, dst, sizes)
+    logger.info(f"wrote {dst} and its layout")
+
+
+PK_FN = {}  # packed prefill kernels: the unpacked kernel each wraps
+
+
+def pk_variant(fn, key, a):
+    """a packed version of kernel fn: fn's inputs that a holds (the layer's weights) replaced by the packs pw / ps / pf /
+    pb (q35_layer_mc's layout `key`), the others (activations, state, KV, rope, mask) and the outputs kept by name"""
+    import importlib
+    import inspect
+    names = order(fn)
+    rest = [n for n in names if not torch.is_tensor(a.get(n))]
+    ins = [n for n in rest if n not in ("out", "state_out", "conv_out", "h2_out", "logits_out", "topk_v", "topk_i")]
+    outs = [n for n in rest if n not in ins]
+    ret = [ln.strip() for ln in inspect.getsource(fn).splitlines() if ln.strip().startswith("return ")][-1]
+    PK_FN[key] = fn
+    call = ", ".join(f"{n}=m[{n!r}]" if torch.is_tensor(a.get(n)) else f"{n}={n}" for n in names)
+    src = (f"import q35_layer_mc as S\n\n\ndef {fn.__name__}_pk({', '.join(ins + ['pw', 'ps', 'pf', 'pb'] + outs)}):\n"
+           f"    m = S.pk_unpack({key!r}, pw, ps, pf, pb)\n    S.PK_FN[{key!r}]({call})\n    {ret}\n")
+    mod = f"pkvar_{key}"
+    os.makedirs(BUILD, exist_ok=True)
+    open(f"{BUILD}/{mod}.py", "w").write(src)
+    if BUILD not in sys.path:
+        sys.path.insert(0, BUILD)
+    importlib.invalidate_caches()
+    return getattr(importlib.import_module(mod), f"{fn.__name__}_pk")
+
+
+def check_pre_pk(W, out_dir, kind):
+    """the packed prefill kernel (four cores, this PCHUNK) against the unpacked one (mine()): the same inputs, the
+    layer's weights in the packs (no column blocks); written as <name>_pk with its .layout"""
+    torch.manual_seed(0)
+    mc = mine()[0 if kind == "gdn" else 1]
+    if kind == "gdn":
+        a = mb.mx_args(q.gdn_args(W, 0), mb.GDN_W)[0] if MX else q.gdn_args(W, 0)
+        io = dict(state_in=torch.randn((NV, DK, DV)) * 0.1,
+                  conv_in=(torch.randn((1, CONV - 1, 2 * KD + VD)) * 0.1).bfloat16(), state_out=torch.zeros((NV, DK, DV)),
+                  conv_out=torch.zeros((1, CONV - 1, 2 * KD + VD), dtype=torch.bfloat16))
+    else:
+        li = q.LAYERS.index("full_attention")
+        a = q.attn_args(W, li)
+        a = mb.mx_args(a, mb.ATTN_W)[0] if MX and not (MOE and P > 1) else a
+        cs, sn = rope_rows(0)
+        io = dict(cos=cs, sin=sn, kc=torch.zeros((LMAX, HKV * D), dtype=torch.half),
+                  vc=torch.zeros((LMAX, HKV * D), dtype=torch.half), pos=torch.tensor([0], dtype=torch.int32),
+                  nblk=torch.tensor([(P - 1) // BC + 1], dtype=torch.int32), mask=mask_rows(0))
+    if "w_shg" in a:
+        a["w_shg"] = a["w_shg"].bfloat16()
+    key = f"pre{kind}"
+    PK_NOBLK[0] = True
+    sizes = pk_layout(key, a, order(mc))
+    fpk = pk_variant(mc, key, a)
+    base = dict(x=tokens(W, 0), out=torch.zeros((1, P, H), dtype=torch.bfloat16), **moe_outs())
+    ref = dict(a, **base, **{n: t.clone() for n, t in io.items()})
+    got = dict(pk_packed(key, a, sizes), **{n: t.clone() for n, t in base.items()}, **{n: t.clone() for n, t in io.items()})
+    for case, fn, sub in ((ref, mc, f"pre_{kind}"), (got, fpk, f"prepk_{kind}")):
+        if kind == "attn":
+            q.RESIDENT.update(kc=case["kc"].clone(), vc=case["vc"].clone())
+        run(kern(fn, sub), CORES, case, order(fn))
+        q.RESIDENT.clear()
+    outs = [n for n in ("out", "h2_out", "logits_out", "state_out", "conv_out", "kc", "vc", "topk_v", "topk_i")
+            if n in ref]
+    if TOPK_OUT:  # the kernel's top-K against the host's rule on its own logits: descending, ties to the lower expert
+        lg = ref["logits_out"].reshape(P, mo.NE)
+        sv, si = torch.sort(lg, dim=-1, descending=True, stable=True)
+        iv = bool(torch.equal(ref["topk_i"], si[:, : mo.TOPK].to(torch.int32)))
+        vv = bool(torch.equal(ref["topk_v"].view(torch.int32), sv[:, : mo.TOPK].contiguous().view(torch.int32)))
+        logger.info(f"{names(kind)} top-K vs the host rule on its logits: ids bitwise {iv}, values bitwise {vv}")
+    same = {n: bool(torch.equal(got[n].contiguous().view(torch.uint8), ref[n].contiguous().view(torch.uint8))) for n in outs}
+    logger.info(f"{names(kind)} packed npu{CORES}: bitwise vs unpacked {same}, packs {sizes}")
+    path = max(glob.glob(f"{BUILD}/prepk_{kind}/cache/{fpk.__name__}.*.compiled.axmodel"), key=os.path.getmtime)
+    dst = board_io.kernel_file(out_dir, names(kind) + "_pk", CORES)
+    shutil.copy(path, dst)
+    board_io.fix(dst)
+    pk_write_layout(key, dst, sizes)
+    PK_NOBLK[0] = False
     logger.info(f"wrote {dst} and its layout")
 
 
@@ -1322,6 +1487,9 @@ def main():
             check_full(W, out_dir, kind)
         if f"pk{kind}" in only and MOE and P == 1:
             check_full_pk(W, out_dir, kind)
+    for kind in ("gdn", "attn"):
+        if f"pkpre{kind}" in only and P > 1 and (kind == "attn" or q.HYBRID):
+            check_pre_pk(W, out_dir, kind)
     if "lm" in only:
         check_lm(out_dir)
     if "experts" in only and MOE and P == 1:
@@ -1333,4 +1501,5 @@ def main():
 
 
 if __name__ == "__main__":
+    sys.modules["q35_layer_mc"] = sys.modules["__main__"]  # generated kernels import this module: the same PK_SPEC
     main()

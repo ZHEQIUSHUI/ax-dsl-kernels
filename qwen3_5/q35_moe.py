@@ -172,8 +172,8 @@ def attn_layer_moe(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos,
 
 
 WFMT = os.environ.get("WFMT", "bf16")
-if WFMT == "mx8":
-    import q35_mx_build as mb  # MXFP8 projections (scales looked up per weight); router and gate stay bf16
+if WFMT in ("mx8", "nv4"):
+    import q35_mx_build as mb  # MXFP8 (or NVFP4) projections (scales looked up per weight); router and gate stay bf16
 
     def gdn_layer_moe_mx(x, ln1, w_qkv, s_qkv, w_z, s_z, w_b, s_b, w_a, s_a, conv_w, a_log, dt_bias, norm_w, w_out,
                          s_out, ln2, w_gate, s_gate, w_up, s_up, w_down, s_down, w_router, w_shg, state_in, conv_in,
@@ -197,12 +197,15 @@ if WFMT == "mx8":
                        w_up, w_down, w_router, w_shg, out, h2_out, logits_out)
         return out, kc, vc, h2_out, logits_out
 
+    if mb.NV4:  # the NVFP4 inputs: t_<n> (scale2) beside each s_<n>
+        gdn_layer_moe_mx, attn_layer_moe_mx = mb.nv_twin(gdn_layer_moe_mx), mb.nv_twin(attn_layer_moe_mx)
+
 
 def order(fn):
     return list(fn.__code__.co_varnames[: fn.__code__.co_argcount])
 
 
-LAYER_FN = ({"gdn": gdn_layer_moe_mx, "attn": attn_layer_moe_mx} if WFMT == "mx8" else
+LAYER_FN = ({"gdn": gdn_layer_moe_mx, "attn": attn_layer_moe_mx} if WFMT in ("mx8", "nv4") else
             {"gdn": gdn_layer_moe, "attn": attn_layer_moe})
 
 
