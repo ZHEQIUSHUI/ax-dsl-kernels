@@ -12,6 +12,9 @@ only): the K taps' matrices side by side on chip [OB, K * IC], the input block's
 differed between runs on the board). Blocks of OB output channels and LT output steps (an input block with the
 (K - 1) * D steps after it).
 
+EPI=b adds the convolution's bias (input b [OC] f32) to the output (name suffix _b), EPI=br the bias and a residual
+(input res [OC, OW] f32, suffix _br): the ADD nodes that follow the convolution in the graph then need not run.
+
 CORES=<n> splits each kernel over n cores without synchronization: each core takes OC / n output channels, else
 (OW = L - (K - 1) * D steps) OW / n output steps; shapes that split neither way are skipped.
 
@@ -32,6 +35,7 @@ BUILD = os.path.abspath(os.environ.get("DUMP", "out_conv1d"))
 WB = int(os.environ.get("WB", 1024 * 1024))  # bytes of one output-channel block's weights on chip
 XB = int(os.environ.get("XB", 2 * 1024 * 1024))  # bytes of one time block's input and output on chip
 CORES = int(os.environ.get("CORES", 1))
+EPI = os.environ.get("EPI", "")  # "", "b" (bias) or "br" (bias and residual)
 
 
 def divisor_at_most(n, m, multiple=1):
@@ -53,9 +57,9 @@ def build(IC, OC, K, D, L, out_dir):
         logger.warning(f"conv1d ic{IC} oc{OC} k{K} d{D} l{L}: splits over {CORES} cores neither way, skipped")
         return
     OB = divisor_at_most(OCC, max(1, WB // (IC * K * 2)))
-    LT = divisor_at_most(OWC, max(16, XB // (IC * 2 * (K + 1 if K > 1 else 1) + OB * 4)), 16)
+    LT = divisor_at_most(OWC, max(16, XB // (IC * 2 * (K + 1 if K > 1 else 1) + OB * 4 * (2 if EPI == "br" else 1))), 16)
 
-    def conv1d(x, w, out):
+    def conv1d(x, w, out, b=None, res=None):
         c = ax.program_id(0)
         oc1, t1 = (c * OCC, 0) if OCC < OC else (0, c * OWC)
         for o0 in range(oc1, oc1 + OCC, OB):
@@ -65,6 +69,8 @@ def build(IC, OC, K, D, L, out_dir):
                 wb = ax.dsl.create_tensor((OB, K * IC), ax.bf16, ax.MemoryType.OCM, name=f"w{o0}")  # [OB, K * IC]
                 for k in range(K):
                     ax.dsl.move(r=wb[:, k * IC : (k + 1) * IC], x=ax.dsl.load(w[k : k + 1, o0 : o0 + OB]).reshape(OB, IC))
+            if b is not None:  # the bias of the block's channels, broadcast across its steps
+                bb = ax.dsl.load(b[o0 : o0 + OB]).reshape(OB, 1)
             for t0 in range(t1, t1 + OWC, LT):
                 xb = ax.dsl.load(x[:, t0 : t0 + LT + halo])  # [IC, LT + halo]
                 xk = xb
@@ -73,10 +79,14 @@ def build(IC, OC, K, D, L, out_dir):
                     for k in range(K):
                         ax.dsl.move(r=xk[k * IC : (k + 1) * IC], x=xb[:, k * D : k * D + LT])
                 acc = ax.dsl.matmul(wb, xk, output_dtype=ax.fp32)
+                if b is not None:
+                    acc = ax.dsl.add(acc, bb, output_dtype=ax.fp32)
+                if res is not None:
+                    acc = ax.dsl.add(acc, ax.dsl.load(res[o0 : o0 + OB, t0 : t0 + LT]), output_dtype=ax.fp32)
                 ax.dsl.store(acc, r=out[o0 : o0 + OB, t0 : t0 + LT])
         return out
 
-    name = f"conv1d_bf16_ic{IC}_oc{OC}_k{K}_d{D}_l{L}"
+    name = f"conv1d_bf16_ic{IC}_oc{OC}_k{K}_d{D}_l{L}" + (f"_{EPI}" if EPI else "")
     dump = f"{BUILD}/{name}"
     os.makedirs(dump, exist_ok=True)
     cwd = os.getcwd()
@@ -86,9 +96,23 @@ def build(IC, OC, K, D, L, out_dir):
     w = (torch.randn((OC, IC, K)) * 0.05).bfloat16()
     wk = w.permute(2, 0, 1).contiguous()  # [K, OC, IC], as the backend repacks ggml's [OC][IC][K]
     out = torch.zeros((OC, OW))
-    conv1d.__name__ = "conv1d"
-    ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=True, dump_path=dump)(conv1d)[CORES](x, wk, out)
+    bias = torch.randn(OC) * 0.1
+    resid = torch.randn((OC, OW))
     ref = torch.nn.functional.conv1d(x.float()[None], w.float(), dilation=D)[0]
+    if EPI == "b":
+        def conv1d_b(x, w, b, out):
+            conv1d(x, w, out, b=b)
+            return out
+        fn, args, ref = conv1d_b, (x, wk, bias, out), ref + bias[:, None]
+    elif EPI == "br":
+        def conv1d_br(x, w, b, res, out):
+            conv1d(x, w, out, b=b, res=res)
+            return out
+        fn, args, ref = conv1d_br, (x, wk, bias, resid, out), ref + bias[:, None] + resid
+    else:
+        fn, args = conv1d, (x, wk, out)
+    fn.__name__ = "conv1d"
+    ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=True, dump_path=dump)(fn)[CORES](*args)
     c = torch.nn.functional.cosine_similarity(out.reshape(-1).double(), ref.reshape(-1).double(), dim=0).item()
     logger.info(f"{name} (output channels per block {OB}, steps per block {LT}): cos vs torch {c:.6f}")
     (path,) = glob.glob(f"{dump}/cache/conv1d.*.compiled.axmodel")
