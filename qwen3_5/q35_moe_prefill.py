@@ -60,7 +60,7 @@ def attn_layer_prefill_moe(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, 
     return out, kc, vc, h2_out, logits_out
 
 
-if mo.WFMT == "mx8":  # MXFP8 projections (q35_mx_build via q35_moe); router and gate stay bf16
+if mo.WFMT in ("mx8", "nv4"):  # MXFP8 / NVFP4 projections (q35_mx_build via q35_moe); router and gate stay bf16
     mb = mo.mb
 
     def gdn_layer_prefill_moe_mx(x, ln1, w_qkv, s_qkv, w_z, s_z, w_b, s_b, w_a, s_a, conv_w, a_log, dt_bias, norm_w,
@@ -73,6 +73,9 @@ if mo.WFMT == "mx8":  # MXFP8 projections (q35_mx_build via q35_moe); router and
         gdn_layer_prefill_moe(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out, ln2, w_gate, w_up,
                               w_down, w_router, w_shg, state_in, conv_in, out, h2_out, logits_out, state_out, conv_out)
         return out, h2_out, logits_out, state_out, conv_out
+
+    if mb.NV4:
+        gdn_layer_prefill_moe_mx = mb.nv_twin(gdn_layer_prefill_moe_mx)
 
 
 def _slots_src(n):
@@ -97,6 +100,26 @@ def moe_slots(x, rw, {ins}, out):
 OUT_DT = ax.bf16 if OUT_BF else ax.fp32
 
 
+def moe_slots_pl(x, rw, sid, e_gw, e_gs, e_dw, e_ds, out):
+    """moe_slots with the layer's planar expert tensors (all NE experts: e_gw / e_gs gate-up codes / scales
+    [NE, 2 FE, H], e_dw / e_ds down [NE, H, FE]) and each slot's expert sid [S] int32, picked by index_select: seven
+    IO for any S instead of four per slot"""
+    c = ax.program_id(0)
+    for i in range(c * (S // CORES), (c + 1) * (S // CORES)):
+        e = ax.dsl.load(sid[i : i + 1])
+        wc = ax.dsl.index_select(e_gw, e, dim=0).reshape(2 * FE, H)
+        sc = ax.dsl.index_select(e_gs, e, dim=0).reshape(2 * FE, H // 32)
+        wd = ax.dsl.index_select(e_dw, e, dim=0).reshape(H, FE)
+        sd = ax.dsl.index_select(e_ds, e, dim=0).reshape(H, FE // 32)
+        h = ax.dsl.load(x[i : i + 1])  # [1, G, H] bf16
+        r = ax.dsl.load(rw[i : i + 1])  # [1, G] f32
+        gu = linear(h, wc, sc, f"s{i}_gate_up", output_dtype=ax.bf16, oc_tile_size=mo.oc_tile_fp4(H))
+        a = silu_mul(gu[:, :, :FE], gu[:, :, FE:], activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
+        d = linear(a, wd, sd, f"s{i}_down", output_dtype=ax.fp32, oc_tile_size=mo.oc_tile_fp4(FE))
+        ax.dsl.store(ax.dsl.mul(d, r.reshape(1, G, 1), output_dtype=OUT_DT), r=out[i : i + 1])
+    return out
+
+
 def _define(src, name):
     """as q35_moe._define, in this module (the source refers to its names)"""
     fn = f"<{name}>"
@@ -119,6 +142,140 @@ def publish(sub, fn, out_dir, name, cores=1):
         dst = board_io.kernel_file(out_dir, name, cores)
         shutil.copy(path, dst)
         logger.info(f"wrote {dst}: {board_io.fix(dst)[:2]} ...")
+
+
+T_GROUP = int(os.environ.get("T_GROUP", 2048))  # tokens of a group (h2 / base / x rows of the whole group)
+
+
+def moe_slots_px(h2, tok, rw, e_gw, e_gs, e_dw, e_ds, out):
+    """moe_slots_pl reading its rows out of the group's h2 [T, H] by token (tok [S, G] int32, unused rows any token
+    with rw 0): the host no longer gathers the rows"""
+    c = ax.program_id(0)
+    for i in range(c * (S // CORES), (c + 1) * (S // CORES)):
+        e = ax.dsl.load(sid_of(tok, i))
+        wc = ax.dsl.index_select(e_gw, e, dim=0).reshape(2 * FE, H)
+        sc = ax.dsl.index_select(e_gs, e, dim=0).reshape(2 * FE, H // 32)
+        wd = ax.dsl.index_select(e_dw, e, dim=0).reshape(H, FE)
+        sd = ax.dsl.index_select(e_ds, e, dim=0).reshape(H, FE // 32)
+        h = ax.dsl.index_select(h2, ax.dsl.load(tok[i : i + 1, 1:]).reshape(G), dim=0).reshape(1, G, H)  # [1, G, H] bf16
+        r = ax.dsl.load(rw[i : i + 1])  # [1, G] f32
+        gu = linear(h, wc, sc, f"s{i}_gate_up", output_dtype=ax.bf16, oc_tile_size=mo.oc_tile_fp4(H))
+        a = silu_mul(gu[:, :, :FE], gu[:, :, FE:], activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
+        d = linear(a, wd, sd, f"s{i}_down", output_dtype=ax.fp32, oc_tile_size=mo.oc_tile_fp4(FE))
+        ax.dsl.store(ax.dsl.mul(d, r.reshape(1, G, 1), output_dtype=OUT_DT), r=out[i : i + 1])
+    return out
+
+
+def sid_of(tok, i):
+    return tok[i : i + 1, 0:1].reshape(1)  # tok row i: [expert, G token ids]
+
+
+RB = int(os.environ.get("COMBINE_ROWS", 32))  # tokens per pass of the combine kernel
+
+
+def moe_combine(base, loc, sout, out):
+    """x = base + the token's K expert results: loc [K, T] int32 rows of sout [R, H] (the slots kernels' outputs of
+    the group, weighted already), out [T, H] bf16; the cores take T / CORES tokens each, RB at a time"""
+    c = ax.program_id(0)
+    TC = T_GROUP // CORES
+    K = loc.shape[0]
+    for t0 in range(c * TC, (c + 1) * TC, RB):
+        acc = ax.dsl.cast(ax.dsl.load(base[t0 : t0 + RB]), dtype=ax.fp32)  # [RB, H]
+        for k in range(K):
+            ids = ax.dsl.load(loc[k : k + 1, t0 : t0 + RB]).reshape(RB)
+            rows = ax.dsl.index_select(sout, ids, dim=0)  # [RB, H]
+            acc = ax.dsl.add(acc, ax.dsl.cast(rows, dtype=ax.fp32), output_dtype=ax.fp32)
+        ax.dsl.store(ax.dsl.cast(acc, dtype=ax.bf16), r=out[t0 : t0 + RB])
+    return out
+
+
+def slots_px_check(out_dir):
+    """the h2-gathering slots kernel and the combine kernel against torch (dequantized experts)"""
+    torch.manual_seed(0)
+    T, K = T_GROUP, mo.TOPK
+    h2 = torch.randn((T, H)).bfloat16()
+    gw, gs, dw, ds, dq = [], [], [], [], {}
+    for e in range(NE):
+        pk, sc = mo.quant_mxfp4(torch.randn((2 * FE, H)) * 0.02)
+        gw.append(pk), gs.append(sc)
+        pk2, sc2 = mo.quant_mxfp4(torch.randn((H, FE)) * 0.02)
+        dw.append(pk2), ds.append(sc2)
+    ex = dict(e_gw=torch.stack(gw).view(torch.float4_e2m1fn_x2), e_gs=torch.stack(gs).view(torch.float8_e8m0fnu),
+              e_dw=torch.stack(dw).view(torch.float4_e2m1fn_x2), e_ds=torch.stack(ds).view(torch.float8_e8m0fnu))
+    tok = torch.zeros((S, 1 + G), dtype=torch.int32)
+    tok[:, 0] = torch.randint(0, NE, (S,))
+    tok[:, 1:] = torch.randint(0, T, (S, G))
+    rw = torch.rand((S, G))
+    out = torch.zeros((S, G, H), dtype=torch.bfloat16 if OUT_BF else torch.float32)
+    ax.init(chip_num=1, core_num=CORES)
+    case = dict(h2=h2, tok=tok, rw=rw, out=out, **ex)
+    bo = "_bo" if OUT_BF else ""
+    kern(moe_slots_px, f"slots{S}_g{G}_px{bo}_npu{CORES}")[CORES](*[case[n] for n in mo.order(moe_slots_px)])
+    ref = torch.zeros((S, G, H))
+    for i in range(S):
+        e = int(tok[i, 0])
+        wcd, wdd = mo.dequant_mxfp4(gw[e], gs[e]), mo.dequant_mxfp4(dw[e], ds[e])
+        xi = h2[tok[i, 1:].long()].float()
+        gu = (xi @ wcd.T).bfloat16().float()
+        a = (torch.nn.functional.silu(gu[:, :FE]) * gu[:, FE:]).bfloat16().float()
+        ref[i] = rw[i].reshape(G, 1) * (a @ wdd.T)
+    logger.info(f"moe slots px S={S} G={G}: out cos vs torch {mo.cos(case['out'], ref):.6f}")
+    publish(f"slots{S}_g{G}_px{bo}_npu{CORES}", moe_slots_px, out_dir, f"qwen35moe_slots{S}_g{G}_px_mxfp4{bo}", CORES)
+    ax.init(chip_num=1, core_num=1)
+    combine_check(out_dir)
+
+
+def combine_check(out_dir):
+    """the combine kernel against torch"""
+    torch.manual_seed(1)
+    T, K = T_GROUP, mo.TOPK
+    ax.init(chip_num=1, core_num=CORES)
+    # combine: T tokens, their K rows among R slot rows
+    R = int(os.environ.get("COMBINE_R", S * G))  # the group's slot rows (all its slots calls)
+    sout = torch.randn((R, H)).bfloat16()
+    base = torch.randn((T, H)).bfloat16()
+    loc = torch.randint(0, R, (K, T), dtype=torch.int32)
+    xo = torch.zeros((T, H), dtype=torch.bfloat16)
+    cc = dict(base=base, loc=loc, sout=sout, out=xo)
+    kern(moe_combine, f"combine_t{T}_npu{CORES}")[CORES](*[cc[n] for n in mo.order(moe_combine)])
+    refc = base.float() + sout.float()[loc.long()].sum(0)
+    logger.info(f"moe combine T={T} K={K} R={R}: out cos vs torch {mo.cos(cc['out'], refc):.6f}")
+    publish(f"combine_t{T}_npu{CORES}", moe_combine, out_dir, f"qwen35moe_combine{K}_t{T}_r{R}", CORES)
+    ax.init(chip_num=1, core_num=1)
+
+
+def slots_pl_check(out_dir):
+    """the planar slots kernel against the per-slot one on the same experts"""
+    torch.manual_seed(0)
+    x = torch.randn((S, G, H)).bfloat16()
+    rw = torch.rand((S, G))
+    gw, gs, dw, ds = [], [], [], []
+    for e in range(NE):
+        pk, sc = mo.quant_mxfp4(torch.randn((2 * FE, H)) * 0.02)
+        gw.append(pk), gs.append(sc)
+        pk, sc = mo.quant_mxfp4(torch.randn((H, FE)) * 0.02)
+        dw.append(pk), ds.append(sc)
+    sid = torch.randint(0, NE, (S,), dtype=torch.int32)
+    case = dict(x=x, rw=rw, sid=sid, e_gw=torch.stack(gw).view(torch.float4_e2m1fn_x2),
+                e_gs=torch.stack(gs).view(torch.float8_e8m0fnu), e_dw=torch.stack(dw).view(torch.float4_e2m1fn_x2),
+                e_ds=torch.stack(ds).view(torch.float8_e8m0fnu),
+                out=torch.zeros((S, G, H), dtype=torch.bfloat16 if OUT_BF else torch.float32))
+    ref = dict(x=x, rw=rw, out=torch.zeros_like(case["out"]))
+    for i in range(S):
+        e = int(sid[i])
+        ref[f"w_c{i}"], ref[f"s_c{i}"] = gw[e].view(torch.float4_e2m1fn_x2), gs[e].view(torch.float8_e8m0fnu)
+        ref[f"w_d{i}"], ref[f"s_d{i}"] = dw[e].view(torch.float4_e2m1fn_x2), ds[e].view(torch.float8_e8m0fnu)
+    ax.init(chip_num=1, core_num=CORES)
+    bo = "_bo" if OUT_BF else ""
+    k = kern(moe_slots, f"slots{S}_g{G}{bo}_npu{CORES}")
+    k[CORES](*[ref[n] for n in mo.order(moe_slots)])
+    kp = kern(moe_slots_pl, f"slots{S}_g{G}_pl{bo}_npu{CORES}")
+    kp[CORES](*[case[n] for n in mo.order(moe_slots_pl)])
+    ax.init(chip_num=1, core_num=1)
+    same = bool(torch.equal(case["out"].view(torch.int16) if OUT_BF else case["out"], ref["out"].view(torch.int16) if OUT_BF else ref["out"]))
+    logger.info(f"moe slots planar S={S} G={G}: out cos vs per-slot kernel {mo.cos(case['out'], ref['out']):.6f} "
+                f"(bitwise {same})")
+    publish(f"slots{S}_g{G}_pl{bo}_npu{CORES}", moe_slots_pl, out_dir, f"qwen35moe_slots{S}_g{G}_pl_mxfp4{bo}", CORES)
 
 
 def slots_check(out_dir):
@@ -215,6 +372,15 @@ def main():
     os.makedirs(BUILD, exist_ok=True)
     ax.init(chip_num=1, core_num=1)
     only = os.environ.get("ONLY")
+    if only == "slots_pl":
+        slots_pl_check(out_dir)
+        return
+    if only == "slots_px":
+        slots_px_check(out_dir)
+        return
+    if only == "combine":
+        combine_check(out_dir)
+        return
     if only != "layers":
         slots_check(out_dir)
     if only == "slots":

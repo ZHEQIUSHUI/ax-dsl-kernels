@@ -46,6 +46,11 @@ _builder.KernelBuilder._compiled_axmodel_io_dtype = staticmethod(
 BF16_DIR = OUT = None  # set from the command line in main()
 BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_mx"))
 GROUP = 32
+# WFMT=nv4: the projections in NVFP4 instead (E2M1 pairs, an E4M3 scale per NVG input channels, an FP32 tensor scale2:
+# t_<name> beside s_<name>, a runtime input so one kernel serves every layer)
+NV4 = os.environ.get("WFMT") == "nv4"
+NVG = 16
+E2M1 = torch.tensor([0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0])
 VC = cb.VC
 
 GDN_W = ["w_qkv", "w_z", "w_b", "w_a", "w_out", "w_gate", "w_up", "w_down"]
@@ -74,19 +79,28 @@ def oc_tile_fp8(cols):
     return max(16, min(256, (512 * 1024) // cols))  # fp8 一行 1 字节，tile 仍约 512 KB 封顶 256 行
 
 
+def oc_tile_fp4(cols):
+    return max(16, min(1024, (256 * 1024) // (cols // 2)))  # fp4 tiles around 256 KB, as the experts'
+
+
 def proj_mx(x, w, name, output_dtype=ax.bf16):
-    s = SCALES.get(id(w))
+    s, s2 = SCALES.get(id(w)), SCALES2.get(id(w))
+    if s2 is not None:  # NVFP4
+        return linear(x, w, s, name, weight_scale2=s2, output_dtype=output_dtype, oc_tile_size=oc_tile_fp4(w.shape[1]))
     tile = oc_tile_fp8(w.shape[1]) if s is not None else q.oc_tile(w.shape[1])
     return linear(x, w, s, name, output_dtype=output_dtype, oc_tile_size=tile)
 
 
 def slice_w_mx(w, rows=slice(None), cols=slice(None)):
-    """a block of an MX weight with its scales (one per GROUP input channels): cols in whole groups"""
+    """a block of an MX / NVFP4 weight with its scales (one per GROUP / NVG input channels): cols in whole groups"""
     ws = w[rows, cols]
-    s = SCALES.get(id(w))
+    s, s2 = SCALES.get(id(w)), SCALES2.get(id(w))
     if s is not None:
-        g = slice(None) if cols == slice(None) else slice(cols.start // GROUP, cols.stop // GROUP)
+        gs = NVG if s2 is not None else GROUP
+        g = slice(None) if cols == slice(None) else slice(cols.start // gs, cols.stop // gs)
         SCALES[id(ws)] = s[rows, g]
+    if s2 is not None:
+        SCALES2[id(ws)] = s2
     return ws
 
 
@@ -127,14 +141,79 @@ def scale_name(w):
     return "s_" + w[2:]  # w_qkv -> s_qkv
 
 
+def quant_nvfp4(w):
+    """[N, K] -> (E2M1 pairs [N, K / 2] as float4_e2m1fn_x2, low nibble first; E4M3 scales [N, K / NVG]; FP32 scale2
+    [1]): scale2 = amax / (6 * 448), each block's scale its amax / 6 / scale2 in E4M3, elements to the nearest E2M1"""
+    n, k = w.shape
+    s2 = (w.float().abs().max() / (6.0 * 448.0)).clamp_min(2.0**-126)
+    g = w.float().reshape(n, k // NVG, NVG)
+    sc = (g.abs().amax(-1, keepdim=True) / 6.0 / s2).to(torch.float8_e4m3fn)
+    d = sc.float() * s2
+    x = torch.where(d > 0, g / d, torch.zeros_like(g)).reshape(n, k)
+    code = ((x.abs().unsqueeze(-1) - E2M1).abs().argmin(-1) | ((x < 0).long() << 3)).to(torch.uint8)
+    pk = (code[:, 0::2] | (code[:, 1::2] << 4)).contiguous()
+    return pk.view(torch.float4_e2m1fn_x2), sc.reshape(n, k // NVG).contiguous(), s2.reshape(1).float()
+
+
+def dequant_nvfp4(pk, sc, s2):
+    code = pk.view(torch.uint8)
+    code = torch.stack([code & 15, code >> 4], -1).reshape(code.shape[0], -1).long()
+    v = E2M1[code & 7] * torch.where(code >= 8, -1.0, 1.0)
+    return (v.reshape(v.shape[0], -1, NVG) * (sc.float() * s2).unsqueeze(-1)).reshape(v.shape[0], -1)
+
+
 def mx_args(a, names):
-    """bf16 layer args -> MX args (adds s_*), plus the dequantized weights for the bf16 reference run."""
+    """bf16 layer args -> MX args (adds s_*; NVFP4 also t_*: scale2), plus the dequantized weights for the bf16
+    reference run."""
     m, deq = dict(a), dict(a)
     for n in names:
+        if NV4:
+            w4, s, s2 = quant_nvfp4(a[n])
+            m[n], m[scale_name(n)], m["t_" + n[2:]] = w4, s, s2
+            deq[n] = dequant_nvfp4(w4, s, s2).bfloat16()
+            continue
         w8, s = quant_mxfp8(a[n])
         m[n], m[scale_name(n)] = w8, s
         deq[n] = dequant(w8, s).bfloat16()
     return m, deq
+
+
+SCALES2 = {}  # id(NVFP4 weight) -> its scale2 (q35 kernels' t_<name> inputs)
+
+
+def nv_twin(fn):
+    """NVFP4 version of an MX kernel wrapper fn(..., w_<n>, s_<n>, ...): the same inputs plus t_<n> after each s_<n>,
+    their weights' scale2 registered, then fn itself (its SCALES registration and body); same name and outputs"""
+    import importlib
+    import inspect
+    names = list(fn.__code__.co_varnames[: fn.__code__.co_argcount])
+    ins = []
+    for n in names:
+        ins.append(n)
+        if n.startswith("s_") and "w_" + n[2:] in names:
+            ins.append("t_" + n[2:])
+    ret = [ln.strip() for ln in inspect.getsource(fn).splitlines() if ln.strip().startswith("return ")][-1]
+    key = f"{fn.__module__}.{fn.__name__}"  # the same wrapper name in several modules (single / four cores)
+    TWINS[key] = fn
+    src = (f"import q35_mx_build as M\n\n\ndef {fn.__name__}({', '.join(ins)}):\n    M.reg_scale2(locals())\n"
+           f"    M.TWINS[{key!r}]({', '.join(names)})\n    {ret}\n")
+    mod = f"nvtwin_{fn.__module__}_{fn.__name__}"
+    os.makedirs(BUILD, exist_ok=True)
+    open(f"{BUILD}/{mod}.py", "w").write(src)
+    if BUILD not in sys.path:
+        sys.path.insert(0, BUILD)
+    importlib.invalidate_caches()  # the module was written after the path's directory listing was cached
+    return getattr(importlib.import_module(mod), fn.__name__)
+
+
+TWINS = {}
+
+
+def reg_scale2(a):
+    SCALES2.clear()
+    for n, v in a.items():
+        if n.startswith("t_") and "w_" + n[2:] in a:
+            SCALES2[id(a["w_" + n[2:]])] = v
 
 
 def order(fn):
