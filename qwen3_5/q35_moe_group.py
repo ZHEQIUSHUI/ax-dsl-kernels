@@ -20,7 +20,7 @@ import os
 import shutil
 import sys
 
-os.environ.setdefault("WFMT", "mx8")
+os.environ.setdefault("WFMT", "mx8")  # or nv4: NVFP4 projections
 
 import torch
 from loguru import logger
@@ -68,34 +68,22 @@ def packed(args, sizes):
 
 
 def unpack(pw, ps, pf, pb):
-    """every layer's members (the column-split ones as L.Cols), their MX scales registered"""
+    """every layer's members (the column-split ones as L.Cols), their scales (and NVFP4 scale2) registered"""
     L.PK_SPEC["group"] = SPEC
     src = dict(pw=pw, ps=ps, pf=pf, pb=pb)
     m = [{} for _ in range(G)]
     for key, (p, off, shape, bl) in SPEC.items():
         j, n = key.split(".", 1)
-        j = int(j[1:])
-        if bl:
-            rows, blocks, o = shape[0], {}, off
-            for x, y in bl:
-                blocks[(x, y)] = src[p][o : o + rows * (y - x)].reshape(rows, y - x)
-                o += rows * (y - x)
-            m[j][n] = L.Cols(blocks)
-            continue
-        numel = 1
-        for d in shape:
-            numel *= d
-        m[j][n] = src[p][off : off + numel].reshape(*shape)
+        m[int(j[1:])][n] = L.pk_member(src, p, off, shape, bl)
+    regs = []
+    for j in range(G):  # pk_register clears the registries: collect each layer's, then register them all
+        L.pk_register(m[j])
+        regs.append((dict(mb.SCALES), dict(mb.SCALES2)))
     mb.SCALES.clear()
-    for j in range(G):
-        for n in list(m[j]):
-            if n.startswith("w_") and "s_" + n[2:] in m[j]:
-                w, sc = m[j][n], m[j]["s_" + n[2:]]
-                if isinstance(w, L.Cols):
-                    for (x, y), blk in w.blocks.items():
-                        mb.SCALES[id(blk)] = sc.blocks[(x // 32, y // 32)]
-                else:
-                    mb.SCALES[id(w)] = sc
+    mb.SCALES2.clear()
+    for sc, s2 in regs:
+        mb.SCALES.update(sc)
+        mb.SCALES2.update(s2)
     return m
 
 
@@ -194,7 +182,7 @@ def main():
     else:
         logger.info(f"group of {G}: no reference, out finite {bool(case['out'].float().isfinite().all())}")
     path = max(glob.glob(f"{L.BUILD}/group{G}/cache/moe_group.*.compiled.axmodel"), key=os.path.getmtime)
-    name = f"qwen35moe_group{G}_{''.join(k[0] for k in KINDS)}_mx8_kvc_c{L.LMAX}"
+    name = f"qwen35moe_group{G}_{''.join(k[0] for k in KINDS)}{L.SFX}_kvc_c{L.LMAX}"
     dst = board_io.kernel_file(out_dir, name, L.CORES)
     shutil.copy(path, dst)
     board_io.fix(dst)
