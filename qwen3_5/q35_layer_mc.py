@@ -51,6 +51,8 @@ if MX:
     import q35_mx_build as mb  # q.proj / q.slice_w: the MX linear, weight slices carry their scales
 CORES = int(os.environ.get("CORES", 4))
 STEPS = int(os.environ.get("STEPS", 2))
+TOPK_OUT = os.environ.get("TOPK_OUT") == "1"  # MoE prefill: also the router's top-K per token (topk_v / topk_i, _tk)
+TK = {}  # the top-K outputs of the kernel being traced (topk wrappers -> finish_pre)
 SAVE = os.environ.get("SAVE")  # attention check: torch.save each step's outputs to <SAVE>_<step>.pt
 NOREF = os.environ.get("NOREF") == "1"  # attention: build the four-core kernel without the single-core reference run
 BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_layer_mc"))
@@ -334,6 +336,19 @@ def finish_pre(c, x1_c, ln2, w_gate, w_up, w_down, out, moe):
     rs = slice(c * ne, (c + 1) * ne)
     logits = linear(h2, moe["w_router"][rs], None, "router", output_dtype=ax.fp32, oc_tile_size=ne)
     ax.dsl.store(logits, r=moe["logits_out"][:, :, rs])
+    if TK:  # the top-K experts of each token: all logits through shared OCM (no core reads another's DDR writes),
+        # each core its P / CORES tokens' top-K: the raw logits (descending) and their experts
+        K, tp = mo.TOPK, P // CORES
+        lg = ax.dsl.create_tensor((P, mo.NE), ax.fp32, ax.MemoryType.SHARED_OCM, name="logits_all")
+        ax.dsl.move(r=lg[:, rs], x=logits.reshape(P, ne))
+        axd.pub(lg)
+        axd.sub(lg)
+        tr = slice(c * tp, (c + 1) * tp)
+        vals = ax.dsl.create_tensor((tp, K), ax.fp32, name="topk_vals")
+        ids = ax.dsl.create_tensor((tp, K), ax.int32, name="topk_ids")
+        ax.dsl.topk(lg[tr], k=K, dim=-1, r_values=vals, r_indices=ids)
+        ax.dsl.store(vals, r=TK["v"][tr])
+        ax.dsl.store(ids, r=TK["i"][tr])
 
 
 def gdn_pre_body(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out, ln2, w_gate, w_up, w_down,
@@ -810,8 +825,35 @@ def refs():
     return (mb.gdn_layer_mx, mb.attn_layer_mx) if MX else (q.gdn_layer, q.attn_layer)
 
 
+TK_FN = {}
+
+
+def with_topk(fn):
+    """fn (a MoE prefill layer kernel) with the router's top-K outputs topk_v [P, K] f32 / topk_i [P, K] int32 after its
+    own (finish_pre writes them through TK); same name"""
+    import importlib
+    import inspect
+    names_ = order(fn)
+    ret = [ln.strip() for ln in inspect.getsource(fn).splitlines() if ln.strip().startswith("return ")][-1]
+    TK_FN[fn.__name__] = fn
+    src = (f"import q35_layer_mc as S\n\n\ndef {fn.__name__}({', '.join(names_ + ['topk_v', 'topk_i'])}):\n"
+           f"    S.TK.update(v=topk_v, i=topk_i)\n    S.TK_FN[{fn.__name__!r}]({', '.join(names_)})\n    S.TK.clear()\n"
+           f"    {ret}, topk_v, topk_i\n")
+    mod = f"tkvar_{fn.__name__}"
+    os.makedirs(BUILD, exist_ok=True)
+    open(f"{BUILD}/{mod}.py", "w").write(src)
+    if BUILD not in sys.path:
+        sys.path.insert(0, BUILD)
+    importlib.invalidate_caches()
+    return getattr(importlib.import_module(mod), fn.__name__)
+
+
 def mine():
     """this script's kernels: gdn, attn (MoE prefill attention in bf16, as q35_moe_prefill)"""
+    if MOE and P > 1 and TOPK_OUT:
+        if "tk" not in TK_FN:
+            TK_FN["tk"] = (with_topk(gdn_layer_moe_mx if MX else gdn_layer_moe), with_topk(attn_layer_moe))
+        return TK_FN["tk"]
     if MOE:
         return (gdn_layer_moe_mx if MX else gdn_layer_moe), (attn_layer_moe_mx if MX and P == 1 else attn_layer_moe)
     return (gdn_layer_mx, attn_layer_mx) if MX else (gdn_layer, attn_layer)
@@ -820,9 +862,10 @@ def mine():
 def names(kind):
     kp = "qwen35moe" if MOE else q.KP
     pre = f"_prefill{P}" if P > 1 else ""
+    tk = "_tk" if MOE and P > 1 and TOPK_OUT else ""
     if kind == "gdn":
-        return f"{kp}_gdn{pre}{SFX}"
-    return f"{kp}_attn{pre}{'' if MOE and P > 1 else SFX}_kvc_c{LMAX}"
+        return f"{kp}_gdn{pre}{SFX}{tk}"
+    return f"{kp}_attn{pre}{'' if MOE and P > 1 else SFX}{tk}_kvc_c{LMAX}"
 
 
 def tokens(W, t0):
@@ -843,13 +886,18 @@ def mask_rows(t0):
 
 
 def moe_outs():
-    return dict(h2_out=torch.zeros((1, P, H), dtype=torch.bfloat16), logits_out=torch.zeros((1, P, mo.NE))) if MOE else {}
+    if not MOE:
+        return {}
+    o = dict(h2_out=torch.zeros((1, P, H), dtype=torch.bfloat16), logits_out=torch.zeros((1, P, mo.NE)))
+    if P > 1 and TOPK_OUT:
+        o.update(topk_v=torch.zeros((P, mo.TOPK)), topk_i=torch.zeros((P, mo.TOPK), dtype=torch.int32))
+    return o
 
 
 def check_gdn(W, out_dir):
     single, mc = refs()[0], mine()[0]
-    names_ = order(single)
-    assert names_ == order(mc), (names_, order(mc))
+    names_ = order(mc) if NOREF else order(single)  # (NOREF: the four-core kernel may add outputs, e.g. top-K)
+    assert NOREF or names_ == order(mc), (names_, order(mc))
     a = q.gdn_args(W, 0)
     a = mb.mx_args(a, mb.GDN_W)[0] if MX else a
     k1, k4 = kern(single, "gdn1"), kern(mc, "gdn4")
@@ -887,8 +935,8 @@ def check_gdn(W, out_dir):
 
 def check_attn(W, out_dir):
     single, mc = refs()[1], mine()[1]
-    names_ = order(single)
-    assert names_ == order(mc), (names_, order(mc))
+    names_ = order(mc) if NOREF else order(single)
+    assert NOREF or names_ == order(mc), (names_, order(mc))
     li = q.LAYERS.index("full_attention")
     a = q.attn_args(W, li)
     a = mb.mx_args(a, mb.ATTN_W)[0] if MX and not (MOE and P > 1) else a
@@ -1271,7 +1319,7 @@ def pk_variant(fn, key, a):
     import inspect
     names = order(fn)
     rest = [n for n in names if not torch.is_tensor(a.get(n))]
-    ins = [n for n in rest if n not in ("out", "state_out", "conv_out", "h2_out", "logits_out")]
+    ins = [n for n in rest if n not in ("out", "state_out", "conv_out", "h2_out", "logits_out", "topk_v", "topk_i")]
     outs = [n for n in rest if n not in ins]
     ret = [ln.strip() for ln in inspect.getsource(fn).splitlines() if ln.strip().startswith("return ")][-1]
     PK_FN[key] = fn
@@ -1319,7 +1367,14 @@ def check_pre_pk(W, out_dir, kind):
             q.RESIDENT.update(kc=case["kc"].clone(), vc=case["vc"].clone())
         run(kern(fn, sub), CORES, case, order(fn))
         q.RESIDENT.clear()
-    outs = [n for n in ("out", "h2_out", "logits_out", "state_out", "conv_out", "kc", "vc") if n in ref]
+    outs = [n for n in ("out", "h2_out", "logits_out", "state_out", "conv_out", "kc", "vc", "topk_v", "topk_i")
+            if n in ref]
+    if TOPK_OUT:  # the kernel's top-K against the host's rule on its own logits: descending, ties to the lower expert
+        lg = ref["logits_out"].reshape(P, mo.NE)
+        sv, si = torch.sort(lg, dim=-1, descending=True, stable=True)
+        iv = bool(torch.equal(ref["topk_i"], si[:, : mo.TOPK].to(torch.int32)))
+        vv = bool(torch.equal(ref["topk_v"].view(torch.int32), sv[:, : mo.TOPK].contiguous().view(torch.int32)))
+        logger.info(f"{names(kind)} top-K vs the host rule on its logits: ids bitwise {iv}, values bitwise {vv}")
     same = {n: bool(torch.equal(got[n].contiguous().view(torch.uint8), ref[n].contiguous().view(torch.uint8))) for n in outs}
     logger.info(f"{names(kind)} packed npu{CORES}: bitwise vs unpacked {same}, packs {sizes}")
     path = max(glob.glob(f"{BUILD}/prepk_{kind}/cache/{fpk.__name__}.*.compiled.axmodel"), key=os.path.getmtime)

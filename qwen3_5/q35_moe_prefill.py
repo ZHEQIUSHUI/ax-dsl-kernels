@@ -166,6 +166,31 @@ def moe_slots_px(h2, tok, rw, e_gw, e_gs, e_dw, e_ds, out):
     return out
 
 
+def moe_slots_px2(h2, tok, rw, e_gw, e_gs, e_dw, e_ds, out):
+    """moe_slots_px with the next slot's weights and rows fetched before this slot's matmuls (software pipelining:
+    the DMA of slot i + 1 under the compute of slot i)"""
+    c = ax.program_id(0)
+    sl = list(range(c * (S // CORES), (c + 1) * (S // CORES)))
+
+    def fetch(i):
+        e = ax.dsl.load(sid_of(tok, i))
+        return (ax.dsl.index_select(e_gw, e, dim=0).reshape(2 * FE, H), ax.dsl.index_select(e_gs, e, dim=0).reshape(2 * FE, H // 32),
+                ax.dsl.index_select(e_dw, e, dim=0).reshape(H, FE), ax.dsl.index_select(e_ds, e, dim=0).reshape(H, FE // 32),
+                ax.dsl.index_select(h2, ax.dsl.load(tok[i : i + 1, 1:]).reshape(G), dim=0).reshape(1, G, H),
+                ax.dsl.load(rw[i : i + 1]))
+
+    nxt = fetch(sl[0])
+    for j, i in enumerate(sl):
+        wc, sc, wd, sd, h, r = nxt
+        if j + 1 < len(sl):
+            nxt = fetch(sl[j + 1])
+        gu = linear(h, wc, sc, f"s{i}_gate_up", output_dtype=ax.bf16, oc_tile_size=mo.oc_tile_fp4(H))
+        a = silu_mul(gu[:, :, :FE], gu[:, :, FE:], activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
+        d = linear(a, wd, sd, f"s{i}_down", output_dtype=ax.fp32, oc_tile_size=mo.oc_tile_fp4(FE))
+        ax.dsl.store(ax.dsl.mul(d, r.reshape(1, G, 1), output_dtype=OUT_DT), r=out[i : i + 1])
+    return out
+
+
 def sid_of(tok, i):
     return tok[i : i + 1, 0:1].reshape(1)  # tok row i: [expert, G token ids]
 
