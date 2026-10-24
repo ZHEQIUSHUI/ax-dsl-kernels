@@ -339,7 +339,7 @@ def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, 
 GDN_ORDER = q.GDN_ORDER
 ATTN_ORDER = q.ATTN_ORDER
 WFMT = os.environ.get("WFMT", "bf16")
-if WFMT == "mx8":
+if WFMT in ("mx8", "nv4"):  # nv4: the MX wrappers, their weights NVFP4 (q35_mx_build.NV4, the packed kernels' twins)
     import q35_mx_build as mb  # patches q.proj to the MX linear (scales looked up per weight)
 
     def gdn_layer_prefill_mx(x, ln1, w_qkv, s_qkv, w_z, s_z, w_b, s_b, w_a, s_a, conv_w, a_log, dt_bias, norm_w, w_out,

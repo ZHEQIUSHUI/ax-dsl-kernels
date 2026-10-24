@@ -44,7 +44,7 @@ KVX = os.environ.get("KVX", "0") == "1"
 # LMHEAD=1 (the group covers every layer): also the final norm and the output projection (tied embedding rows, in the
 # layers' weight format, or LMFMT=mx8 / mx4), logits [1, V] f32 as one more output; V / CORES rows per core
 LMHEAD = os.environ.get("LMHEAD", "0") == "1"
-LMFMT = os.environ.get("LMFMT", "mx4" if K.MX4 and not K.MIX else "mx8")
+LMFMT = os.environ.get("LMFMT", "mx4" if K.MX4 and (not K.MIX or K.NVF) else "mx8")
 FIRST = int(os.environ.get("FIRST", 0))
 KINDS = ["gdn" if q.LAYERS[FIRST + j] == "linear_attention" else "attn" for j in range(G)]
 CORES, H, EPS = L.CORES, L.H, L.EPS
@@ -58,6 +58,12 @@ PDT = {}  # pack name -> dtype, in kernel-input order
 def base(p):
     return p.split("_")[0]
 FULL = {}  # (j, w_<x>) -> columns before blocking
+# the single-core layer kernels the group is checked against (NVFP4: their twins, t_<x> after each s_<x>)
+_only = K.MLP_W if K.MIX else None
+GL, AL = ((mb.nv_twin(mb.gdn_layer_mx, _only), mb.nv_twin(mb.attn_layer_mx, _only)) if K.NVF else
+          (mb.gdn_layer_mx, mb.attn_layer_mx))
+
+
 
 
 def reduce(c, x, partial, tag):
@@ -264,6 +270,8 @@ def attention_split_qa(c, qa, kc, vc, nblk, mask, attn, tag=""):
 
 def members(src, j):
     """layer j's parameters: static slices of the packs (scales and column strips registered as q35_layer_pk.unpack)"""
+    mb.SCALES.clear()  # the previous layer's: their tensors are gone, their ids may come back (an MX weight of this
+    mb.SCALES2.clear()  # layer would find an NVFP4 scale2 under its id)
     m = {}
     for key, (p, off, shape) in SPEC.items():
         lj, n = key.split(".", 1)
@@ -274,6 +282,8 @@ def members(src, j):
     for n in list(m):
         if n.startswith("w_") and "s_" + n[2:] in m:
             mb.SCALES[id(m[n])] = m["s_" + n[2:]]
+            if "t_" + n[2:] in m:
+                mb.SCALES2[id(m[n])] = m["t_" + n[2:]]
         if n in K.BW:
             K.BLK[id(m[n])] = (m[n].shape[0] // (FULL[(j, n)] // K.BW[n]), K.BW[n])
     return m
@@ -283,6 +293,7 @@ def group_body(x, packs, cs, pn, mask, out, io):
     """packs: name -> pack; io: per layer j its state / conv or kc / vc tensors"""
     c = ax.program_id(0)
     mb.SCALES.clear()
+    mb.SCALES2.clear()
     K.BLK.clear()
     L.SHM_LIVE.clear()
     xt = ax.dsl.load(x)
@@ -348,7 +359,9 @@ def main():
         lm = dict(norm=(torch.randn(H) * 0.1 + 1).float(), w_lm=wq, s_lm=sq.view(torch.float8_e8m0fnu))
         if "p4" not in K.PACKS and LMFMT == "mx4":
             K.PACKS = {"p4": torch.float4_e2m1fn_x2, **K.PACKS}
-    order = {"gdn": L.order(mb.gdn_layer_mx), "attn": L.order(mb.attn_layer_mx)}
+        if K.NVF and not K.MIX:  # the head's E8M0 scales: ps holds the layers' E4M3 ones
+            K.PACKS["pe"] = torch.float8_e8m0fnu
+    order = {"gdn": L.order(GL), "attn": L.order(AL)}
     items = [(f"L{j}.{n}", j, args[j][n]) for j, kind in enumerate(KINDS) for n in order[kind]
              if torch.is_tensor(args[j].get(n)) and n != "x"]
     items += [(f"LM.{n}", G - 1, lm[n]) for n in ("norm", "w_lm", "s_lm")] if LMHEAD else []
@@ -385,7 +398,7 @@ def main():
         f.write(src)
     sys.path.insert(0, f"{build}/grp")
     fn = __import__(modname).group_kernel
-    single = {"gdn": L.kern(mb.gdn_layer_mx, "g1"), "attn": L.kern(mb.attn_layer_mx, "a1")}  # MXFP8 or MXFP4 args
+    single = {"gdn": L.kern(GL, "g1"), "attn": L.kern(AL, "a1")}  # MXFP8, MXFP4 or NVFP4 args
     os.chdir(f"{build}/grp")
     PERF = os.environ.get("PERF") == "1"  # simulator trace of the group kernel (DUMP_DSL_PERF artifacts in <DUMP>/grp)
     kg = ax.builder(run_mode=ax.RunMode.CRUN, enable_cache=not PERF, dump_dsl_perf=PERF, dump_path=f"{build}/grp")(fn)
@@ -411,7 +424,7 @@ def main():
                 case.update(att, kc=state["1"][j], vc=conv["1"][j])
                 q.RESIDENT.update(kc=state["1"][j].clone(), vc=conv["1"][j].clone())
             os.chdir(f"{L.BUILD}/{'g1' if kind == 'gdn' else 'a1'}")
-            L.run(single[kind], 1, case, L.order(mb.gdn_layer_mx if kind == "gdn" else mb.attn_layer_mx))
+            L.run(single[kind], 1, case, L.order(GL if kind == "gdn" else AL))
             q.RESIDENT.clear()
             if kind == "gdn":
                 state["1"][j], conv["1"][j] = so, co
@@ -460,8 +473,8 @@ def main():
             numel = int(np.prod(shape))
             w = n if n.startswith("w_") else "w_" + n[2:]
             blk = ""
-            if w in K.BW and (j, w) in FULL:
-                g = 1 if n == w else mb.GROUP
+            if w in K.BW and (j, w) in FULL and not n.startswith("t_"):
+                g = 1 if n == w else K.sg(n)
                 cols, bw = FULL[(j, w)] // g, K.BW[w] // g
                 if base(p) == "p4":  # bytes: two fp4 values each
                     cols, bw = cols // 2, bw // 2
