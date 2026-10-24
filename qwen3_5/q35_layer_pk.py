@@ -268,6 +268,9 @@ def layout_lines(kind, sizes, prefix=""):
 # IOMIN=1 (decode): fewer IO: the recurrent state and conv state as one output each (read and written in place, as
 # the attention's kc / vc), cos / sin as one input cs [2, ROT/2], pos / nblk as one input pn [2]
 IOMIN = os.environ.get("IOMIN", "0") == "1" and L.P == 1
+# PAD=1: the GDN prefill kernels with a valid-row count (q35_step.with_pad: inputs rv / cix, names _pv), checked with
+# NVROWS (default P) tokens per chunk, the rest padding (copies of the last token's row)
+PAD = os.environ.get("PAD", "0") == "1"
 
 
 def gdn_layer_mx_pk2(x, pw, ps, pf, pb, out, state, conv):
@@ -315,6 +318,10 @@ def check(kind, W, out_dir):
         pk.pop("pb")
     fn = (gdn_layer_mx_pk2 if IOMIN else gdn_layer_mx4_pk if MX4 else gdn_layer_mx_pk) if kind == "gdn" else \
         (attn_layer_mx_pk2 if IOMIN else attn_layer_mx4_pk if MX4 else attn_layer_mx_pk)
+    pad = PAD and kind == "gdn" and L.P > 1  # the _pv kernels: rv / cix inputs, NVROWS tokens per chunk checked
+    if pad:
+        single, fn = q.with_pad(single), q.with_pad(fn)
+    nrows = int(os.environ.get("NVROWS", L.P)) if pad else L.P
     if os.environ.get("PERF"):  # one call of the packed kernel with the simulator trace (DUMP_DSL_PERF artifacts)
         sub = f"{L.BUILD}/{kind}4pk_perf"
         os.makedirs(sub, exist_ok=True)
@@ -325,6 +332,8 @@ def check(kind, W, out_dir):
             st = torch.zeros((L.NV, L.DK, L.DV))
             cv = torch.zeros((1, L.CONV - 1, 2 * L.KD + L.VD), dtype=torch.bfloat16)
             case.update(state_in=st, conv_in=cv, state_out=torch.zeros_like(st), conv_out=torch.zeros_like(cv))
+            if pad:
+                case.update(zip(("rv", "cix"), q.pad_inputs(L.P, nrows)))
         else:
             kc, vc = (torch.zeros((L.LMAX, L.HKV * L.D), dtype=torch.half) for _ in range(2))
             cs, sn = L.rope_rows(0)
@@ -340,7 +349,7 @@ def check(kind, W, out_dir):
     cv = {r: torch.zeros((1, L.CONV - 1, 2 * L.KD + L.VD), dtype=torch.bfloat16) for r in ("1", "4")}
     kv = {r: [torch.zeros((LMAX, L.HKV * L.D), dtype=torch.half) for _ in range(2)] for r in ("1", "4")}
     for step in range(L.STEPS):
-        t0 = step * P + int(os.environ.get("T0", 0))  # the first position checked
+        t0 = step * nrows + int(os.environ.get("T0", 0))  # the first position checked
         x = L.tokens(W, t0)
         res = {}
         for r, k, n, args in (("1", k1, 1, a), ("4", k4, L.CORES, pk)):
@@ -358,24 +367,26 @@ def check(kind, W, out_dir):
                 if IOMIN and r == "4":
                     case.update(cs=torch.cat([cs, sn]), pn=torch.tensor([t0, (t0 + P - 1) // BC + 1], dtype=torch.int32))
                 q.RESIDENT.update(kc=kv[r][0].clone(), vc=kv[r][1].clone())
+            if pad:
+                case.update(zip(("rv", "cix"), q.pad_inputs(P, nrows)))
             os.chdir(f"{L.BUILD}/{kind}{'1' if r == '1' else '4pk'}")
             L.run(k, n, case, L.order(single) if r == "1" else L.order(fn))
             q.RESIDENT.clear()
             if kind == "gdn":
                 st[r], cv[r] = (case["state"], case["conv"]) if IOMIN and r == "4" else (case["state_out"], case["conv_out"])
             res[r] = case
-        c = L.cos(res["4"]["out"], res["1"]["out"])
+        c = L.cos(res["4"]["out"][:, :nrows], res["1"]["out"][:, :nrows])
         extra = f"state cos {L.cos(st['4'], st['1']):.6f}" if kind == "gdn" else \
             f"K cos {L.cos(kv['4'][0][t0:t0 + P], kv['1'][0][t0:t0 + P]):.6f}"
         logger.info(f"{kind} packed npu{L.CORES} step {step}: out cos {c:.6f}, {extra}")
         worst = min(worst, c)
     path = max(glob.glob(f"{L.BUILD}/{kind}4pk/cache/{fn.__name__}.*.compiled.axmodel"), key=os.path.getmtime)
     pre = f"_prefill{P}" if P > 1 else ""
-    pk = "_pk2" if IOMIN else "_pk"
+    pk = ("_pv" if pad else "") + ("_pk2" if IOMIN else "_pk")
     name = f"{q.KP}_gdn{pre}{FMT}{pk}" if kind == "gdn" else f"{q.KP}_attn{pre}{FMT}{pk}_kvc_c{LMAX}"  # layout: blocking
     # the single-core kernel too (the backend binds the layer through it; any weight format)
     p1 = max(glob.glob(f"{L.BUILD}/{kind}1/cache/{single.__name__}.*.compiled.axmodel"), key=os.path.getmtime)
-    n1 = f"{q.KP}_gdn{pre}{FMT}" if kind == "gdn" else f"{q.KP}_attn{pre}{FMT}_kvc_c{LMAX}"
+    n1 = f"{q.KP}_gdn{pre}{FMT}{'_pv' if pad else ''}" if kind == "gdn" else f"{q.KP}_attn{pre}{FMT}_kvc_c{LMAX}"
     shutil.copy(p1, board_io.kernel_file(out_dir, n1, 1))
     dst = board_io.kernel_file(out_dir, name, L.CORES)
     shutil.copy(path, dst)

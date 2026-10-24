@@ -58,6 +58,7 @@ def gdn_layer_prefill(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm
                       state_in, conv_in, out, state_out, conv_out):
     global P
     if P > REF_HALF:  # two halves: the second continues from the first's state and conv rows (in place)
+        assert not q.PADV, "padded chunks (rv / cix) up to REF_HALF rows"
         full, P = P, P // 2
         try:
             w = (ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out, ln2, w_gate, w_up, w_down)
@@ -83,19 +84,19 @@ def gdn_layer_prefill(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm
         parts = []
         for i, (c0, c1) in enumerate(((0, KD), (KD, 2 * KD), (2 * KD, C))):
             if c1 - c0 <= w:
-                parts.append(stateful_runtime_causal_depthwise_conv1d_silu(
+                parts.append(q.causal_conv(
                     qkv[:, :, c0:c1], conv_w[c0:c1], conv_in[:, :, c0:c1], conv_out[:, :, c0:c1], q.CONV, f"gdn_conv{i}"))
                 continue
             t = ax.dsl.create_tensor((1, P, c1 - c0), ax.bf16, name=f"gdn_mixed{i}")
             for b0 in range(c0, c1, w):
                 ch = slice(b0, min(c1, b0 + w))
-                ax.dsl.move(r=t[:, :, b0 - c0 : ch.stop - c0], x=stateful_runtime_causal_depthwise_conv1d_silu(
+                ax.dsl.move(r=t[:, :, b0 - c0 : ch.stop - c0], x=q.causal_conv(
                     qkv[:, :, ch], conv_w[ch], conv_in[:, :, ch], conv_out[:, :, ch], q.CONV, f"gdn_conv{i}_{b0}"))
             parts.append(t)
         qm, km, vm = parts
         qm, km, vm = qm.reshape(1, P, NK, DK), km.reshape(1, P, NK, DK), vm.reshape(1, P, NV, DV)
     else:
-        mixed = stateful_runtime_causal_depthwise_conv1d_silu(qkv, conv_w, conv_in, conv_out, q.CONV, "gdn_conv")
+        mixed = q.causal_conv(qkv, conv_w, conv_in, conv_out, q.CONV, "gdn_conv")
         qm = mixed[:, :, 0:KD].reshape(1, P, NK, DK)
         km = mixed[:, :, KD : 2 * KD].reshape(1, P, NK, DK)
         vm = mixed[:, :, 2 * KD :].reshape(1, P, NV, DV)
@@ -147,7 +148,7 @@ def gdn_chunked(qm, km, vm, a, b, a_log_t, dt_bias_t, q_scale, state_in, state_o
     assert (NV == NK or q.VORDER == "tiled") and NK % HG == 0 and P % CHUNK == 0
     qn = ax.dsl.mul(l2norm_lastdim(qm), q_scale, output_dtype=ax.bf16)  # [1, P, NK, DK]
     kn = l2norm_lastdim(km)
-    g_all, beta_all = gdn_gate(a.reshape(1, P, NV), b.reshape(1, P, NV), a_log_t, dt_bias_t)  # [1, P, NV]
+    g_all, beta_all = q.pad_gate(*gdn_gate(a.reshape(1, P, NV), b.reshape(1, P, NV), a_log_t, dt_bias_t))  # [1, P, NV]
     prefix_all = chunk_prefix_sum_fp32(g_all, CHUNK, "gdn_prefix_g")  # restarts every CHUNK tokens
     exp_prefix_all = ax.dsl.exp(prefix_all, output_dtype=ax.fp32)
     for h0 in range(0, NV, HG):

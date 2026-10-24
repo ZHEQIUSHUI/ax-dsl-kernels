@@ -114,6 +114,74 @@ def mlp_ft(rows):
 
 ROWS_OCM = 6_900_000  # a job's OCM (6923264 bytes usable): the fp32 down-projection partials (acc, d, sum) of all rows
 
+# GDN prefill kernels with a valid-row count (_pv: with_pad): the chunk's first n rows are tokens, the rest padding.
+# Inputs rv (fp32 [P]: 1 for a token's row, 0 for padding) and cix (int32 [CONV - 1]: n .. n + CONV - 2, the rows of the
+# convolution input [conv_in | the chunk] after the last token). Padding rows get decay g = 0 (the state kept: a factor
+# exp(0) = 1) and write strength beta = 0 (nothing written), and the conv state takes the rows after the last token, so
+# state and conv state are those of the n tokens; with n = P the kernel's arithmetic is the plain one's (x 1, the same
+# rows). The padding rows' outputs are not used
+PADV = {}
+
+
+def pad_gate(g, beta):
+    """g [1, rows, heads] fp32 / beta (bf16) of a chunk with zeros on the padding rows (PADV), else as they are"""
+    if not PADV:
+        return g, beta
+    rv = ax.dsl.load(PADV["rv"]).reshape(1, g.shape[1], 1)
+    return (ax.dsl.mul(g, rv, output_dtype=ax.fp32),
+            ax.dsl.mul(beta, ax.dsl.cast(rv, dtype=ax.bf16), output_dtype=beta.dtype))
+
+
+def causal_conv(projected, weight, state_in, state_out, conv_size, name_prefix):
+    """axnn's stateful_runtime_causal_depthwise_conv1d_silu; with PADV the conv state from the rows after the last
+    token (cix) instead of the chunk's last rows (the same arithmetic otherwise)"""
+    if not PADV:
+        return stateful_runtime_causal_depthwise_conv1d_silu(projected, weight, state_in, state_out, conv_size,
+                                                             name_prefix)
+    batch, seq_len, channels = projected.shape
+    conv_input = ax.dsl.concat(ax.dsl.load(state_in), projected, dim=1)
+    ax.dsl.store(ax.dsl.index_select(conv_input, ax.dsl.load(PADV["cix"]), dim=1), r=state_out)
+    conv_output = ax.dsl.create_tensor((batch, seq_len, channels), projected.dtype, name=f"{name_prefix}_conv_output")
+    for window_offset in range(conv_size):
+        source = conv_input[:, window_offset : window_offset + seq_len, :]
+        checkpoint_offset = conv_size - 1 - window_offset
+        tap = ax.dsl.load(weight[:, checkpoint_offset : checkpoint_offset + 1]).reshape(1, 1, channels)
+        product = ax.dsl.mul(source, tap, output_dtype=projected.dtype)
+        ax.dsl.move(product, r=conv_output, op=None if window_offset == 0 else "add")
+    return ax.dsl.silu(conv_output, output_dtype=projected.dtype, r=conv_output)
+
+
+PAD_FN = {}
+
+
+def with_pad(fn):
+    """fn (a GDN prefill layer kernel) with the inputs rv, cix before state_in (or state), its body under PADV; name
+    fn's + _pv"""
+    import importlib
+    import inspect
+    names = list(fn.__code__.co_varnames[: fn.__code__.co_argcount])
+    at = names.index("state_in" if "state_in" in names else "state")
+    ret = [ln.strip() for ln in inspect.getsource(fn).splitlines() if ln.strip().startswith("return ")][-1]
+    name = fn.__name__ + "_pv"
+    PAD_FN[name] = fn
+    src = (f"import q35_step as Q\n\n\ndef {name}({', '.join(names[:at] + ['rv', 'cix'] + names[at:])}):\n"
+           f"    Q.PADV.update(rv=rv, cix=cix)\n    try:\n        Q.PAD_FN[{name!r}]({', '.join(names)})\n"
+           f"    finally:\n        Q.PADV.clear()\n    {ret}\n")
+    build = os.path.abspath(os.environ.get("DUMP", "."))
+    os.makedirs(build, exist_ok=True)
+    open(f"{build}/pv_{name}.py", "w").write(src)
+    if build not in sys.path:
+        sys.path.insert(0, build)
+    importlib.invalidate_caches()
+    return getattr(importlib.import_module(f"pv_{name}"), name)
+
+
+def pad_inputs(P, n):
+    """rv / cix of a chunk of P rows whose first n are tokens"""
+    rv = torch.zeros((P,), dtype=torch.float32)
+    rv[:n] = 1.0
+    return rv, torch.arange(n, n + CONV - 1, dtype=torch.int32)
+
 
 def mlp_block(x1, ln2, w_gate, w_up, w_down, tag=""):
     """RMSNorm -> MLP + residual on x1, the result on chip (tag: a prefix of the layer's tensor names); the rows in

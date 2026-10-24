@@ -495,8 +495,7 @@ def gdn_pre_body(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w
     def conv(off, n, i):
         ch = slice(off, off + n)
         pr = q.proj(h, q.slice_w(w_qkv, rows=ch), f"gdn_qkv{i}")
-        return stateful_runtime_causal_depthwise_conv1d_silu(pr, conv_w[ch], conv_in[:, :, ch], conv_out[:, :, ch],
-                                                             CONV, f"gdn_conv{i}")
+        return q.causal_conv(pr, conv_w[ch], conv_in[:, :, ch], conv_out[:, :, ch], CONV, f"gdn_conv{i}")
 
     q_scale = ax.dsl.full(shape=(1,), dtype=ax.fp32, fill_value=DK**-0.5)
     qn = ax.dsl.mul(l2norm_lastdim(conv(c * KHC * DK, KHC * DK, 0).reshape(1, P, KHC, DK)), q_scale,
@@ -511,7 +510,8 @@ def gdn_pre_body(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w
         t = "" if REP == 1 else str(vo)
         vm = conv(2 * KD + v0 * DV, KHC * DV, 2 + vo).reshape(1, P, KHC, DV)
         z = q.proj(h, q.slice_w(w_z, rows=slice(v0 * DV, (v0 + KHC) * DV)), "gdn_z" + t).reshape(1, P, KHC, DV)
-        g_all, beta_all = gdn_gate(a_all[:, :, vs], b_all[:, :, vs], ax.dsl.load(a_log[vs]), ax.dsl.load(dt_bias[vs]))
+        g_all, beta_all = q.pad_gate(*gdn_gate(a_all[:, :, vs], b_all[:, :, vs], ax.dsl.load(a_log[vs]),
+                                               ax.dsl.load(dt_bias[vs])))
         prefix_all = chunk_prefix_sum_fp32(g_all, CHUNK, "gdn_prefix_g" + t)
         exp_prefix_all = ax.dsl.exp(prefix_all, output_dtype=ax.fp32)
         core = ax.dsl.create_tensor((1, P, KHC, DV), ax.bf16, name="gdn_core" + t)
