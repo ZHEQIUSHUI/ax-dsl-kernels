@@ -85,6 +85,35 @@ def wcols(w, sl):
     return w.blocks[(sl.start, sl.stop)] if isinstance(w, Cols) else q.slice_w(w, cols=sl)
 
 
+
+# KEEP_SHM (default on): every shared OCM tensor of a call is read once more right before the call's output is stored,
+# so its space is not handed to a later tensor before then. An extra safeguard only: onepass allocates shared OCM once
+# for all cores, and where it reuses an address update_job_deps already orders the later writes after the earlier reads
+# (the NVFP4 layer groups' run-to-run differences have another cause). The reads are selected away by a false condition
+# (no arithmetic: a -inf / NaN in a slot cannot reach the output)
+KEEP_SHM = os.environ.get("KEEP_SHM", "1") == "1"
+SHM_LIVE = []  # the shared OCM tensors since the last keep_shm
+
+
+def shm_tensor(shape, dtype, name):
+    t = ax.dsl.create_tensor(shape, dtype, ax.MemoryType.SHARED_OCM, name=name)
+    SHM_LIVE.append(t)
+    return t
+
+
+def keep_shm(y):
+    """y itself, read after every shared OCM tensor recorded since the last call (then forgotten)"""
+    live = list(SHM_LIVE)
+    SHM_LIVE.clear()
+    if not KEEP_SHM or not live:
+        return y
+    one = (1,) * len(y.shape)
+    off = ax.dsl.full(shape=one, dtype=ax.uint8, fill_value=0)
+    for t in live:
+        e = t[tuple(slice(0, 1) for _ in t.shape)].reshape(*one)
+        y = ax.dsl.where(off, ax.dsl.cast(e, dtype=y.dtype), y, output_dtype=y.dtype)
+    return y
+
 def reduce(c, x, part, partial):
     """x + the cores' partials (fp32 [1, 1, H]): the core's into shared part[c], published, all of them summed; the sum
     rounded to bf16 and added to x, as the single-core layer's bf16 projection output"""
@@ -103,7 +132,7 @@ def mlp(c, x1, ln2, w_gate, w_up, w_down):
     act = silu_mul(q.proj(h2, q.slice_w(w_gate, rows=fs), T("mlp_gate")), q.proj(h2, q.slice_w(w_up, rows=fs), T("mlp_up")),
                    activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
     d = q.proj(act, wcols(w_down, fs), T("mlp_down"), output_dtype=ax.fp32)
-    part_m = ax.dsl.create_tensor((CORES, 1, H), ax.fp32, ax.MemoryType.SHARED_OCM, name=T("part_m"))
+    part_m = shm_tensor((CORES, 1, H), ax.fp32, name=T("part_m"))
     return reduce(c, x1, part_m, d)
 
 
@@ -115,7 +144,7 @@ def moe_part(c, x1, ln2, w_gate, w_up, w_down, out, w_router, w_shg, h2_out, log
     act = silu_mul(q.proj(h2, q.slice_w(w_gate, rows=fs), "sh_gate"), q.proj(h2, q.slice_w(w_up, rows=fs), "sh_up"),
                    activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
     d = q.proj(act, wcols(w_down, fs), "sh_down", output_dtype=ax.fp32)
-    part = ax.dsl.create_tensor((CORES, 1, H), ax.fp32, ax.MemoryType.SHARED_OCM, name="part_m")
+    part = shm_tensor((CORES, 1, H), ax.fp32, name="part_m")
     ax.dsl.move(r=part[c : c + 1], x=d.reshape(1, 1, H))
     axd.pub(part)
     axd.sub(part)
@@ -141,7 +170,7 @@ def finish(c, x1, ln2, w_gate, w_up, w_down, out, moe):
     if moe is not None:
         moe_part(c, x1, ln2, w_gate, w_up, w_down, out, **moe)
         return
-    x2 = mlp(c, x1, ln2, w_gate, w_up, w_down)
+    x2 = keep_shm(mlp(c, x1, ln2, w_gate, w_up, w_down))
     if c == 0:
         ax.dsl.store(x2, r=out)
 
@@ -150,6 +179,7 @@ def gdn_body(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out
              state_in, conv_in, out, state_out, conv_out, moe=None, xt=None):
     assert NK % CORES == 0 and (REP == 1 or q.VORDER == "tiled")
     c = ax.program_id(0)
+    SHM_LIVE.clear()
     xt = ax.dsl.load(x) if xt is None else xt  # xt: the layer input already on chip (after the experts)
     h = rmsnorm(xt, ax.dsl.load(ln1).reshape(1, 1, H), eps=EPS)
 
@@ -189,7 +219,7 @@ def gdn_body(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out
         gated = silu_gate(normed, z, activation_output_dtype=ax.fp32, output_dtype=ax.bf16).reshape(1, 1, KHC * DV)
         o = q.proj(gated, wcols(w_out, slice(v0 * DV, (v0 + KHC) * DV)), T("gdn_out" + t), output_dtype=ax.fp32)
         o_sum = o if o_sum is None else ax.dsl.add(o_sum, o, output_dtype=ax.fp32)
-    part_a = ax.dsl.create_tensor((CORES, 1, H), ax.fp32, ax.MemoryType.SHARED_OCM, name=T("part_a"))
+    part_a = shm_tensor((CORES, 1, H), ax.fp32, name=T("part_a"))
     return finish(c, reduce(c, xt, part_a, o_sum), ln2, w_gate, w_up, w_down, out, moe)
 
 
@@ -278,7 +308,7 @@ DEC_SPLIT = os.environ.get("DEC_SPLIT", "0") == "1"
 def attention_split(c, qs, kc, vc, nblk, mask, attn, tag=""):
     """decode attention of the core's scaled queries qs [QH, D] (+ 0 after its own KV write) into attn [1, QH, D]: the
     cache blocks split over the cores (block c, c + CORES, ...), all query heads per block, partials merged"""
-    q_all = ax.dsl.create_tensor((CORES, QH, D), ax.bf16, ax.MemoryType.SHARED_OCM, name=tag + "q_all")
+    q_all = shm_tensor((CORES, QH, D), ax.bf16, name=tag + "q_all")
     ax.dsl.move(r=q_all[c : c + 1], x=qs.reshape(1, QH, D))
     axd.pub(q_all)
     axd.sub(q_all)
@@ -328,7 +358,7 @@ def attention_split(c, qs, kc, vc, nblk, mask, attn, tag=""):
     (kc, vc, mask, qa, mi, li, oi, zero_col, minus_1) = ax.dsl.range(
         index, range_start, range_stop, range_step, body, kc, vc, mask, qa, mi, li, oi, zero_col, minus_1)
     # the cores' partials [m | l | o] (fp32) through shared OCM; each core merges those of its own query heads
-    part = ax.dsl.create_tensor((CORES, HQ, 2 + D), ax.fp32, ax.MemoryType.SHARED_OCM, name=tag + "attn_part")
+    part = shm_tensor((CORES, HQ, 2 + D), ax.fp32, name=tag + "attn_part")
     ax.dsl.move(r=part[c : c + 1, :, 0:1], x=ax.dsl.cast(mi, dtype=ax.fp32).reshape(1, HQ, 1))
     ax.dsl.move(r=part[c : c + 1, :, 1:2], x=li.reshape(1, HQ, 1))
     ax.dsl.move(r=part[c : c + 1, :, 2:], x=ax.dsl.cast(oi, dtype=ax.fp32).reshape(1, HQ, D))
@@ -352,6 +382,7 @@ def attention_split(c, qs, kc, vc, nblk, mask, attn, tag=""):
 def attn_body(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nblk, mask, w_o, ln2, w_gate, w_up,
               w_down, out, moe=None, xt=None):
     c = ax.program_id(0)
+    SHM_LIVE.clear()
     xt = ax.dsl.load(x) if xt is None else xt
     cos_t, sin_t = ax.dsl.load(cos), ax.dsl.load(sin)
     h = rmsnorm(xt, ax.dsl.load(ln1).reshape(1, 1, H), eps=EPS)
@@ -384,7 +415,7 @@ def attn_body(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nblk
     gated = (sigmoid_mul(attn, qg[:, :, D : 2 * D], activation_output_dtype=ax.fp32, output_dtype=ax.bf16) if q.GATE
              else attn).reshape(1, 1, QH * D)
     o = q.proj(gated, wcols(w_o, slice(c * QH * D, (c + 1) * QH * D)), T("attn_o"), output_dtype=ax.fp32)
-    part_a = ax.dsl.create_tensor((CORES, 1, H), ax.fp32, ax.MemoryType.SHARED_OCM, name=T("part_a"))
+    part_a = shm_tensor((CORES, 1, H), ax.fp32, name=T("part_a"))
     return finish(c, reduce(c, xt, part_a, o), ln2, w_gate, w_up, w_down, out, moe)
 
 
@@ -399,7 +430,7 @@ CHUNK = min(P, int(os.environ.get("CHUNK", 32)))
 
 def gather(c, t, cols, width, name):
     """[1, P, width] bf16 in shared OCM: every core's t into its columns, published, then all of them"""
-    sh = ax.dsl.create_tensor((1, P, width), ax.bf16, ax.MemoryType.SHARED_OCM, name=name)
+    sh = shm_tensor((1, P, width), ax.bf16, name=name)
     ax.dsl.move(r=sh[:, :, cols], x=t.reshape(1, P, cols.stop - cols.start))
     axd.pub(sh)
     axd.sub(sh)
@@ -410,7 +441,9 @@ def finish_pre(c, x1_c, ln2, w_gate, w_up, w_down, out, moe):
     """x1's columns of this core -> x1 (shared), then the MLP (or the MoE's dense part) by output columns"""
     hs = slice(c * HC, (c + 1) * HC)
     x1 = gather(c, x1_c, hs, H, "x1_all")
-    h2 = rmsnorm(x1, ax.dsl.load(ln2).reshape(1, 1, H), eps=EPS)
+    # the earlier shared tensors (gated_all / attn_all, x1_all) read once more after x1_all's pub / sub, when every core
+    # has read them: their space may then go to act_all, not before (all kept to the end do not fit: 27B 7.2 of 8 MB)
+    h2 = keep_shm(rmsnorm(x1, ax.dsl.load(ln2).reshape(1, 1, H), eps=EPS))
     fs = slice(c * FC, (c + 1) * FC)
     if moe is None:
         act = silu_mul(q.proj(h2, q.slice_w(w_gate, rows=fs), "mlp_gate"),
@@ -418,7 +451,7 @@ def finish_pre(c, x1_c, ln2, w_gate, w_up, w_down, out, moe):
                        output_dtype=ax.bf16)
         act_all = gather(c, act, fs, F, "act_all")
         d = q.proj(act_all, q.slice_w(w_down, rows=hs), "mlp_down")  # [1, P, HC] bf16
-        ax.dsl.store(ax.dsl.add(x1[:, :, hs], d, output_dtype=ax.bf16), r=out[:, :, hs])
+        ax.dsl.store(keep_shm(ax.dsl.add(x1[:, :, hs], d, output_dtype=ax.bf16)), r=out[:, :, hs])
         return
     act = silu_mul(q.proj(h2, q.slice_w(w_gate, rows=fs), "sh_gate"), q.proj(h2, q.slice_w(w_up, rows=fs), "sh_up"),
                    activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
@@ -437,7 +470,7 @@ def finish_pre(c, x1_c, ln2, w_gate, w_up, w_down, out, moe):
     if TK:  # the top-K experts of each token: all logits through shared OCM (no core reads another's DDR writes),
         # each core its P / CORES tokens' top-K: the raw logits (descending) and their experts
         K, tp = mo.TOPK, P // CORES
-        lg = ax.dsl.create_tensor((P, mo.NE), ax.fp32, ax.MemoryType.SHARED_OCM, name="logits_all")
+        lg = shm_tensor((P, mo.NE), ax.fp32, name="logits_all")
         ax.dsl.move(r=lg[:, rs], x=logits.reshape(P, ne))
         axd.pub(lg)
         axd.sub(lg)
@@ -455,6 +488,7 @@ def gdn_pre_body(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w
     (q35_prefill.gdn_chunked, the core's KHC heads per solve)"""
     assert NK % CORES == 0 and (REP == 1 or q.VORDER == "tiled") and P % CHUNK == 0
     c = ax.program_id(0)
+    SHM_LIVE.clear()
     xt = ax.dsl.load(x)  # [1, P, H]
     h = rmsnorm(xt, ax.dsl.load(ln1).reshape(1, 1, H), eps=EPS)
 
@@ -470,7 +504,7 @@ def gdn_pre_body(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w
     kn = l2norm_lastdim(conv(KD + c * KHC * DK, KHC * DK, 1).reshape(1, P, KHC, DK))
     b_all = q.proj(h, w_b, "gdn_b")
     a_all = q.proj(h, w_a, "gdn_a")
-    g_sh = ax.dsl.create_tensor((1, P, VD), ax.bf16, ax.MemoryType.SHARED_OCM, name="gated_all")
+    g_sh = shm_tensor((1, P, VD), ax.bf16, name="gated_all")
     for vo in range(REP):
         v0 = vo * NK + c * KHC
         vs = slice(v0, v0 + KHC)
@@ -507,6 +541,7 @@ def gdn_pre_body(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w
 def attn_pre_body(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nblk, mask, w_o, ln2, w_gate, w_up,
                   w_down, out, moe=None):
     c = ax.program_id(0)
+    SHM_LIVE.clear()
     xt = ax.dsl.load(x)  # [1, P, H]
     cos_t, sin_t = ax.dsl.load(cos), ax.dsl.load(sin)  # [P, ROT/2]
     h = rmsnorm(xt, ax.dsl.load(ln1).reshape(1, 1, H), eps=EPS)
@@ -685,7 +720,7 @@ def moe_experts_gu(h2, base, rw, {ins}, out):
         d = linear(a, wd, sd, f"e{{i}}_down", output_dtype=ax.fp32, oc_tile_size=mo.oc_tile_fp4(mo.FE))
         y = ax.dsl.mul(d, r[:, i : i + 1].reshape(1, 1, 1), output_dtype=ax.fp32)
         acc = y if acc is None else ax.dsl.add(acc, y, output_dtype=ax.fp32)
-    part = ax.dsl.create_tensor((CORES, 1, H), ax.fp32, ax.MemoryType.SHARED_OCM, name="part_e")
+    part = shm_tensor((CORES, 1, H), ax.fp32, name="part_e")
     ax.dsl.move(r=part[c : c + 1], x=acc.reshape(1, 1, H))
     axd.pub(part)
     axd.sub(part)
@@ -739,7 +774,7 @@ if MOE and P == 1:
             d = linear(a, wd, sd, f"e{i}_down", output_dtype=ax.fp32, oc_tile_size=mo.oc_tile_fp4(mo.FE))
             y = ax.dsl.mul(d, r[:, i : i + 1].reshape(1, 1, 1), output_dtype=ax.fp32)
             acc = y if acc is None else ax.dsl.add(acc, y, output_dtype=ax.fp32)
-        part = ax.dsl.create_tensor((CORES, 1, H), ax.fp32, ax.MemoryType.SHARED_OCM, name="part_e")
+        part = shm_tensor((CORES, 1, H), ax.fp32, name="part_e")
         ax.dsl.move(r=part[c : c + 1], x=acc.reshape(1, 1, H))
         axd.pub(part)
         axd.sub(part)
@@ -806,9 +841,9 @@ if MOE and P == 1:
         act = silu_mul(q.proj(h2, q.slice_w(w_gate, rows=fs), T("sh_gate")), q.proj(h2, q.slice_w(w_up, rows=fs), T("sh_up")),
                        activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
         d = q.proj(act, wcols(w_down, fs), T("sh_down"), output_dtype=ax.fp32)
-        part = ax.dsl.create_tensor((CORES, 1, H), ax.fp32, ax.MemoryType.SHARED_OCM, name=T("part_m"))
+        part = shm_tensor((CORES, 1, H), ax.fp32, name=T("part_m"))
         ax.dsl.move(r=part[c : c + 1], x=d.reshape(1, 1, H))
-        lg = ax.dsl.create_tensor((1, NE), ax.fp32, ax.MemoryType.SHARED_OCM, name=T("logits_all"))
+        lg = shm_tensor((1, NE), ax.fp32, name=T("logits_all"))
         ax.dsl.move(r=lg[:, rs], x=linear(h2, w_router[rs], None, T("router"), output_dtype=ax.fp32,
                                           oc_tile_size=ne).reshape(1, ne))
         axd.pub(part)
@@ -840,7 +875,7 @@ if MOE and P == 1:
             y = linear(a, wd, sd, T(f"e{i}_down"), output_dtype=ax.fp32, oc_tile_size=mo.oc_tile_fp4(FE))
             y = ax.dsl.mul(y, rw[:, i : i + 1].reshape(1, 1, 1), output_dtype=ax.fp32)
             acc = y if acc is None else ax.dsl.add(acc, y, output_dtype=ax.fp32)
-        pe = ax.dsl.create_tensor((CORES, 1, H), ax.fp32, ax.MemoryType.SHARED_OCM, name=T("part_e"))
+        pe = shm_tensor((CORES, 1, H), ax.fp32, name=T("part_e"))
         ax.dsl.move(r=pe[c : c + 1], x=acc.reshape(1, 1, H))
         axd.pub(pe)
         axd.sub(pe)
