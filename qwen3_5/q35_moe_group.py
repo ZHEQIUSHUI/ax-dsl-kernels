@@ -36,6 +36,66 @@ mo = L.mo
 G = int(os.environ.get("G", 4))
 FIRST = int(os.environ.get("FIRST", 0))
 NOREF = os.environ.get("NOREF") == "1"
+# POISON=<byte> (debugging): the simulator's DDR filled with that byte instead of zeros before the inputs are placed, so
+# a read of DDR the call never wrote (a swapped-out tensor read before its write) shows as huge values
+if os.environ.get("POISON") or os.environ.get("OCM_POISON"):
+    import numpy as _np
+    import axnn.backend.ax8860.simulator as _sim
+
+    class _NpPoison:
+        def __getattr__(self, n):
+            return getattr(_np, n)
+
+        def full(self, shape, fill, dtype=None, *a, **kw):  # OCM_POISON=<byte>: local and shared OCM (sim: 0xA5)
+            if os.environ.get("OCM_POISON") and fill == 0xA5 and _np.dtype(dtype) == _np.uint8:
+                print(f"OCM_POISON: simulator OCM of {shape} filled", flush=True)
+                return _np.full(shape, int(os.environ["OCM_POISON"], 0), _np.uint8)
+            return _np.full(shape, fill, dtype, *a, **kw)
+
+        def zeros(self, shape, dtype=float, *a, **kw):
+            if os.environ.get("POISON") and _np.dtype(dtype) == _np.uint8 and isinstance(shape, tuple) and len(shape) == 1 and shape[0] >= (1 << 20):
+                print(f"POISON: simulator memory of {shape[0]} bytes filled", flush=True)
+                return _np.full(shape, int(os.environ["POISON"], 0), _np.uint8)
+            return _np.zeros(shape, dtype, *a, **kw)
+
+    _sim.np = _NpPoison()
+# SHM_NOREUSE=1 (debugging): axnn's shared OCM / shared DDR-swap allocator never frees (no address reused within a
+# call); SHM_REPORT=1: log the shared tensors, their sizes and which of them live in DDR swap
+if os.environ.get("SHM_NOREUSE") == "1":  # the onepass builder's shared OCM allocator (builder_onepass._Allocator)
+    import axnn.dsl.builder_onepass as _bo
+
+    class _ShmNoFree(_bo._Allocator):
+        def free(self, *a, **kw):
+            if getattr(self, "addr_space", None) == "shmem":
+                return None
+            return super().free(*a, **kw)
+
+    _bo._Allocator = _ShmNoFree
+if False:
+    import axnn.yasched.multicore_pass.jobs_allocation as _ja
+
+    if os.environ.get("SHM_NOREUSE") == "1":
+        class _NoFree(_ja._Allocator):
+            def free(self, *a, **kw):
+                pass
+
+        class _NoFreeDDR(_ja._DDRAlloc):
+            def free(self, *a, **kw):
+                pass
+
+        _ja._Allocator, _ja._DDRAlloc = _NoFree, _NoFreeDDR
+    _alloc_shmem = _ja.allocate_shmem
+
+    def _report(states, shmem_tsizes, ddr_tensors, env, graph_results):
+        r = _alloc_shmem(states, shmem_tsizes, ddr_tensors, env, graph_results)
+        ind = sorted(n for n in shmem_tsizes if n in ddr_tensors)
+        logger.info(f"SHM: {len(shmem_tsizes)} shared tensors, {sum(shmem_tsizes.values())} bytes; in DDR swap "
+                    f"{len(ind)}: {ind[:40]}; shared DDR {r[1]} bytes")
+        return r
+
+    _ja.allocate_shmem = _report
+BOARD = os.environ.get("BOARD")
+KVDBG = os.environ.get("KVDBG") == "1"  # debugging: an output kv_dbg [G, CORES, 2, HKV * D], each core's K / V rows  # a directory: the case's inputs, the simulator's outputs and the kernel for axrun
 KINDS = ["gdn" if q.LAYERS[FIRST + j] == "linear_attention" else "attn" for j in range(G)]
 ANY_ATTN = "attn" in KINDS
 H, NV, DK, DV, KD, VD, CONV = L.H, L.NV, L.DK, L.DV, L.KD, L.VD, L.CONV
@@ -87,12 +147,60 @@ def unpack(pw, ps, pf, pb):
     return m
 
 
+# KEEP_SHM=1: every shared OCM tensor of the call kept until its end. axnn hands a shared tensor's address to a later
+# one once its consumers ran, and pub / sub orders only write before read: a fast core could write the next layer's
+# slot over one a slow core still reads. Core 0 reads the first element of each and multiplies out by clip(sum, 1, 1)
+# (exactly 1 for any finite or infinite sum: out bitwise unchanged)
+KEEP_SHM = os.environ.get("KEEP_SHM") == "1"
+
+
+SHM_NOREUSE = os.environ.get("SHM_NOREUSE") == "1"
+
+
 def body(a):
     """the kernel: a = its arguments by name"""
+    assert SHM_NOREUSE in (False, True)  # (in the kernel's cache key: the allocator patch changes the build)
+    shm, create = [], ax.dsl.create_tensor
+    if KEEP_SHM:
+        def create_kept(shape, dtype, mem=None, *args, **kw):
+            t = create(shape, dtype, mem, *args, **kw)
+            if mem == ax.MemoryType.SHARED_OCM:
+                shm.append(t)
+            return t
+        ax.dsl.create_tensor = create_kept
+    try:
+        body_layers(a)
+    finally:
+        ax.dsl.create_tensor = create
+    if KEEP_SHM and ax.program_id(0) == 0:
+        acc = None
+        for t in shm:
+            v = ax.dsl.cast(t[tuple(slice(0, 1) for _ in t.shape)], dtype=ax.fp32).reshape(1, 1, 1)
+            acc = v if acc is None else ax.dsl.add(acc, v, output_dtype=ax.fp32)
+        one = ax.dsl.clip(acc, min=1.0, max=1.0)
+        o = ax.dsl.load(a["out"])
+        ax.dsl.store(ax.dsl.mul(o, one, output_dtype=ax.bf16), r=a["out"])
+
+
+# LAYER_BARRIER=1: before each layer after the first, every core publishes a value of its previous layer's output and
+# waits for all of them, and the layer's input depends on that (x * clip(sum, 1, 1): bitwise x): no core writes the
+# next layer's shared OCM while another may still read the previous layer's (shared addresses are reused)
+LAYER_BARRIER = os.environ.get("LAYER_BARRIER") == "1"
+
+
+def layer_barrier(xt, j):
+    return ax.dsl.mul(xt, L.shm_barrier(ax.program_id(0), [xt]), output_dtype=ax.bf16)
+
+
+def body_layers(a):
     m = unpack(a["pw"], a["ps"], a["pf"], a["pb"])
+    if LAYER_BARRIER:  # per layer: before it, between its halves, before its experts' partials
+        L.BAR = [ax.dsl.create_tensor((3 * G, L.CORES, 1, 1), ax.fp32, ax.MemoryType.SHARED_OCM, name="shm_bar"), 0]
     xt = ax.dsl.load(a["x"])
     for j, kind in enumerate(KINDS):
         L.PFX[0] = f"L{j}_"
+        if LAYER_BARRIER and j > 0:
+            xt = layer_barrier(xt, j)
         w = m[j]
         moe = dict(w_router=w["w_router"], w_shg=w["w_shg"], e_gw=a[f"e_gw{j}"], e_gs=a[f"e_gs{j}"],
                    e_dw=a[f"e_dw{j}"], e_ds=a[f"e_ds{j}"])
@@ -103,10 +211,18 @@ def body(a):
                             w["dt_bias"], w["norm_w"], w["w_out"], w["ln2"], w["w_gate"], w["w_up"], w["w_down"], st,
                             cv, out, st, cv, moe, xt=xt)
         else:
+            if KVDBG:
+                L.KV_DBG = (a["kv_dbg"], j)
             xt = L.attn_body(None, w["ln1"], w["w_q"], w["w_k"], w["w_v"], w["q_norm"], w["k_norm"], a["cos"],
                              a["sin"], a[f"kc{j}"], a[f"vc{j}"], a["pos"], a["nblk"], a["mask"], w["w_o"], w["ln2"],
                              w["w_gate"], w["w_up"], w["w_down"], out, moe, xt=xt)
     L.PFX[0] = ""
+    if LAYER_BARRIER:  # BAR kept to the end of the call (core 0: out * clip(its first element, 1, 1))
+        bar = L.BAR[0]
+        L.BAR = None
+        if ax.program_id(0) == 0:
+            one = ax.dsl.clip(bar[0:1, 0:1].reshape(1, 1, 1), min=1.0, max=1.0)
+            ax.dsl.store(ax.dsl.mul(ax.dsl.load(a["out"]), one, output_dtype=ax.bf16), r=a["out"])
 
 
 def kernel_function():
@@ -114,7 +230,7 @@ def kernel_function():
     if ANY_ATTN:
         ins += ["cos", "sin", "pos", "nblk", "mask"]
     states = [n for j, kind in enumerate(KINDS) for n in ((f"st{j}", f"cv{j}") if kind == "gdn" else (f"kc{j}", f"vc{j}"))]
-    outs = ["out"] + states
+    outs = ["out"] + states + (["kv_dbg"] if KVDBG else [])
     src = (f"import q35_moe_group as S\n\n\ndef moe_group({', '.join(ins + outs)}):\n    S.body(locals())\n"
            f"    return {', '.join(outs)}\n")
     os.makedirs(L.BUILD, exist_ok=True)
@@ -159,12 +275,27 @@ def main():
     cv = lambda: torch.zeros((1, CONV - 1, 2 * KD + VD), dtype=torch.bfloat16)  # noqa: E731
     kv = lambda: torch.zeros((L.LMAX, L.HKV * L.D), dtype=torch.half)  # noqa: E731
     case = dict(packed(args, sizes), x=x, out=torch.zeros((1, 1, H), dtype=torch.bfloat16), **(att if ANY_ATTN else {}))
+    if KVDBG:
+        case["kv_dbg"] = torch.zeros((G, L.CORES, 2, L.HKV * L.D), dtype=torch.bfloat16)
     for j, kind in enumerate(KINDS):
         case.update({f"{k}{j}": v for k, v in ex[j].items()})
         case.update({f"st{j}": st(), f"cv{j}": cv()} if kind == "gdn" else {f"kc{j}": kv(), f"vc{j}": kv()})
     q.RESIDENT.update({n: case[n].clone() for n in case if n[:2] in ("st", "cv", "kc", "vc")})
+    before = {n: case[n].clone() for n in names} if BOARD else None
     L.run(L.kern(fn, f"group{G}"), L.CORES, case, names)
     q.RESIDENT.clear()
+    if BOARD:  # the case for the board: <IO name>.bin before the run, sim_<name>.bin after it, model.axmodel
+        os.makedirs(BOARD, exist_ok=True)
+        raw = lambda t: (t.contiguous().view(torch.uint8) if t.dtype != torch.uint8 else t.contiguous()).numpy().tobytes()  # noqa: E731
+        for n, t in before.items():
+            open(f"{BOARD}/{n}.bin", "wb").write(raw(t))
+        for n in names:
+            if n in ("out", "kv_dbg") or n[:2] in ("st", "cv", "kc", "vc"):
+                open(f"{BOARD}/sim_{n}.bin", "wb").write(raw(case[n]))
+        path = max(glob.glob(f"{L.BUILD}/group{G}/cache/moe_group.*.compiled.axmodel"), key=os.path.getmtime)
+        shutil.copy(path, f"{BOARD}/model.axmodel")
+        board_io.fix(f"{BOARD}/model.axmodel")
+        logger.info(f"wrote the board case {BOARD}")
     if not NOREF:  # the layers one after another, each its whole-layer kernel
         h = x
         for j, kind in enumerate(KINDS):

@@ -134,8 +134,36 @@ def moe_part(c, x1, ln2, w_gate, w_up, w_down, out, w_router, w_shg, h2_out, log
         ax.dsl.store(h2, r=h2_out)
 
 
+# shared OCM barriers (a kernel that sets BAR, e.g. q35_moe_group): axnn gives a shared tensor's address to a later one
+# once its consumers ran, and pub / sub orders only write before read, so a fast core could write a new shared tensor
+# over one a slow core still reads. shm_barrier(c, deps): every core publishes a value of deps (tensors that depend on
+# all its reads of the earlier shared tensors) into its own row of BAR (one tensor for the whole call, kept to its end:
+# never reused) and waits for all rows; returns exactly 1.0 (fp32 [1, 1, 1]) that the next shared writes are to be
+# multiplied by, which orders them after every core's reads (bitwise unchanged)
+BAR = None  # [shared tensor [N, CORES, 1, 1] fp32, next row]
+
+
+def shm_barrier(c, deps):
+    t, i = BAR
+    BAR[1] = i + 1
+    assert i < t.shape[0], "shm_barrier: more barriers than BAR rows"
+    v = None
+    for d in deps:
+        e = ax.dsl.cast(d[tuple(slice(0, 1) for _ in d.shape)], dtype=ax.fp32).reshape(1, 1, 1)
+        v = e if v is None else ax.dsl.add(v, e, output_dtype=ax.fp32)
+    ax.dsl.move(r=t[i : i + 1, c : c + 1].reshape(1, 1, 1), x=v)
+    axd.pub(t)
+    axd.sub(t)
+    acc = t[i : i + 1, 0:1].reshape(1, 1, 1)
+    for j in range(1, CORES):
+        acc = ax.dsl.add(acc, t[i : i + 1, j : j + 1].reshape(1, 1, 1), output_dtype=ax.fp32)
+    return ax.dsl.clip(acc, min=1.0, max=1.0)
+
+
 def finish(c, x1, ln2, w_gate, w_up, w_down, out, moe):
     """the layer after its attention / delta-net half: the MLP (core 0 stores out), or the MoE's dense part"""
+    if BAR is not None:  # after every core's reads of the half's shared tensors (x1 depends on them)
+        x1 = ax.dsl.mul(x1, shm_barrier(c, [x1]), output_dtype=ax.bf16)
     if moe is not None and "e_gw" in moe:
         return moe_full(c, x1, ln2, w_gate, w_up, w_down, out, **moe)
     if moe is not None:
@@ -207,6 +235,9 @@ def kv_block(cache, index, hk):
 def mask_block(mask, index, rows):
     """block `index` of the mask: [rows, BC]"""
     return ax.dsl.index_select(mask.reshape(NBLK, rows, BC), index, dim=0).reshape(rows, BC)
+
+
+KV_DBG = None  # debugging: (kv_dbg tensor [layers, CORES, 2, HKV * D], layer index) for attn_body
 
 
 def kv_write(kc, vc, k, v, p, rows):
@@ -366,6 +397,9 @@ def attn_body(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nblk
     k = rmsnorm(q.proj(h, w_k, T("attn_k")).reshape(1, HKV, D), ax.dsl.load(k_norm).reshape(1, 1, D), eps=EPS)
     k = rope(k, cos_t, sin_t, rotary_dim=ROT)
     v = q.proj(h, w_v, T("attn_v")).reshape(1, HKV, D)
+    if KV_DBG:  # debugging (q35_moe_group KVDBG=1): each core's K / V rows into kv_dbg[layer][core]
+        ax.dsl.store(ax.dsl.cast(k.reshape(1, 1, HKV * D), dtype=ax.bf16), r=KV_DBG[0][KV_DBG[1] : KV_DBG[1] + 1, c : c + 1, 0:1].reshape(1, 1, HKV * D))
+        ax.dsl.store(ax.dsl.cast(v.reshape(1, 1, HKV * D), dtype=ax.bf16), r=KV_DBG[0][KV_DBG[1] : KV_DBG[1] + 1, c : c + 1, 1:2].reshape(1, 1, HKV * D))
     p = ax.dsl.cast(ax.dsl.load(pos), dtype=ax.uint32)
     zero = kv_write(kc, vc, k, v, p, 1)
     scale = ax.dsl.full(shape=(1,), dtype=ax.fp32, fill_value=1.0 / math.sqrt(D))
@@ -840,6 +874,8 @@ if MOE and P == 1:
             y = linear(a, wd, sd, T(f"e{i}_down"), output_dtype=ax.fp32, oc_tile_size=mo.oc_tile_fp4(FE))
             y = ax.dsl.mul(y, rw[:, i : i + 1].reshape(1, 1, 1), output_dtype=ax.fp32)
             acc = y if acc is None else ax.dsl.add(acc, y, output_dtype=ax.fp32)
+        if BAR is not None:  # after every core's reads of part_m (base) and logits_all (acc)
+            acc = ax.dsl.mul(acc, shm_barrier(c, [base, acc]), output_dtype=ax.fp32)
         pe = ax.dsl.create_tensor((CORES, 1, H), ax.fp32, ax.MemoryType.SHARED_OCM, name=T("part_e"))
         ax.dsl.move(r=pe[c : c + 1], x=acc.reshape(1, 1, H))
         axd.pub(pe)

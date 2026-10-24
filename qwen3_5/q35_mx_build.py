@@ -191,6 +191,8 @@ def mx_args(a, names):
     reference run."""
     m, deq = dict(a), dict(a)
     for n in names:
+        if n in NV_SKIP:  # left in bf16
+            continue
         if NV4:
             w4, s, s2 = quant_nvfp4(a[n])
             m[n], m[scale_name(n)], m["t_" + n[2:]] = w4, s, s2
@@ -202,6 +204,8 @@ def mx_args(a, names):
     return m, deq
 
 
+# NV_SKIP=w_k,w_v: those projections left in bf16 (debugging)
+NV_SKIP = set(filter(None, os.environ.get("NV_SKIP", "").split(",")))
 SCALES2 = {}  # id(NVFP4 weight) -> its scale2 (q35 kernels' t_<name> inputs)
 
 
