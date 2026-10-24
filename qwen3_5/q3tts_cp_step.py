@@ -62,7 +62,7 @@ def step_body(e, packs, w_head, cs, pn, mask, logits, io):
         rs = slice(c * (H // CORES), (c + 1) * (H // CORES))
         pr = linear(xe, pm["w_pin"][rs], None, "proj_in", output_dtype=ax.fp32, oc_tile_size=H // CORES)
         pr = ax.dsl.add(pr, ax.dsl.load(pm["b_pin"][rs]).reshape(1, 1, H // CORES), output_dtype=ax.fp32)
-        sh = ax.dsl.create_tensor((1, 1, H), ax.bf16, ax.MemoryType.SHARED_OCM, name="proj_all")
+        sh = L.shm_tensor((1, 1, H), ax.bf16, "proj_all")
         ax.dsl.move(r=sh[:, :, rs], x=ax.dsl.cast(pr, dtype=ax.bf16))
         axd.pub(sh)
         axd.sub(sh)
@@ -77,6 +77,7 @@ def step_body(e, packs, w_head, cs, pn, mask, logits, io):
     hn = rmsnorm(xt, ax.dsl.load(pm["norm"]).reshape(1, 1, H), eps=EPS)
     rows = slice(c * (V // CORES), (c + 1) * (V // CORES))
     lg = linear(hn, w_head[rows], None, "cp_head", output_dtype=ax.fp32, oc_tile_size=min(256, V // CORES))
+    lg = L.keep_shm(lg)  # every shared OCM tensor of the call read once more before the output (KEEP_SHM)
     ax.dsl.store(lg.reshape(1, V // CORES), r=logits[:, rows])
 
 

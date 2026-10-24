@@ -46,7 +46,7 @@ def project(c, xe, pm, t):
     rs = slice(c * (H // CORES), (c + 1) * (H // CORES))
     pr = linear(xe, pm["w_pin"][rs], None, t + "proj_in", output_dtype=ax.fp32, oc_tile_size=H // CORES)
     pr = ax.dsl.add(pr, ax.dsl.load(pm["b_pin"][rs]).reshape(1, 1, H // CORES), output_dtype=ax.fp32)
-    sh = ax.dsl.create_tensor((1, 1, H), ax.bf16, ax.MemoryType.SHARED_OCM, name=t + "proj_all")
+    sh = L.shm_tensor((1, 1, H), ax.bf16, t + "proj_all")
     ax.dsl.move(r=sh[:, :, rs], x=ax.dsl.cast(pr, dtype=ax.bf16))
     axd.pub(sh)
     axd.sub(sh)
@@ -109,7 +109,7 @@ def frame_body(e0, e1, packs, heads, embd, cs16, pn16, mask16, rnd, codes, lgs, 
         lg = linear(hn, heads[(p - 1) * V : p * V][rows], None, t + "head", output_dtype=ax.fp32,
                     oc_tile_size=min(256, V // CORES))
         ax.dsl.store(lg.reshape(1, V // CORES), r=lgs[p - 1 : p, rows])
-        sh = ax.dsl.create_tensor((CORES, V // CORES), ax.fp32, ax.MemoryType.SHARED_OCM, name=t + "lg_all")
+        sh = L.shm_tensor((CORES, V // CORES), ax.fp32, t + "lg_all")
         ax.dsl.move(r=sh[c : c + 1], x=lg.reshape(1, V // CORES))
         axd.pub(sh)
         axd.sub(sh)
@@ -117,6 +117,8 @@ def frame_body(e0, e1, packs, heads, embd, cs16, pn16, mask16, rnd, codes, lgs, 
         for k in range(CORES):
             ax.dsl.move(r=full[:, k * (V // CORES) : (k + 1) * (V // CORES)], x=sh[k : k + 1])
         code = sample(full, draws[:, p - 1 : p], t)
+        if p == NP - 1:  # every shared OCM tensor of the frame read once more before its last output (KEEP_SHM)
+            code = L.keep_shm(code)
         ax.dsl.store(code, r=codes[c : c + 1, p : p + 1])
         if p < NP - 1:  # the code's row of its codebook's table: the next position's input
             x_row = ax.dsl.dynamic_ld(embd[(p - 1) * V : p * V], code.reshape(1), ax.dsl.full((1,), ax.int32, 1), dim=(0,),
