@@ -426,6 +426,12 @@ def attn_body(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nblk
 P = int(os.environ.get("PCHUNK", 1))
 HC = H // CORES  # output columns per core
 CHUNK = min(P, int(os.environ.get("CHUNK", 32)))
+# PBLK=<rows>: a chunk of more rows runs in halves down to PBLK rows inside the one call (the layer body per block of
+# rows, the second half continuing from the first's state, conv rows and K / V, as q35_prefill's REF_HALF): a larger
+# chunk per call (fewer calls per layer) whose blocks each fit the OCM as a PBLK-row chunk does; each block's
+# arithmetic is the PBLK-row kernel's
+PBLK = int(os.environ.get("PBLK", 0))
+POS_OFF = [0]  # the block's first position after pos
 
 
 def gather(c, t, cols, width, name):
@@ -486,6 +492,16 @@ def gdn_pre_body(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w
                  state_in, conv_in, out, state_out, conv_out, moe=None):
     """the core's key heads and their value heads (as gdn_body) over the P tokens, the delta rule in the chunked form
     (q35_prefill.gdn_chunked, the core's KHC heads per solve)"""
+    global P
+    if PBLK and P > PBLK:
+        full, P = P, P // 2
+        try:
+            w = (ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out, ln2, w_gate, w_up, w_down)
+            gdn_pre_body(x[:, :P], *w, state_in, conv_in, out[:, :P], state_out, conv_out, moe)
+            gdn_pre_body(x[:, P:], *w, state_out, conv_out, out[:, P:], state_out, conv_out, moe)
+        finally:
+            P = full
+        return
     assert NK % CORES == 0 and (REP == 1 or q.VORDER == "tiled") and P % CHUNK == 0
     c = ax.program_id(0)
     SHM_LIVE.clear()
@@ -540,6 +556,20 @@ def gdn_pre_body(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w
 
 def attn_pre_body(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nblk, mask, w_o, ln2, w_gate, w_up,
                   w_down, out, moe=None):
+    global P
+    if PBLK and P > PBLK:  # halves: the second's rows at pos + P / 2, its mask and rope rows the second half's
+        full, P = P, P // 2
+        off = POS_OFF[0]
+        try:
+            w = (w_o, ln2, w_gate, w_up, w_down)
+            attn_pre_body(x[:, :P], ln1, w_q, w_k, w_v, q_norm, k_norm, cos[:P], sin[:P], kc, vc, pos, nblk,
+                          mask[:, :P], *w, out[:, :P], moe)
+            POS_OFF[0] = off + P
+            attn_pre_body(x[:, P:], ln1, w_q, w_k, w_v, q_norm, k_norm, cos[P:], sin[P:], kc, vc, pos, nblk,
+                          mask[:, P:], *w, out[:, P:], moe)
+        finally:
+            P, POS_OFF[0] = full, off
+        return
     c = ax.program_id(0)
     SHM_LIVE.clear()
     xt = ax.dsl.load(x)  # [1, P, H]
@@ -555,6 +585,8 @@ def attn_pre_body(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, 
     # the chunk's K / V rows: every core writes all of them (each computes all KV heads alike: the same bits) and
     # reads only what it wrote itself (rows another core wrote in this call may not have reached DDR yet)
     p = ax.dsl.cast(ax.dsl.load(pos), dtype=ax.uint32)
+    if POS_OFF[0]:
+        p = ax.dsl.add(p, ax.dsl.from_numpy(np.array([POS_OFF[0]], dtype=np.uint32)), output_dtype=ax.uint32)
     zero = kv_write(kc, vc, k, v, p, P)
     # + 0 read back from this core's rows: the attention after its own store
     scale = ax.dsl.add(ax.dsl.full(shape=(1,), dtype=ax.fp32, fill_value=1.0 / math.sqrt(D)), zero, output_dtype=ax.fp32)

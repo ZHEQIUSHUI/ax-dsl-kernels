@@ -174,16 +174,16 @@ def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, 
                        w_down, out):
     global P, POS_OFF
     if P > REF_HALF:  # two halves: the second's rows at pos + P / 2, its mask rows and rope rows the second half's
-        full, P = P, P // 2
+        full, P, off = P, P // 2, POS_OFF  # (nested halves: positions after the enclosing half's)
         try:
             w = (w_o, ln2, w_gate, w_up, w_down)
             attn_layer_prefill(x[:, :P], ln1, w_q, w_k, w_v, q_norm, k_norm, cos[:P], sin[:P], kc, vc, pos, nblk,
                                mask[:, :P], *w, out[:, :P])
-            POS_OFF = P
+            POS_OFF = off + P
             attn_layer_prefill(x[:, P:], ln1, w_q, w_k, w_v, q_norm, k_norm, cos[P:], sin[P:], kc, vc, pos, nblk,
                                mask[:, P:], *w, out[:, P:])
         finally:
-            P, POS_OFF = full, 0
+            P, POS_OFF = full, off
         return
     xt = ax.dsl.load(x)  # [1, P, H]
     h = rmsnorm(xt, ax.dsl.load(ln1).reshape(1, 1, H), eps=EPS)
