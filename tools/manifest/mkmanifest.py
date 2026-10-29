@@ -138,18 +138,62 @@ def main():
         lp = os.path.join(lay_dir, base + ".layout")
         if os.path.exists(lp):
             k["packs"], k["members"] = layout(lp)
+            for e in k["in"]:  # packs without members (a layout lists only those it fills): empty, of the IO's size
+                if re.fullmatch(r"p[wsfb4](_\d+)?", e["name"]) and e["name"] not in k["packs"]:
+                    k["packs"][e["name"]] = e["bytes"]
         man["kernels"][role] = k
-    if model == "qwen35_moe":  # routed experts: GGUF MXFP4 repacked in place as planes (codes, then scales)
+    if model == "qwen35_moe":  # routed experts: GGUF MXFP4 repacked in place as planes (all codes, then all scales)
         g = man["kernels"]["moe.slots32_g64"]["in"]
         shape = {e["name"]: e for e in g}
         man["params"]["experts"] = {
-            "e_gw": {"gguf": "ffn_gate_up_exps.weight", "convert": "mxfp4_planar_codes"},
-            "e_gs": {"gguf": "ffn_gate_up_exps.weight", "convert": "mxfp4_planar_scales"},
+            # gate and up experts as one gate-up weight per expert (gate rows, then up rows)
+            "e_gw": {"gguf": "ffn_gate_exps.weight,ffn_up_exps.weight", "convert": "mxfp4_planar_codes"},
+            "e_gs": {"gguf": "ffn_gate_exps.weight,ffn_up_exps.weight", "convert": "mxfp4_planar_scales"},
             "e_dw": {"gguf": "ffn_down_exps.weight", "convert": "mxfp4_planar_codes"},
             "e_ds": {"gguf": "ffn_down_exps.weight", "convert": "mxfp4_planar_scales"},
         }
         for n, v in man["params"]["experts"].items():
             v.update(bytes=shape[n]["bytes"], dtype=shape[n]["dtype"], shape=shape[n]["shape"])
+    # bf16 copies of a layer kind's parameters for kernels that take them unquantized (35B attention prefill): the
+    # kind "<kind>_bf16", described from such a kernel's IO
+    bf16_src = {"qwen35_moe": {"attn": "prefill64.attn"}}.get(model, {})
+    for kind, role in bf16_src.items():
+        ins = {e["name"]: e for e in man["kernels"][role]["in"]}
+        bk = {}
+        for n, p in man["params"][kind].items():
+            e = ins.get(n)
+            if e and e["bytes"] != p["bytes"]:
+                assert e["bytes"] == 2 * elements(e["shape"]), n
+                bk[n] = {"gguf": p["gguf"], "convert": "bf16", "bytes": e["bytes"], "dtype": e["dtype"], "shape": e["shape"]}
+        man["params"][kind + "_bf16"] = bk
+    # the parameter kind of each member and each parameter input: the layer kind of the kernel (group members: their
+    # layer's), its _bf16 variant where the bytes are those of the bf16 copy
+    def kind_of(role, layer):
+        if role == "decode.group":
+            pat = re.search(r"group\d+_([ga]+)_", man["kernels"][role]["file"]).group(1)
+            return "gdn" if pat[layer] == "g" else "attn"
+        return role.rsplit(".", 1)[1] if role.endswith((".gdn", ".attn")) else None
+    def resolve(role, layer, name, nbytes):
+        k = kind_of(role, layer)
+        if name.startswith("e_") and model == "qwen35_moe":
+            k = "experts"
+        if k is None or name not in man["params"].get(k, {}):
+            return None
+        if man["params"][k][name]["bytes"] == nbytes:
+            return k
+        if name in man["params"].get(k + "_bf16", {}) and man["params"][k + "_bf16"][name]["bytes"] == nbytes:
+            return k + "_bf16"
+        sys.exit(f"{role}: {name} ({nbytes} bytes) matches no parameter of {k}")
+    for role, k in man["kernels"].items():
+        for m in k.get("members", []):
+            m["kind"] = resolve(role, m.get("layer", 0), m["param"], m["bytes"])
+            if m["kind"] is None:
+                sys.exit(f"{role}: member {m['name']} is not a layer parameter")
+        for e in k["in"]:
+            base = re.sub(r"\d+$", "", e["name"]) if role == "decode.group" else e["name"]
+            kd = resolve(role, 0, base, e["bytes"]) if base.startswith("e_") or role != "decode.group" else None
+            if kd:
+                e["param"], e["kind"] = base, kd
     # every packed member is a known parameter of its layer kind
     known = set(man["params"]["gdn"]) | set(man["params"]["attn"])
     for role, k in man["kernels"].items():

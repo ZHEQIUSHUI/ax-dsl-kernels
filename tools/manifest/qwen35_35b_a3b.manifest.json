@@ -439,7 +439,7 @@
   },
   "experts": {
    "e_gw": {
-    "gguf": "ffn_gate_up_exps.weight",
+    "gguf": "ffn_gate_exps.weight,ffn_up_exps.weight",
     "convert": "mxfp4_planar_codes",
     "bytes": 268435456,
     "dtype": 1,
@@ -450,7 +450,7 @@
     ]
    },
    "e_gs": {
-    "gguf": "ffn_gate_up_exps.weight",
+    "gguf": "ffn_gate_exps.weight,ffn_up_exps.weight",
     "convert": "mxfp4_planar_scales",
     "bytes": 16777216,
     "dtype": 1,
@@ -480,6 +480,78 @@
      256,
      2048,
      16
+    ]
+   }
+  },
+  "attn_bf16": {
+   "w_q": {
+    "gguf": "attn_q.weight",
+    "convert": "bf16",
+    "bytes": 33554432,
+    "dtype": 9,
+    "shape": [
+     8192,
+     2048
+    ]
+   },
+   "w_k": {
+    "gguf": "attn_k.weight",
+    "convert": "bf16",
+    "bytes": 2097152,
+    "dtype": 9,
+    "shape": [
+     512,
+     2048
+    ]
+   },
+   "w_v": {
+    "gguf": "attn_v.weight",
+    "convert": "bf16",
+    "bytes": 2097152,
+    "dtype": 9,
+    "shape": [
+     512,
+     2048
+    ]
+   },
+   "w_o": {
+    "gguf": "attn_output.weight",
+    "convert": "bf16",
+    "bytes": 16777216,
+    "dtype": 9,
+    "shape": [
+     2048,
+     4096
+    ]
+   },
+   "w_gate": {
+    "gguf": "ffn_gate_shexp.weight",
+    "convert": "bf16",
+    "bytes": 2097152,
+    "dtype": 9,
+    "shape": [
+     512,
+     2048
+    ]
+   },
+   "w_up": {
+    "gguf": "ffn_up_shexp.weight",
+    "convert": "bf16",
+    "bytes": 2097152,
+    "dtype": 9,
+    "shape": [
+     512,
+     2048
+    ]
+   },
+   "w_down": {
+    "gguf": "ffn_down_shexp.weight",
+    "convert": "bf16",
+    "bytes": 2097152,
+    "dtype": 9,
+    "shape": [
+     2048,
+     512
     ]
    }
   }
@@ -538,7 +610,9 @@
       256,
       1024,
       1024
-     ]
+     ],
+     "param": "e_gw",
+     "kind": "experts"
     },
     {
      "name": "e_gs0",
@@ -548,7 +622,9 @@
       256,
       1024,
       64
-     ]
+     ],
+     "param": "e_gs",
+     "kind": "experts"
     },
     {
      "name": "e_dw0",
@@ -558,7 +634,9 @@
       256,
       2048,
       256
-     ]
+     ],
+     "param": "e_dw",
+     "kind": "experts"
     },
     {
      "name": "e_ds0",
@@ -568,7 +646,9 @@
       256,
       2048,
       16
-     ]
+     ],
+     "param": "e_ds",
+     "kind": "experts"
     },
     {
      "name": "e_gw1",
@@ -578,7 +658,9 @@
       256,
       1024,
       1024
-     ]
+     ],
+     "param": "e_gw",
+     "kind": "experts"
     },
     {
      "name": "e_gs1",
@@ -588,7 +670,9 @@
       256,
       1024,
       64
-     ]
+     ],
+     "param": "e_gs",
+     "kind": "experts"
     },
     {
      "name": "e_dw1",
@@ -598,7 +682,9 @@
       256,
       2048,
       256
-     ]
+     ],
+     "param": "e_dw",
+     "kind": "experts"
     },
     {
      "name": "e_ds1",
@@ -608,7 +694,9 @@
       256,
       2048,
       16
-     ]
+     ],
+     "param": "e_ds",
+     "kind": "experts"
     },
     {
      "name": "e_gw2",
@@ -618,7 +706,9 @@
       256,
       1024,
       1024
-     ]
+     ],
+     "param": "e_gw",
+     "kind": "experts"
     },
     {
      "name": "e_gs2",
@@ -628,7 +718,9 @@
       256,
       1024,
       64
-     ]
+     ],
+     "param": "e_gs",
+     "kind": "experts"
     },
     {
      "name": "e_dw2",
@@ -638,7 +730,9 @@
       256,
       2048,
       256
-     ]
+     ],
+     "param": "e_dw",
+     "kind": "experts"
     },
     {
      "name": "e_ds2",
@@ -648,7 +742,9 @@
       256,
       2048,
       16
-     ]
+     ],
+     "param": "e_ds",
+     "kind": "experts"
     },
     {
      "name": "e_gw3",
@@ -658,7 +754,9 @@
       256,
       1024,
       1024
-     ]
+     ],
+     "param": "e_gw",
+     "kind": "experts"
     },
     {
      "name": "e_gs3",
@@ -668,7 +766,9 @@
       256,
       1024,
       64
-     ]
+     ],
+     "param": "e_gs",
+     "kind": "experts"
     },
     {
      "name": "e_dw3",
@@ -678,7 +778,9 @@
       256,
       2048,
       256
-     ]
+     ],
+     "param": "e_dw",
+     "kind": "experts"
     },
     {
      "name": "e_ds3",
@@ -688,7 +790,9 @@
       256,
       2048,
       16
-     ]
+     ],
+     "param": "e_ds",
+     "kind": "experts"
     },
     {
      "name": "e_gw4",
@@ -698,7 +802,9 @@
       256,
       1024,
       1024
-     ]
+     ],
+     "param": "e_gw",
+     "kind": "experts"
     },
     {
      "name": "e_gs4",
@@ -708,7 +814,9 @@
       256,
       1024,
       64
-     ]
+     ],
+     "param": "e_gs",
+     "kind": "experts"
     },
     {
      "name": "e_dw4",
@@ -718,7 +826,9 @@
       256,
       2048,
       256
-     ]
+     ],
+     "param": "e_dw",
+     "kind": "experts"
     },
     {
      "name": "e_ds4",
@@ -728,7 +838,9 @@
       256,
       2048,
       16
-     ]
+     ],
+     "param": "e_ds",
+     "kind": "experts"
     },
     {
      "name": "e_gw5",
@@ -738,7 +850,9 @@
       256,
       1024,
       1024
-     ]
+     ],
+     "param": "e_gw",
+     "kind": "experts"
     },
     {
      "name": "e_gs5",
@@ -748,7 +862,9 @@
       256,
       1024,
       64
-     ]
+     ],
+     "param": "e_gs",
+     "kind": "experts"
     },
     {
      "name": "e_dw5",
@@ -758,7 +874,9 @@
       256,
       2048,
       256
-     ]
+     ],
+     "param": "e_dw",
+     "kind": "experts"
     },
     {
      "name": "e_ds5",
@@ -768,7 +886,9 @@
       256,
       2048,
       16
-     ]
+     ],
+     "param": "e_ds",
+     "kind": "experts"
     },
     {
      "name": "e_gw6",
@@ -778,7 +898,9 @@
       256,
       1024,
       1024
-     ]
+     ],
+     "param": "e_gw",
+     "kind": "experts"
     },
     {
      "name": "e_gs6",
@@ -788,7 +910,9 @@
       256,
       1024,
       64
-     ]
+     ],
+     "param": "e_gs",
+     "kind": "experts"
     },
     {
      "name": "e_dw6",
@@ -798,7 +922,9 @@
       256,
       2048,
       256
-     ]
+     ],
+     "param": "e_dw",
+     "kind": "experts"
     },
     {
      "name": "e_ds6",
@@ -808,7 +934,9 @@
       256,
       2048,
       16
-     ]
+     ],
+     "param": "e_ds",
+     "kind": "experts"
     },
     {
      "name": "e_gw7",
@@ -818,7 +946,9 @@
       256,
       1024,
       1024
-     ]
+     ],
+     "param": "e_gw",
+     "kind": "experts"
     },
     {
      "name": "e_gs7",
@@ -828,7 +958,9 @@
       256,
       1024,
       64
-     ]
+     ],
+     "param": "e_gs",
+     "kind": "experts"
     },
     {
      "name": "e_dw7",
@@ -838,7 +970,9 @@
       256,
       2048,
       256
-     ]
+     ],
+     "param": "e_dw",
+     "kind": "experts"
     },
     {
      "name": "e_ds7",
@@ -848,7 +982,9 @@
       256,
       2048,
       16
-     ]
+     ],
+     "param": "e_ds",
+     "kind": "experts"
     },
     {
      "name": "cos",
@@ -1075,7 +1211,8 @@
      "offset": 0,
      "bytes": 8192,
      "layer": 0,
-     "param": "ln1"
+     "param": "ln1",
+     "kind": "gdn"
     },
     {
      "name": "L0.w_qkv",
@@ -1083,7 +1220,8 @@
      "offset": 0,
      "bytes": 16777216,
      "layer": 0,
-     "param": "w_qkv"
+     "param": "w_qkv",
+     "kind": "gdn"
     },
     {
      "name": "L0.s_qkv",
@@ -1091,7 +1229,8 @@
      "offset": 0,
      "bytes": 524288,
      "layer": 0,
-     "param": "s_qkv"
+     "param": "s_qkv",
+     "kind": "gdn"
     },
     {
      "name": "L0.w_z",
@@ -1099,7 +1238,8 @@
      "offset": 16777216,
      "bytes": 8388608,
      "layer": 0,
-     "param": "w_z"
+     "param": "w_z",
+     "kind": "gdn"
     },
     {
      "name": "L0.s_z",
@@ -1107,7 +1247,8 @@
      "offset": 524288,
      "bytes": 262144,
      "layer": 0,
-     "param": "s_z"
+     "param": "s_z",
+     "kind": "gdn"
     },
     {
      "name": "L0.w_b",
@@ -1115,7 +1256,8 @@
      "offset": 25165824,
      "bytes": 65536,
      "layer": 0,
-     "param": "w_b"
+     "param": "w_b",
+     "kind": "gdn"
     },
     {
      "name": "L0.s_b",
@@ -1123,7 +1265,8 @@
      "offset": 786432,
      "bytes": 2048,
      "layer": 0,
-     "param": "s_b"
+     "param": "s_b",
+     "kind": "gdn"
     },
     {
      "name": "L0.w_a",
@@ -1131,7 +1274,8 @@
      "offset": 25231360,
      "bytes": 65536,
      "layer": 0,
-     "param": "w_a"
+     "param": "w_a",
+     "kind": "gdn"
     },
     {
      "name": "L0.s_a",
@@ -1139,7 +1283,8 @@
      "offset": 788480,
      "bytes": 2048,
      "layer": 0,
-     "param": "s_a"
+     "param": "s_a",
+     "kind": "gdn"
     },
     {
      "name": "L0.conv_w",
@@ -1147,7 +1292,8 @@
      "offset": 0,
      "bytes": 65536,
      "layer": 0,
-     "param": "conv_w"
+     "param": "conv_w",
+     "kind": "gdn"
     },
     {
      "name": "L0.a_log",
@@ -1155,7 +1301,8 @@
      "offset": 8192,
      "bytes": 128,
      "layer": 0,
-     "param": "a_log"
+     "param": "a_log",
+     "kind": "gdn"
     },
     {
      "name": "L0.dt_bias",
@@ -1163,7 +1310,8 @@
      "offset": 8320,
      "bytes": 128,
      "layer": 0,
-     "param": "dt_bias"
+     "param": "dt_bias",
+     "kind": "gdn"
     },
     {
      "name": "L0.norm_w",
@@ -1171,7 +1319,8 @@
      "offset": 8448,
      "bytes": 512,
      "layer": 0,
-     "param": "norm_w"
+     "param": "norm_w",
+     "kind": "gdn"
     },
     {
      "name": "L0.w_out",
@@ -1217,7 +1366,8 @@
         4096
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L0.s_out",
@@ -1263,7 +1413,8 @@
         128
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L0.ln2",
@@ -1271,7 +1422,8 @@
      "offset": 8960,
      "bytes": 8192,
      "layer": 0,
-     "param": "ln2"
+     "param": "ln2",
+     "kind": "gdn"
     },
     {
      "name": "L0.w_gate",
@@ -1279,7 +1431,8 @@
      "offset": 33685504,
      "bytes": 1048576,
      "layer": 0,
-     "param": "w_gate"
+     "param": "w_gate",
+     "kind": "gdn"
     },
     {
      "name": "L0.s_gate",
@@ -1287,7 +1440,8 @@
      "offset": 1052672,
      "bytes": 32768,
      "layer": 0,
-     "param": "s_gate"
+     "param": "s_gate",
+     "kind": "gdn"
     },
     {
      "name": "L0.w_up",
@@ -1295,7 +1449,8 @@
      "offset": 34734080,
      "bytes": 1048576,
      "layer": 0,
-     "param": "w_up"
+     "param": "w_up",
+     "kind": "gdn"
     },
     {
      "name": "L0.s_up",
@@ -1303,7 +1458,8 @@
      "offset": 1085440,
      "bytes": 32768,
      "layer": 0,
-     "param": "s_up"
+     "param": "s_up",
+     "kind": "gdn"
     },
     {
      "name": "L0.w_down",
@@ -1333,7 +1489,8 @@
         512
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L0.s_down",
@@ -1363,7 +1520,8 @@
         16
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L0.w_router",
@@ -1371,7 +1529,8 @@
      "offset": 65536,
      "bytes": 1048576,
      "layer": 0,
-     "param": "w_router"
+     "param": "w_router",
+     "kind": "gdn"
     },
     {
      "name": "L0.w_shg",
@@ -1379,7 +1538,8 @@
      "offset": 1114112,
      "bytes": 4096,
      "layer": 0,
-     "param": "w_shg"
+     "param": "w_shg",
+     "kind": "gdn"
     },
     {
      "name": "L1.ln1",
@@ -1387,7 +1547,8 @@
      "offset": 17152,
      "bytes": 8192,
      "layer": 1,
-     "param": "ln1"
+     "param": "ln1",
+     "kind": "gdn"
     },
     {
      "name": "L1.w_qkv",
@@ -1395,7 +1556,8 @@
      "offset": 36831232,
      "bytes": 16777216,
      "layer": 1,
-     "param": "w_qkv"
+     "param": "w_qkv",
+     "kind": "gdn"
     },
     {
      "name": "L1.s_qkv",
@@ -1403,7 +1565,8 @@
      "offset": 1150976,
      "bytes": 524288,
      "layer": 1,
-     "param": "s_qkv"
+     "param": "s_qkv",
+     "kind": "gdn"
     },
     {
      "name": "L1.w_z",
@@ -1411,7 +1574,8 @@
      "offset": 53608448,
      "bytes": 8388608,
      "layer": 1,
-     "param": "w_z"
+     "param": "w_z",
+     "kind": "gdn"
     },
     {
      "name": "L1.s_z",
@@ -1419,7 +1583,8 @@
      "offset": 1675264,
      "bytes": 262144,
      "layer": 1,
-     "param": "s_z"
+     "param": "s_z",
+     "kind": "gdn"
     },
     {
      "name": "L1.w_b",
@@ -1427,7 +1592,8 @@
      "offset": 61997056,
      "bytes": 65536,
      "layer": 1,
-     "param": "w_b"
+     "param": "w_b",
+     "kind": "gdn"
     },
     {
      "name": "L1.s_b",
@@ -1435,7 +1601,8 @@
      "offset": 1937408,
      "bytes": 2048,
      "layer": 1,
-     "param": "s_b"
+     "param": "s_b",
+     "kind": "gdn"
     },
     {
      "name": "L1.w_a",
@@ -1443,7 +1610,8 @@
      "offset": 62062592,
      "bytes": 65536,
      "layer": 1,
-     "param": "w_a"
+     "param": "w_a",
+     "kind": "gdn"
     },
     {
      "name": "L1.s_a",
@@ -1451,7 +1619,8 @@
      "offset": 1939456,
      "bytes": 2048,
      "layer": 1,
-     "param": "s_a"
+     "param": "s_a",
+     "kind": "gdn"
     },
     {
      "name": "L1.conv_w",
@@ -1459,7 +1628,8 @@
      "offset": 1118208,
      "bytes": 65536,
      "layer": 1,
-     "param": "conv_w"
+     "param": "conv_w",
+     "kind": "gdn"
     },
     {
      "name": "L1.a_log",
@@ -1467,7 +1637,8 @@
      "offset": 25344,
      "bytes": 128,
      "layer": 1,
-     "param": "a_log"
+     "param": "a_log",
+     "kind": "gdn"
     },
     {
      "name": "L1.dt_bias",
@@ -1475,7 +1646,8 @@
      "offset": 25472,
      "bytes": 128,
      "layer": 1,
-     "param": "dt_bias"
+     "param": "dt_bias",
+     "kind": "gdn"
     },
     {
      "name": "L1.norm_w",
@@ -1483,7 +1655,8 @@
      "offset": 25600,
      "bytes": 512,
      "layer": 1,
-     "param": "norm_w"
+     "param": "norm_w",
+     "kind": "gdn"
     },
     {
      "name": "L1.w_out",
@@ -1529,7 +1702,8 @@
         4096
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L1.s_out",
@@ -1575,7 +1749,8 @@
         128
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L1.ln2",
@@ -1583,7 +1758,8 @@
      "offset": 26112,
      "bytes": 8192,
      "layer": 1,
-     "param": "ln2"
+     "param": "ln2",
+     "kind": "gdn"
     },
     {
      "name": "L1.w_gate",
@@ -1591,7 +1767,8 @@
      "offset": 70516736,
      "bytes": 1048576,
      "layer": 1,
-     "param": "w_gate"
+     "param": "w_gate",
+     "kind": "gdn"
     },
     {
      "name": "L1.s_gate",
@@ -1599,7 +1776,8 @@
      "offset": 2203648,
      "bytes": 32768,
      "layer": 1,
-     "param": "s_gate"
+     "param": "s_gate",
+     "kind": "gdn"
     },
     {
      "name": "L1.w_up",
@@ -1607,7 +1785,8 @@
      "offset": 71565312,
      "bytes": 1048576,
      "layer": 1,
-     "param": "w_up"
+     "param": "w_up",
+     "kind": "gdn"
     },
     {
      "name": "L1.s_up",
@@ -1615,7 +1794,8 @@
      "offset": 2236416,
      "bytes": 32768,
      "layer": 1,
-     "param": "s_up"
+     "param": "s_up",
+     "kind": "gdn"
     },
     {
      "name": "L1.w_down",
@@ -1645,7 +1825,8 @@
         512
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L1.s_down",
@@ -1675,7 +1856,8 @@
         16
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L1.w_router",
@@ -1683,7 +1865,8 @@
      "offset": 1183744,
      "bytes": 1048576,
      "layer": 1,
-     "param": "w_router"
+     "param": "w_router",
+     "kind": "gdn"
     },
     {
      "name": "L1.w_shg",
@@ -1691,7 +1874,8 @@
      "offset": 2232320,
      "bytes": 4096,
      "layer": 1,
-     "param": "w_shg"
+     "param": "w_shg",
+     "kind": "gdn"
     },
     {
      "name": "L2.ln1",
@@ -1699,7 +1883,8 @@
      "offset": 34304,
      "bytes": 8192,
      "layer": 2,
-     "param": "ln1"
+     "param": "ln1",
+     "kind": "gdn"
     },
     {
      "name": "L2.w_qkv",
@@ -1707,7 +1892,8 @@
      "offset": 73662464,
      "bytes": 16777216,
      "layer": 2,
-     "param": "w_qkv"
+     "param": "w_qkv",
+     "kind": "gdn"
     },
     {
      "name": "L2.s_qkv",
@@ -1715,7 +1901,8 @@
      "offset": 2301952,
      "bytes": 524288,
      "layer": 2,
-     "param": "s_qkv"
+     "param": "s_qkv",
+     "kind": "gdn"
     },
     {
      "name": "L2.w_z",
@@ -1723,7 +1910,8 @@
      "offset": 90439680,
      "bytes": 8388608,
      "layer": 2,
-     "param": "w_z"
+     "param": "w_z",
+     "kind": "gdn"
     },
     {
      "name": "L2.s_z",
@@ -1731,7 +1919,8 @@
      "offset": 2826240,
      "bytes": 262144,
      "layer": 2,
-     "param": "s_z"
+     "param": "s_z",
+     "kind": "gdn"
     },
     {
      "name": "L2.w_b",
@@ -1739,7 +1928,8 @@
      "offset": 98828288,
      "bytes": 65536,
      "layer": 2,
-     "param": "w_b"
+     "param": "w_b",
+     "kind": "gdn"
     },
     {
      "name": "L2.s_b",
@@ -1747,7 +1937,8 @@
      "offset": 3088384,
      "bytes": 2048,
      "layer": 2,
-     "param": "s_b"
+     "param": "s_b",
+     "kind": "gdn"
     },
     {
      "name": "L2.w_a",
@@ -1755,7 +1946,8 @@
      "offset": 98893824,
      "bytes": 65536,
      "layer": 2,
-     "param": "w_a"
+     "param": "w_a",
+     "kind": "gdn"
     },
     {
      "name": "L2.s_a",
@@ -1763,7 +1955,8 @@
      "offset": 3090432,
      "bytes": 2048,
      "layer": 2,
-     "param": "s_a"
+     "param": "s_a",
+     "kind": "gdn"
     },
     {
      "name": "L2.conv_w",
@@ -1771,7 +1964,8 @@
      "offset": 2236416,
      "bytes": 65536,
      "layer": 2,
-     "param": "conv_w"
+     "param": "conv_w",
+     "kind": "gdn"
     },
     {
      "name": "L2.a_log",
@@ -1779,7 +1973,8 @@
      "offset": 42496,
      "bytes": 128,
      "layer": 2,
-     "param": "a_log"
+     "param": "a_log",
+     "kind": "gdn"
     },
     {
      "name": "L2.dt_bias",
@@ -1787,7 +1982,8 @@
      "offset": 42624,
      "bytes": 128,
      "layer": 2,
-     "param": "dt_bias"
+     "param": "dt_bias",
+     "kind": "gdn"
     },
     {
      "name": "L2.norm_w",
@@ -1795,7 +1991,8 @@
      "offset": 42752,
      "bytes": 512,
      "layer": 2,
-     "param": "norm_w"
+     "param": "norm_w",
+     "kind": "gdn"
     },
     {
      "name": "L2.w_out",
@@ -1841,7 +2038,8 @@
         4096
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L2.s_out",
@@ -1887,7 +2085,8 @@
         128
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L2.ln2",
@@ -1895,7 +2094,8 @@
      "offset": 43264,
      "bytes": 8192,
      "layer": 2,
-     "param": "ln2"
+     "param": "ln2",
+     "kind": "gdn"
     },
     {
      "name": "L2.w_gate",
@@ -1903,7 +2103,8 @@
      "offset": 107347968,
      "bytes": 1048576,
      "layer": 2,
-     "param": "w_gate"
+     "param": "w_gate",
+     "kind": "gdn"
     },
     {
      "name": "L2.s_gate",
@@ -1911,7 +2112,8 @@
      "offset": 3354624,
      "bytes": 32768,
      "layer": 2,
-     "param": "s_gate"
+     "param": "s_gate",
+     "kind": "gdn"
     },
     {
      "name": "L2.w_up",
@@ -1919,7 +2121,8 @@
      "offset": 108396544,
      "bytes": 1048576,
      "layer": 2,
-     "param": "w_up"
+     "param": "w_up",
+     "kind": "gdn"
     },
     {
      "name": "L2.s_up",
@@ -1927,7 +2130,8 @@
      "offset": 3387392,
      "bytes": 32768,
      "layer": 2,
-     "param": "s_up"
+     "param": "s_up",
+     "kind": "gdn"
     },
     {
      "name": "L2.w_down",
@@ -1957,7 +2161,8 @@
         512
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L2.s_down",
@@ -1987,7 +2192,8 @@
         16
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L2.w_router",
@@ -1995,7 +2201,8 @@
      "offset": 2301952,
      "bytes": 1048576,
      "layer": 2,
-     "param": "w_router"
+     "param": "w_router",
+     "kind": "gdn"
     },
     {
      "name": "L2.w_shg",
@@ -2003,7 +2210,8 @@
      "offset": 3350528,
      "bytes": 4096,
      "layer": 2,
-     "param": "w_shg"
+     "param": "w_shg",
+     "kind": "gdn"
     },
     {
      "name": "L3.ln1",
@@ -2011,7 +2219,8 @@
      "offset": 51456,
      "bytes": 8192,
      "layer": 3,
-     "param": "ln1"
+     "param": "ln1",
+     "kind": "attn"
     },
     {
      "name": "L3.w_q",
@@ -2019,7 +2228,8 @@
      "offset": 110493696,
      "bytes": 16777216,
      "layer": 3,
-     "param": "w_q"
+     "param": "w_q",
+     "kind": "attn"
     },
     {
      "name": "L3.s_q",
@@ -2027,7 +2237,8 @@
      "offset": 3452928,
      "bytes": 524288,
      "layer": 3,
-     "param": "s_q"
+     "param": "s_q",
+     "kind": "attn"
     },
     {
      "name": "L3.w_k",
@@ -2035,7 +2246,8 @@
      "offset": 127270912,
      "bytes": 1048576,
      "layer": 3,
-     "param": "w_k"
+     "param": "w_k",
+     "kind": "attn"
     },
     {
      "name": "L3.s_k",
@@ -2043,7 +2255,8 @@
      "offset": 3977216,
      "bytes": 32768,
      "layer": 3,
-     "param": "s_k"
+     "param": "s_k",
+     "kind": "attn"
     },
     {
      "name": "L3.w_v",
@@ -2051,7 +2264,8 @@
      "offset": 128319488,
      "bytes": 1048576,
      "layer": 3,
-     "param": "w_v"
+     "param": "w_v",
+     "kind": "attn"
     },
     {
      "name": "L3.s_v",
@@ -2059,7 +2273,8 @@
      "offset": 4009984,
      "bytes": 32768,
      "layer": 3,
-     "param": "s_v"
+     "param": "s_v",
+     "kind": "attn"
     },
     {
      "name": "L3.q_norm",
@@ -2067,7 +2282,8 @@
      "offset": 59648,
      "bytes": 1024,
      "layer": 3,
-     "param": "q_norm"
+     "param": "q_norm",
+     "kind": "attn"
     },
     {
      "name": "L3.k_norm",
@@ -2075,7 +2291,8 @@
      "offset": 60672,
      "bytes": 1024,
      "layer": 3,
-     "param": "k_norm"
+     "param": "k_norm",
+     "kind": "attn"
     },
     {
      "name": "L3.w_o",
@@ -2105,7 +2322,8 @@
         4096
        ]
       ]
-     }
+     },
+     "kind": "attn"
     },
     {
      "name": "L3.s_o",
@@ -2135,7 +2353,8 @@
         128
        ]
       ]
-     }
+     },
+     "kind": "attn"
     },
     {
      "name": "L3.ln2",
@@ -2143,7 +2362,8 @@
      "offset": 61696,
      "bytes": 8192,
      "layer": 3,
-     "param": "ln2"
+     "param": "ln2",
+     "kind": "attn"
     },
     {
      "name": "L3.w_gate",
@@ -2151,7 +2371,8 @@
      "offset": 137756672,
      "bytes": 1048576,
      "layer": 3,
-     "param": "w_gate"
+     "param": "w_gate",
+     "kind": "attn"
     },
     {
      "name": "L3.s_gate",
@@ -2159,7 +2380,8 @@
      "offset": 4304896,
      "bytes": 32768,
      "layer": 3,
-     "param": "s_gate"
+     "param": "s_gate",
+     "kind": "attn"
     },
     {
      "name": "L3.w_up",
@@ -2167,7 +2389,8 @@
      "offset": 138805248,
      "bytes": 1048576,
      "layer": 3,
-     "param": "w_up"
+     "param": "w_up",
+     "kind": "attn"
     },
     {
      "name": "L3.s_up",
@@ -2175,7 +2398,8 @@
      "offset": 4337664,
      "bytes": 32768,
      "layer": 3,
-     "param": "s_up"
+     "param": "s_up",
+     "kind": "attn"
     },
     {
      "name": "L3.w_down",
@@ -2205,7 +2429,8 @@
         512
        ]
       ]
-     }
+     },
+     "kind": "attn"
     },
     {
      "name": "L3.s_down",
@@ -2235,7 +2460,8 @@
         16
        ]
       ]
-     }
+     },
+     "kind": "attn"
     },
     {
      "name": "L3.w_router",
@@ -2243,7 +2469,8 @@
      "offset": 3354624,
      "bytes": 1048576,
      "layer": 3,
-     "param": "w_router"
+     "param": "w_router",
+     "kind": "attn"
     },
     {
      "name": "L3.w_shg",
@@ -2251,7 +2478,8 @@
      "offset": 4403200,
      "bytes": 4096,
      "layer": 3,
-     "param": "w_shg"
+     "param": "w_shg",
+     "kind": "attn"
     },
     {
      "name": "L4.ln1",
@@ -2259,7 +2487,8 @@
      "offset": 69888,
      "bytes": 8192,
      "layer": 4,
-     "param": "ln1"
+     "param": "ln1",
+     "kind": "gdn"
     },
     {
      "name": "L4.w_qkv",
@@ -2267,7 +2496,8 @@
      "offset": 140902400,
      "bytes": 16777216,
      "layer": 4,
-     "param": "w_qkv"
+     "param": "w_qkv",
+     "kind": "gdn"
     },
     {
      "name": "L4.s_qkv",
@@ -2275,7 +2505,8 @@
      "offset": 4403200,
      "bytes": 524288,
      "layer": 4,
-     "param": "s_qkv"
+     "param": "s_qkv",
+     "kind": "gdn"
     },
     {
      "name": "L4.w_z",
@@ -2283,7 +2514,8 @@
      "offset": 157679616,
      "bytes": 8388608,
      "layer": 4,
-     "param": "w_z"
+     "param": "w_z",
+     "kind": "gdn"
     },
     {
      "name": "L4.s_z",
@@ -2291,7 +2523,8 @@
      "offset": 4927488,
      "bytes": 262144,
      "layer": 4,
-     "param": "s_z"
+     "param": "s_z",
+     "kind": "gdn"
     },
     {
      "name": "L4.w_b",
@@ -2299,7 +2532,8 @@
      "offset": 166068224,
      "bytes": 65536,
      "layer": 4,
-     "param": "w_b"
+     "param": "w_b",
+     "kind": "gdn"
     },
     {
      "name": "L4.s_b",
@@ -2307,7 +2541,8 @@
      "offset": 5189632,
      "bytes": 2048,
      "layer": 4,
-     "param": "s_b"
+     "param": "s_b",
+     "kind": "gdn"
     },
     {
      "name": "L4.w_a",
@@ -2315,7 +2550,8 @@
      "offset": 166133760,
      "bytes": 65536,
      "layer": 4,
-     "param": "w_a"
+     "param": "w_a",
+     "kind": "gdn"
     },
     {
      "name": "L4.s_a",
@@ -2323,7 +2559,8 @@
      "offset": 5191680,
      "bytes": 2048,
      "layer": 4,
-     "param": "s_a"
+     "param": "s_a",
+     "kind": "gdn"
     },
     {
      "name": "L4.conv_w",
@@ -2331,7 +2568,8 @@
      "offset": 4407296,
      "bytes": 65536,
      "layer": 4,
-     "param": "conv_w"
+     "param": "conv_w",
+     "kind": "gdn"
     },
     {
      "name": "L4.a_log",
@@ -2339,7 +2577,8 @@
      "offset": 78080,
      "bytes": 128,
      "layer": 4,
-     "param": "a_log"
+     "param": "a_log",
+     "kind": "gdn"
     },
     {
      "name": "L4.dt_bias",
@@ -2347,7 +2586,8 @@
      "offset": 78208,
      "bytes": 128,
      "layer": 4,
-     "param": "dt_bias"
+     "param": "dt_bias",
+     "kind": "gdn"
     },
     {
      "name": "L4.norm_w",
@@ -2355,7 +2595,8 @@
      "offset": 78336,
      "bytes": 512,
      "layer": 4,
-     "param": "norm_w"
+     "param": "norm_w",
+     "kind": "gdn"
     },
     {
      "name": "L4.w_out",
@@ -2401,7 +2642,8 @@
         4096
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L4.s_out",
@@ -2447,7 +2689,8 @@
         128
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L4.ln2",
@@ -2455,7 +2698,8 @@
      "offset": 78848,
      "bytes": 8192,
      "layer": 4,
-     "param": "ln2"
+     "param": "ln2",
+     "kind": "gdn"
     },
     {
      "name": "L4.w_gate",
@@ -2463,7 +2707,8 @@
      "offset": 174587904,
      "bytes": 1048576,
      "layer": 4,
-     "param": "w_gate"
+     "param": "w_gate",
+     "kind": "gdn"
     },
     {
      "name": "L4.s_gate",
@@ -2471,7 +2716,8 @@
      "offset": 5455872,
      "bytes": 32768,
      "layer": 4,
-     "param": "s_gate"
+     "param": "s_gate",
+     "kind": "gdn"
     },
     {
      "name": "L4.w_up",
@@ -2479,7 +2725,8 @@
      "offset": 175636480,
      "bytes": 1048576,
      "layer": 4,
-     "param": "w_up"
+     "param": "w_up",
+     "kind": "gdn"
     },
     {
      "name": "L4.s_up",
@@ -2487,7 +2734,8 @@
      "offset": 5488640,
      "bytes": 32768,
      "layer": 4,
-     "param": "s_up"
+     "param": "s_up",
+     "kind": "gdn"
     },
     {
      "name": "L4.w_down",
@@ -2517,7 +2765,8 @@
         512
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L4.s_down",
@@ -2547,7 +2796,8 @@
         16
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L4.w_router",
@@ -2555,7 +2805,8 @@
      "offset": 4472832,
      "bytes": 1048576,
      "layer": 4,
-     "param": "w_router"
+     "param": "w_router",
+     "kind": "gdn"
     },
     {
      "name": "L4.w_shg",
@@ -2563,7 +2814,8 @@
      "offset": 5521408,
      "bytes": 4096,
      "layer": 4,
-     "param": "w_shg"
+     "param": "w_shg",
+     "kind": "gdn"
     },
     {
      "name": "L5.ln1",
@@ -2571,7 +2823,8 @@
      "offset": 87040,
      "bytes": 8192,
      "layer": 5,
-     "param": "ln1"
+     "param": "ln1",
+     "kind": "gdn"
     },
     {
      "name": "L5.w_qkv",
@@ -2579,7 +2832,8 @@
      "offset": 177733632,
      "bytes": 16777216,
      "layer": 5,
-     "param": "w_qkv"
+     "param": "w_qkv",
+     "kind": "gdn"
     },
     {
      "name": "L5.s_qkv",
@@ -2587,7 +2841,8 @@
      "offset": 5554176,
      "bytes": 524288,
      "layer": 5,
-     "param": "s_qkv"
+     "param": "s_qkv",
+     "kind": "gdn"
     },
     {
      "name": "L5.w_z",
@@ -2595,7 +2850,8 @@
      "offset": 194510848,
      "bytes": 8388608,
      "layer": 5,
-     "param": "w_z"
+     "param": "w_z",
+     "kind": "gdn"
     },
     {
      "name": "L5.s_z",
@@ -2603,7 +2859,8 @@
      "offset": 6078464,
      "bytes": 262144,
      "layer": 5,
-     "param": "s_z"
+     "param": "s_z",
+     "kind": "gdn"
     },
     {
      "name": "L5.w_b",
@@ -2611,7 +2868,8 @@
      "offset": 202899456,
      "bytes": 65536,
      "layer": 5,
-     "param": "w_b"
+     "param": "w_b",
+     "kind": "gdn"
     },
     {
      "name": "L5.s_b",
@@ -2619,7 +2877,8 @@
      "offset": 6340608,
      "bytes": 2048,
      "layer": 5,
-     "param": "s_b"
+     "param": "s_b",
+     "kind": "gdn"
     },
     {
      "name": "L5.w_a",
@@ -2627,7 +2886,8 @@
      "offset": 202964992,
      "bytes": 65536,
      "layer": 5,
-     "param": "w_a"
+     "param": "w_a",
+     "kind": "gdn"
     },
     {
      "name": "L5.s_a",
@@ -2635,7 +2895,8 @@
      "offset": 6342656,
      "bytes": 2048,
      "layer": 5,
-     "param": "s_a"
+     "param": "s_a",
+     "kind": "gdn"
     },
     {
      "name": "L5.conv_w",
@@ -2643,7 +2904,8 @@
      "offset": 5525504,
      "bytes": 65536,
      "layer": 5,
-     "param": "conv_w"
+     "param": "conv_w",
+     "kind": "gdn"
     },
     {
      "name": "L5.a_log",
@@ -2651,7 +2913,8 @@
      "offset": 95232,
      "bytes": 128,
      "layer": 5,
-     "param": "a_log"
+     "param": "a_log",
+     "kind": "gdn"
     },
     {
      "name": "L5.dt_bias",
@@ -2659,7 +2922,8 @@
      "offset": 95360,
      "bytes": 128,
      "layer": 5,
-     "param": "dt_bias"
+     "param": "dt_bias",
+     "kind": "gdn"
     },
     {
      "name": "L5.norm_w",
@@ -2667,7 +2931,8 @@
      "offset": 95488,
      "bytes": 512,
      "layer": 5,
-     "param": "norm_w"
+     "param": "norm_w",
+     "kind": "gdn"
     },
     {
      "name": "L5.w_out",
@@ -2713,7 +2978,8 @@
         4096
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L5.s_out",
@@ -2759,7 +3025,8 @@
         128
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L5.ln2",
@@ -2767,7 +3034,8 @@
      "offset": 96000,
      "bytes": 8192,
      "layer": 5,
-     "param": "ln2"
+     "param": "ln2",
+     "kind": "gdn"
     },
     {
      "name": "L5.w_gate",
@@ -2775,7 +3043,8 @@
      "offset": 211419136,
      "bytes": 1048576,
      "layer": 5,
-     "param": "w_gate"
+     "param": "w_gate",
+     "kind": "gdn"
     },
     {
      "name": "L5.s_gate",
@@ -2783,7 +3052,8 @@
      "offset": 6606848,
      "bytes": 32768,
      "layer": 5,
-     "param": "s_gate"
+     "param": "s_gate",
+     "kind": "gdn"
     },
     {
      "name": "L5.w_up",
@@ -2791,7 +3061,8 @@
      "offset": 212467712,
      "bytes": 1048576,
      "layer": 5,
-     "param": "w_up"
+     "param": "w_up",
+     "kind": "gdn"
     },
     {
      "name": "L5.s_up",
@@ -2799,7 +3070,8 @@
      "offset": 6639616,
      "bytes": 32768,
      "layer": 5,
-     "param": "s_up"
+     "param": "s_up",
+     "kind": "gdn"
     },
     {
      "name": "L5.w_down",
@@ -2829,7 +3101,8 @@
         512
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L5.s_down",
@@ -2859,7 +3132,8 @@
         16
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L5.w_router",
@@ -2867,7 +3141,8 @@
      "offset": 5591040,
      "bytes": 1048576,
      "layer": 5,
-     "param": "w_router"
+     "param": "w_router",
+     "kind": "gdn"
     },
     {
      "name": "L5.w_shg",
@@ -2875,7 +3150,8 @@
      "offset": 6639616,
      "bytes": 4096,
      "layer": 5,
-     "param": "w_shg"
+     "param": "w_shg",
+     "kind": "gdn"
     },
     {
      "name": "L6.ln1",
@@ -2883,7 +3159,8 @@
      "offset": 104192,
      "bytes": 8192,
      "layer": 6,
-     "param": "ln1"
+     "param": "ln1",
+     "kind": "gdn"
     },
     {
      "name": "L6.w_qkv",
@@ -2891,7 +3168,8 @@
      "offset": 214564864,
      "bytes": 16777216,
      "layer": 6,
-     "param": "w_qkv"
+     "param": "w_qkv",
+     "kind": "gdn"
     },
     {
      "name": "L6.s_qkv",
@@ -2899,7 +3177,8 @@
      "offset": 6705152,
      "bytes": 524288,
      "layer": 6,
-     "param": "s_qkv"
+     "param": "s_qkv",
+     "kind": "gdn"
     },
     {
      "name": "L6.w_z",
@@ -2907,7 +3186,8 @@
      "offset": 231342080,
      "bytes": 8388608,
      "layer": 6,
-     "param": "w_z"
+     "param": "w_z",
+     "kind": "gdn"
     },
     {
      "name": "L6.s_z",
@@ -2915,7 +3195,8 @@
      "offset": 7229440,
      "bytes": 262144,
      "layer": 6,
-     "param": "s_z"
+     "param": "s_z",
+     "kind": "gdn"
     },
     {
      "name": "L6.w_b",
@@ -2923,7 +3204,8 @@
      "offset": 239730688,
      "bytes": 65536,
      "layer": 6,
-     "param": "w_b"
+     "param": "w_b",
+     "kind": "gdn"
     },
     {
      "name": "L6.s_b",
@@ -2931,7 +3213,8 @@
      "offset": 7491584,
      "bytes": 2048,
      "layer": 6,
-     "param": "s_b"
+     "param": "s_b",
+     "kind": "gdn"
     },
     {
      "name": "L6.w_a",
@@ -2939,7 +3222,8 @@
      "offset": 239796224,
      "bytes": 65536,
      "layer": 6,
-     "param": "w_a"
+     "param": "w_a",
+     "kind": "gdn"
     },
     {
      "name": "L6.s_a",
@@ -2947,7 +3231,8 @@
      "offset": 7493632,
      "bytes": 2048,
      "layer": 6,
-     "param": "s_a"
+     "param": "s_a",
+     "kind": "gdn"
     },
     {
      "name": "L6.conv_w",
@@ -2955,7 +3240,8 @@
      "offset": 6643712,
      "bytes": 65536,
      "layer": 6,
-     "param": "conv_w"
+     "param": "conv_w",
+     "kind": "gdn"
     },
     {
      "name": "L6.a_log",
@@ -2963,7 +3249,8 @@
      "offset": 112384,
      "bytes": 128,
      "layer": 6,
-     "param": "a_log"
+     "param": "a_log",
+     "kind": "gdn"
     },
     {
      "name": "L6.dt_bias",
@@ -2971,7 +3258,8 @@
      "offset": 112512,
      "bytes": 128,
      "layer": 6,
-     "param": "dt_bias"
+     "param": "dt_bias",
+     "kind": "gdn"
     },
     {
      "name": "L6.norm_w",
@@ -2979,7 +3267,8 @@
      "offset": 112640,
      "bytes": 512,
      "layer": 6,
-     "param": "norm_w"
+     "param": "norm_w",
+     "kind": "gdn"
     },
     {
      "name": "L6.w_out",
@@ -3025,7 +3314,8 @@
         4096
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L6.s_out",
@@ -3071,7 +3361,8 @@
         128
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L6.ln2",
@@ -3079,7 +3370,8 @@
      "offset": 113152,
      "bytes": 8192,
      "layer": 6,
-     "param": "ln2"
+     "param": "ln2",
+     "kind": "gdn"
     },
     {
      "name": "L6.w_gate",
@@ -3087,7 +3379,8 @@
      "offset": 248250368,
      "bytes": 1048576,
      "layer": 6,
-     "param": "w_gate"
+     "param": "w_gate",
+     "kind": "gdn"
     },
     {
      "name": "L6.s_gate",
@@ -3095,7 +3388,8 @@
      "offset": 7757824,
      "bytes": 32768,
      "layer": 6,
-     "param": "s_gate"
+     "param": "s_gate",
+     "kind": "gdn"
     },
     {
      "name": "L6.w_up",
@@ -3103,7 +3397,8 @@
      "offset": 249298944,
      "bytes": 1048576,
      "layer": 6,
-     "param": "w_up"
+     "param": "w_up",
+     "kind": "gdn"
     },
     {
      "name": "L6.s_up",
@@ -3111,7 +3406,8 @@
      "offset": 7790592,
      "bytes": 32768,
      "layer": 6,
-     "param": "s_up"
+     "param": "s_up",
+     "kind": "gdn"
     },
     {
      "name": "L6.w_down",
@@ -3141,7 +3437,8 @@
         512
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L6.s_down",
@@ -3171,7 +3468,8 @@
         16
        ]
       ]
-     }
+     },
+     "kind": "gdn"
     },
     {
      "name": "L6.w_router",
@@ -3179,7 +3477,8 @@
      "offset": 6709248,
      "bytes": 1048576,
      "layer": 6,
-     "param": "w_router"
+     "param": "w_router",
+     "kind": "gdn"
     },
     {
      "name": "L6.w_shg",
@@ -3187,7 +3486,8 @@
      "offset": 7757824,
      "bytes": 4096,
      "layer": 6,
-     "param": "w_shg"
+     "param": "w_shg",
+     "kind": "gdn"
     },
     {
      "name": "L7.ln1",
@@ -3195,7 +3495,8 @@
      "offset": 121344,
      "bytes": 8192,
      "layer": 7,
-     "param": "ln1"
+     "param": "ln1",
+     "kind": "attn"
     },
     {
      "name": "L7.w_q",
@@ -3203,7 +3504,8 @@
      "offset": 251396096,
      "bytes": 16777216,
      "layer": 7,
-     "param": "w_q"
+     "param": "w_q",
+     "kind": "attn"
     },
     {
      "name": "L7.s_q",
@@ -3211,7 +3513,8 @@
      "offset": 7856128,
      "bytes": 524288,
      "layer": 7,
-     "param": "s_q"
+     "param": "s_q",
+     "kind": "attn"
     },
     {
      "name": "L7.w_k",
@@ -3219,7 +3522,8 @@
      "offset": 268173312,
      "bytes": 1048576,
      "layer": 7,
-     "param": "w_k"
+     "param": "w_k",
+     "kind": "attn"
     },
     {
      "name": "L7.s_k",
@@ -3227,7 +3531,8 @@
      "offset": 8380416,
      "bytes": 32768,
      "layer": 7,
-     "param": "s_k"
+     "param": "s_k",
+     "kind": "attn"
     },
     {
      "name": "L7.w_v",
@@ -3235,7 +3540,8 @@
      "offset": 269221888,
      "bytes": 1048576,
      "layer": 7,
-     "param": "w_v"
+     "param": "w_v",
+     "kind": "attn"
     },
     {
      "name": "L7.s_v",
@@ -3243,7 +3549,8 @@
      "offset": 8413184,
      "bytes": 32768,
      "layer": 7,
-     "param": "s_v"
+     "param": "s_v",
+     "kind": "attn"
     },
     {
      "name": "L7.q_norm",
@@ -3251,7 +3558,8 @@
      "offset": 129536,
      "bytes": 1024,
      "layer": 7,
-     "param": "q_norm"
+     "param": "q_norm",
+     "kind": "attn"
     },
     {
      "name": "L7.k_norm",
@@ -3259,7 +3567,8 @@
      "offset": 130560,
      "bytes": 1024,
      "layer": 7,
-     "param": "k_norm"
+     "param": "k_norm",
+     "kind": "attn"
     },
     {
      "name": "L7.w_o",
@@ -3289,7 +3598,8 @@
         4096
        ]
       ]
-     }
+     },
+     "kind": "attn"
     },
     {
      "name": "L7.s_o",
@@ -3319,7 +3629,8 @@
         128
        ]
       ]
-     }
+     },
+     "kind": "attn"
     },
     {
      "name": "L7.ln2",
@@ -3327,7 +3638,8 @@
      "offset": 131584,
      "bytes": 8192,
      "layer": 7,
-     "param": "ln2"
+     "param": "ln2",
+     "kind": "attn"
     },
     {
      "name": "L7.w_gate",
@@ -3335,7 +3647,8 @@
      "offset": 278659072,
      "bytes": 1048576,
      "layer": 7,
-     "param": "w_gate"
+     "param": "w_gate",
+     "kind": "attn"
     },
     {
      "name": "L7.s_gate",
@@ -3343,7 +3656,8 @@
      "offset": 8708096,
      "bytes": 32768,
      "layer": 7,
-     "param": "s_gate"
+     "param": "s_gate",
+     "kind": "attn"
     },
     {
      "name": "L7.w_up",
@@ -3351,7 +3665,8 @@
      "offset": 279707648,
      "bytes": 1048576,
      "layer": 7,
-     "param": "w_up"
+     "param": "w_up",
+     "kind": "attn"
     },
     {
      "name": "L7.s_up",
@@ -3359,7 +3674,8 @@
      "offset": 8740864,
      "bytes": 32768,
      "layer": 7,
-     "param": "s_up"
+     "param": "s_up",
+     "kind": "attn"
     },
     {
      "name": "L7.w_down",
@@ -3389,7 +3705,8 @@
         512
        ]
       ]
-     }
+     },
+     "kind": "attn"
     },
     {
      "name": "L7.s_down",
@@ -3419,7 +3736,8 @@
         16
        ]
       ]
-     }
+     },
+     "kind": "attn"
     },
     {
      "name": "L7.w_router",
@@ -3427,7 +3745,8 @@
      "offset": 7761920,
      "bytes": 1048576,
      "layer": 7,
-     "param": "w_router"
+     "param": "w_router",
+     "kind": "attn"
     },
     {
      "name": "L7.w_shg",
@@ -3435,7 +3754,8 @@
      "offset": 8810496,
      "bytes": 4096,
      "layer": 7,
-     "param": "w_shg"
+     "param": "w_shg",
+     "kind": "attn"
     }
    ]
   },
@@ -3630,168 +3950,192 @@
      "pack": "pf",
      "offset": 0,
      "bytes": 8192,
-     "param": "ln1"
+     "param": "ln1",
+     "kind": "gdn"
     },
     {
      "name": "w_qkv",
      "pack": "pw",
      "offset": 0,
      "bytes": 16777216,
-     "param": "w_qkv"
+     "param": "w_qkv",
+     "kind": "gdn"
     },
     {
      "name": "s_qkv",
      "pack": "ps",
      "offset": 0,
      "bytes": 524288,
-     "param": "s_qkv"
+     "param": "s_qkv",
+     "kind": "gdn"
     },
     {
      "name": "w_z",
      "pack": "pw",
      "offset": 16777216,
      "bytes": 8388608,
-     "param": "w_z"
+     "param": "w_z",
+     "kind": "gdn"
     },
     {
      "name": "s_z",
      "pack": "ps",
      "offset": 524288,
      "bytes": 262144,
-     "param": "s_z"
+     "param": "s_z",
+     "kind": "gdn"
     },
     {
      "name": "w_b",
      "pack": "pw",
      "offset": 25165824,
      "bytes": 65536,
-     "param": "w_b"
+     "param": "w_b",
+     "kind": "gdn"
     },
     {
      "name": "s_b",
      "pack": "ps",
      "offset": 786432,
      "bytes": 2048,
-     "param": "s_b"
+     "param": "s_b",
+     "kind": "gdn"
     },
     {
      "name": "w_a",
      "pack": "pw",
      "offset": 25231360,
      "bytes": 65536,
-     "param": "w_a"
+     "param": "w_a",
+     "kind": "gdn"
     },
     {
      "name": "s_a",
      "pack": "ps",
      "offset": 788480,
      "bytes": 2048,
-     "param": "s_a"
+     "param": "s_a",
+     "kind": "gdn"
     },
     {
      "name": "conv_w",
      "pack": "pb",
      "offset": 0,
      "bytes": 65536,
-     "param": "conv_w"
+     "param": "conv_w",
+     "kind": "gdn"
     },
     {
      "name": "a_log",
      "pack": "pf",
      "offset": 8192,
      "bytes": 128,
-     "param": "a_log"
+     "param": "a_log",
+     "kind": "gdn"
     },
     {
      "name": "dt_bias",
      "pack": "pf",
      "offset": 8320,
      "bytes": 128,
-     "param": "dt_bias"
+     "param": "dt_bias",
+     "kind": "gdn"
     },
     {
      "name": "norm_w",
      "pack": "pf",
      "offset": 8448,
      "bytes": 512,
-     "param": "norm_w"
+     "param": "norm_w",
+     "kind": "gdn"
     },
     {
      "name": "w_out",
      "pack": "pw",
      "offset": 25296896,
      "bytes": 8388608,
-     "param": "w_out"
+     "param": "w_out",
+     "kind": "gdn"
     },
     {
      "name": "s_out",
      "pack": "ps",
      "offset": 790528,
      "bytes": 262144,
-     "param": "s_out"
+     "param": "s_out",
+     "kind": "gdn"
     },
     {
      "name": "ln2",
      "pack": "pf",
      "offset": 8960,
      "bytes": 8192,
-     "param": "ln2"
+     "param": "ln2",
+     "kind": "gdn"
     },
     {
      "name": "w_gate",
      "pack": "pw",
      "offset": 33685504,
      "bytes": 1048576,
-     "param": "w_gate"
+     "param": "w_gate",
+     "kind": "gdn"
     },
     {
      "name": "s_gate",
      "pack": "ps",
      "offset": 1052672,
      "bytes": 32768,
-     "param": "s_gate"
+     "param": "s_gate",
+     "kind": "gdn"
     },
     {
      "name": "w_up",
      "pack": "pw",
      "offset": 34734080,
      "bytes": 1048576,
-     "param": "w_up"
+     "param": "w_up",
+     "kind": "gdn"
     },
     {
      "name": "s_up",
      "pack": "ps",
      "offset": 1085440,
      "bytes": 32768,
-     "param": "s_up"
+     "param": "s_up",
+     "kind": "gdn"
     },
     {
      "name": "w_down",
      "pack": "pw",
      "offset": 35782656,
      "bytes": 1048576,
-     "param": "w_down"
+     "param": "w_down",
+     "kind": "gdn"
     },
     {
      "name": "s_down",
      "pack": "ps",
      "offset": 1118208,
      "bytes": 32768,
-     "param": "s_down"
+     "param": "s_down",
+     "kind": "gdn"
     },
     {
      "name": "w_router",
      "pack": "pb",
      "offset": 65536,
      "bytes": 1048576,
-     "param": "w_router"
+     "param": "w_router",
+     "kind": "gdn"
     },
     {
      "name": "w_shg",
      "pack": "pb",
      "offset": 1114112,
      "bytes": 4096,
-     "param": "w_shg"
+     "param": "w_shg",
+     "kind": "gdn"
     }
    ]
   },
@@ -3955,7 +4299,9 @@
    ],
    "packs": {
     "pf": 18432,
-    "pb": 61870080
+    "pb": 61870080,
+    "pw": 1,
+    "ps": 1
    },
    "members": [
     {
@@ -3963,91 +4309,104 @@
      "pack": "pf",
      "offset": 0,
      "bytes": 8192,
-     "param": "ln1"
+     "param": "ln1",
+     "kind": "attn"
     },
     {
      "name": "w_q",
      "pack": "pb",
      "offset": 0,
      "bytes": 33554432,
-     "param": "w_q"
+     "param": "w_q",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_k",
      "pack": "pb",
      "offset": 33554432,
      "bytes": 2097152,
-     "param": "w_k"
+     "param": "w_k",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_v",
      "pack": "pb",
      "offset": 35651584,
      "bytes": 2097152,
-     "param": "w_v"
+     "param": "w_v",
+     "kind": "attn_bf16"
     },
     {
      "name": "q_norm",
      "pack": "pf",
      "offset": 8192,
      "bytes": 1024,
-     "param": "q_norm"
+     "param": "q_norm",
+     "kind": "attn"
     },
     {
      "name": "k_norm",
      "pack": "pf",
      "offset": 9216,
      "bytes": 1024,
-     "param": "k_norm"
+     "param": "k_norm",
+     "kind": "attn"
     },
     {
      "name": "w_o",
      "pack": "pb",
      "offset": 37748736,
      "bytes": 16777216,
-     "param": "w_o"
+     "param": "w_o",
+     "kind": "attn_bf16"
     },
     {
      "name": "ln2",
      "pack": "pf",
      "offset": 10240,
      "bytes": 8192,
-     "param": "ln2"
+     "param": "ln2",
+     "kind": "attn"
     },
     {
      "name": "w_gate",
      "pack": "pb",
      "offset": 54525952,
      "bytes": 2097152,
-     "param": "w_gate"
+     "param": "w_gate",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_up",
      "pack": "pb",
      "offset": 56623104,
      "bytes": 2097152,
-     "param": "w_up"
+     "param": "w_up",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_down",
      "pack": "pb",
      "offset": 58720256,
      "bytes": 2097152,
-     "param": "w_down"
+     "param": "w_down",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_router",
      "pack": "pb",
      "offset": 60817408,
      "bytes": 1048576,
-     "param": "w_router"
+     "param": "w_router",
+     "kind": "attn"
     },
     {
      "name": "w_shg",
      "pack": "pb",
      "offset": 61865984,
      "bytes": 4096,
-     "param": "w_shg"
+     "param": "w_shg",
+     "kind": "attn"
     }
    ]
   },
@@ -4181,168 +4540,192 @@
      "pack": "pf",
      "offset": 0,
      "bytes": 8192,
-     "param": "ln1"
+     "param": "ln1",
+     "kind": "gdn"
     },
     {
      "name": "w_qkv",
      "pack": "pw",
      "offset": 0,
      "bytes": 16777216,
-     "param": "w_qkv"
+     "param": "w_qkv",
+     "kind": "gdn"
     },
     {
      "name": "s_qkv",
      "pack": "ps",
      "offset": 0,
      "bytes": 524288,
-     "param": "s_qkv"
+     "param": "s_qkv",
+     "kind": "gdn"
     },
     {
      "name": "w_z",
      "pack": "pw",
      "offset": 16777216,
      "bytes": 8388608,
-     "param": "w_z"
+     "param": "w_z",
+     "kind": "gdn"
     },
     {
      "name": "s_z",
      "pack": "ps",
      "offset": 524288,
      "bytes": 262144,
-     "param": "s_z"
+     "param": "s_z",
+     "kind": "gdn"
     },
     {
      "name": "w_b",
      "pack": "pw",
      "offset": 25165824,
      "bytes": 65536,
-     "param": "w_b"
+     "param": "w_b",
+     "kind": "gdn"
     },
     {
      "name": "s_b",
      "pack": "ps",
      "offset": 786432,
      "bytes": 2048,
-     "param": "s_b"
+     "param": "s_b",
+     "kind": "gdn"
     },
     {
      "name": "w_a",
      "pack": "pw",
      "offset": 25231360,
      "bytes": 65536,
-     "param": "w_a"
+     "param": "w_a",
+     "kind": "gdn"
     },
     {
      "name": "s_a",
      "pack": "ps",
      "offset": 788480,
      "bytes": 2048,
-     "param": "s_a"
+     "param": "s_a",
+     "kind": "gdn"
     },
     {
      "name": "conv_w",
      "pack": "pb",
      "offset": 0,
      "bytes": 65536,
-     "param": "conv_w"
+     "param": "conv_w",
+     "kind": "gdn"
     },
     {
      "name": "a_log",
      "pack": "pf",
      "offset": 8192,
      "bytes": 128,
-     "param": "a_log"
+     "param": "a_log",
+     "kind": "gdn"
     },
     {
      "name": "dt_bias",
      "pack": "pf",
      "offset": 8320,
      "bytes": 128,
-     "param": "dt_bias"
+     "param": "dt_bias",
+     "kind": "gdn"
     },
     {
      "name": "norm_w",
      "pack": "pf",
      "offset": 8448,
      "bytes": 512,
-     "param": "norm_w"
+     "param": "norm_w",
+     "kind": "gdn"
     },
     {
      "name": "w_out",
      "pack": "pw",
      "offset": 25296896,
      "bytes": 8388608,
-     "param": "w_out"
+     "param": "w_out",
+     "kind": "gdn"
     },
     {
      "name": "s_out",
      "pack": "ps",
      "offset": 790528,
      "bytes": 262144,
-     "param": "s_out"
+     "param": "s_out",
+     "kind": "gdn"
     },
     {
      "name": "ln2",
      "pack": "pf",
      "offset": 8960,
      "bytes": 8192,
-     "param": "ln2"
+     "param": "ln2",
+     "kind": "gdn"
     },
     {
      "name": "w_gate",
      "pack": "pw",
      "offset": 33685504,
      "bytes": 1048576,
-     "param": "w_gate"
+     "param": "w_gate",
+     "kind": "gdn"
     },
     {
      "name": "s_gate",
      "pack": "ps",
      "offset": 1052672,
      "bytes": 32768,
-     "param": "s_gate"
+     "param": "s_gate",
+     "kind": "gdn"
     },
     {
      "name": "w_up",
      "pack": "pw",
      "offset": 34734080,
      "bytes": 1048576,
-     "param": "w_up"
+     "param": "w_up",
+     "kind": "gdn"
     },
     {
      "name": "s_up",
      "pack": "ps",
      "offset": 1085440,
      "bytes": 32768,
-     "param": "s_up"
+     "param": "s_up",
+     "kind": "gdn"
     },
     {
      "name": "w_down",
      "pack": "pw",
      "offset": 35782656,
      "bytes": 1048576,
-     "param": "w_down"
+     "param": "w_down",
+     "kind": "gdn"
     },
     {
      "name": "s_down",
      "pack": "ps",
      "offset": 1118208,
      "bytes": 32768,
-     "param": "s_down"
+     "param": "s_down",
+     "kind": "gdn"
     },
     {
      "name": "w_router",
      "pack": "pb",
      "offset": 65536,
      "bytes": 1048576,
-     "param": "w_router"
+     "param": "w_router",
+     "kind": "gdn"
     },
     {
      "name": "w_shg",
      "pack": "pb",
      "offset": 1114112,
      "bytes": 4096,
-     "param": "w_shg"
+     "param": "w_shg",
+     "kind": "gdn"
     }
    ]
   },
@@ -4488,7 +4871,9 @@
    ],
    "packs": {
     "pf": 18432,
-    "pb": 61870080
+    "pb": 61870080,
+    "pw": 1,
+    "ps": 1
    },
    "members": [
     {
@@ -4496,91 +4881,104 @@
      "pack": "pf",
      "offset": 0,
      "bytes": 8192,
-     "param": "ln1"
+     "param": "ln1",
+     "kind": "attn"
     },
     {
      "name": "w_q",
      "pack": "pb",
      "offset": 0,
      "bytes": 33554432,
-     "param": "w_q"
+     "param": "w_q",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_k",
      "pack": "pb",
      "offset": 33554432,
      "bytes": 2097152,
-     "param": "w_k"
+     "param": "w_k",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_v",
      "pack": "pb",
      "offset": 35651584,
      "bytes": 2097152,
-     "param": "w_v"
+     "param": "w_v",
+     "kind": "attn_bf16"
     },
     {
      "name": "q_norm",
      "pack": "pf",
      "offset": 8192,
      "bytes": 1024,
-     "param": "q_norm"
+     "param": "q_norm",
+     "kind": "attn"
     },
     {
      "name": "k_norm",
      "pack": "pf",
      "offset": 9216,
      "bytes": 1024,
-     "param": "k_norm"
+     "param": "k_norm",
+     "kind": "attn"
     },
     {
      "name": "w_o",
      "pack": "pb",
      "offset": 37748736,
      "bytes": 16777216,
-     "param": "w_o"
+     "param": "w_o",
+     "kind": "attn_bf16"
     },
     {
      "name": "ln2",
      "pack": "pf",
      "offset": 10240,
      "bytes": 8192,
-     "param": "ln2"
+     "param": "ln2",
+     "kind": "attn"
     },
     {
      "name": "w_gate",
      "pack": "pb",
      "offset": 54525952,
      "bytes": 2097152,
-     "param": "w_gate"
+     "param": "w_gate",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_up",
      "pack": "pb",
      "offset": 56623104,
      "bytes": 2097152,
-     "param": "w_up"
+     "param": "w_up",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_down",
      "pack": "pb",
      "offset": 58720256,
      "bytes": 2097152,
-     "param": "w_down"
+     "param": "w_down",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_router",
      "pack": "pb",
      "offset": 60817408,
      "bytes": 1048576,
-     "param": "w_router"
+     "param": "w_router",
+     "kind": "attn"
     },
     {
      "name": "w_shg",
      "pack": "pb",
      "offset": 61865984,
      "bytes": 4096,
-     "param": "w_shg"
+     "param": "w_shg",
+     "kind": "attn"
     }
    ]
   },
@@ -4603,7 +5001,9 @@
      "dtype": 3,
      "shape": [
       2048
-     ]
+     ],
+     "param": "ln1",
+     "kind": "gdn"
     },
     {
      "name": "w_qkv",
@@ -4612,7 +5012,9 @@
      "shape": [
       8192,
       2048
-     ]
+     ],
+     "param": "w_qkv",
+     "kind": "gdn"
     },
     {
      "name": "s_qkv",
@@ -4621,7 +5023,9 @@
      "shape": [
       8192,
       64
-     ]
+     ],
+     "param": "s_qkv",
+     "kind": "gdn"
     },
     {
      "name": "w_z",
@@ -4630,7 +5034,9 @@
      "shape": [
       4096,
       2048
-     ]
+     ],
+     "param": "w_z",
+     "kind": "gdn"
     },
     {
      "name": "s_z",
@@ -4639,7 +5045,9 @@
      "shape": [
       4096,
       64
-     ]
+     ],
+     "param": "s_z",
+     "kind": "gdn"
     },
     {
      "name": "w_b",
@@ -4648,7 +5056,9 @@
      "shape": [
       32,
       2048
-     ]
+     ],
+     "param": "w_b",
+     "kind": "gdn"
     },
     {
      "name": "s_b",
@@ -4657,7 +5067,9 @@
      "shape": [
       32,
       64
-     ]
+     ],
+     "param": "s_b",
+     "kind": "gdn"
     },
     {
      "name": "w_a",
@@ -4666,7 +5078,9 @@
      "shape": [
       32,
       2048
-     ]
+     ],
+     "param": "w_a",
+     "kind": "gdn"
     },
     {
      "name": "s_a",
@@ -4675,7 +5089,9 @@
      "shape": [
       32,
       64
-     ]
+     ],
+     "param": "s_a",
+     "kind": "gdn"
     },
     {
      "name": "conv_w",
@@ -4684,7 +5100,9 @@
      "shape": [
       8192,
       4
-     ]
+     ],
+     "param": "conv_w",
+     "kind": "gdn"
     },
     {
      "name": "a_log",
@@ -4692,7 +5110,9 @@
      "dtype": 3,
      "shape": [
       32
-     ]
+     ],
+     "param": "a_log",
+     "kind": "gdn"
     },
     {
      "name": "dt_bias",
@@ -4700,7 +5120,9 @@
      "dtype": 3,
      "shape": [
       32
-     ]
+     ],
+     "param": "dt_bias",
+     "kind": "gdn"
     },
     {
      "name": "norm_w",
@@ -4708,7 +5130,9 @@
      "dtype": 3,
      "shape": [
       128
-     ]
+     ],
+     "param": "norm_w",
+     "kind": "gdn"
     },
     {
      "name": "w_out",
@@ -4717,7 +5141,9 @@
      "shape": [
       2048,
       4096
-     ]
+     ],
+     "param": "w_out",
+     "kind": "gdn"
     },
     {
      "name": "s_out",
@@ -4726,7 +5152,9 @@
      "shape": [
       2048,
       128
-     ]
+     ],
+     "param": "s_out",
+     "kind": "gdn"
     },
     {
      "name": "ln2",
@@ -4734,7 +5162,9 @@
      "dtype": 3,
      "shape": [
       2048
-     ]
+     ],
+     "param": "ln2",
+     "kind": "gdn"
     },
     {
      "name": "w_gate",
@@ -4743,7 +5173,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_gate",
+     "kind": "gdn"
     },
     {
      "name": "s_gate",
@@ -4752,7 +5184,9 @@
      "shape": [
       512,
       64
-     ]
+     ],
+     "param": "s_gate",
+     "kind": "gdn"
     },
     {
      "name": "w_up",
@@ -4761,7 +5195,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_up",
+     "kind": "gdn"
     },
     {
      "name": "s_up",
@@ -4770,7 +5206,9 @@
      "shape": [
       512,
       64
-     ]
+     ],
+     "param": "s_up",
+     "kind": "gdn"
     },
     {
      "name": "w_down",
@@ -4779,7 +5217,9 @@
      "shape": [
       2048,
       512
-     ]
+     ],
+     "param": "w_down",
+     "kind": "gdn"
     },
     {
      "name": "s_down",
@@ -4788,7 +5228,9 @@
      "shape": [
       2048,
       16
-     ]
+     ],
+     "param": "s_down",
+     "kind": "gdn"
     },
     {
      "name": "w_router",
@@ -4797,7 +5239,9 @@
      "shape": [
       256,
       2048
-     ]
+     ],
+     "param": "w_router",
+     "kind": "gdn"
     },
     {
      "name": "w_shg",
@@ -4805,7 +5249,9 @@
      "dtype": 9,
      "shape": [
       2048
-     ]
+     ],
+     "param": "w_shg",
+     "kind": "gdn"
     },
     {
      "name": "state_in",
@@ -4900,7 +5346,9 @@
      "dtype": 3,
      "shape": [
       2048
-     ]
+     ],
+     "param": "ln1",
+     "kind": "gdn"
     },
     {
      "name": "w_qkv",
@@ -4909,7 +5357,9 @@
      "shape": [
       8192,
       2048
-     ]
+     ],
+     "param": "w_qkv",
+     "kind": "gdn"
     },
     {
      "name": "s_qkv",
@@ -4918,7 +5368,9 @@
      "shape": [
       8192,
       64
-     ]
+     ],
+     "param": "s_qkv",
+     "kind": "gdn"
     },
     {
      "name": "w_z",
@@ -4927,7 +5379,9 @@
      "shape": [
       4096,
       2048
-     ]
+     ],
+     "param": "w_z",
+     "kind": "gdn"
     },
     {
      "name": "s_z",
@@ -4936,7 +5390,9 @@
      "shape": [
       4096,
       64
-     ]
+     ],
+     "param": "s_z",
+     "kind": "gdn"
     },
     {
      "name": "w_b",
@@ -4945,7 +5401,9 @@
      "shape": [
       32,
       2048
-     ]
+     ],
+     "param": "w_b",
+     "kind": "gdn"
     },
     {
      "name": "s_b",
@@ -4954,7 +5412,9 @@
      "shape": [
       32,
       64
-     ]
+     ],
+     "param": "s_b",
+     "kind": "gdn"
     },
     {
      "name": "w_a",
@@ -4963,7 +5423,9 @@
      "shape": [
       32,
       2048
-     ]
+     ],
+     "param": "w_a",
+     "kind": "gdn"
     },
     {
      "name": "s_a",
@@ -4972,7 +5434,9 @@
      "shape": [
       32,
       64
-     ]
+     ],
+     "param": "s_a",
+     "kind": "gdn"
     },
     {
      "name": "conv_w",
@@ -4981,7 +5445,9 @@
      "shape": [
       8192,
       4
-     ]
+     ],
+     "param": "conv_w",
+     "kind": "gdn"
     },
     {
      "name": "a_log",
@@ -4989,7 +5455,9 @@
      "dtype": 3,
      "shape": [
       32
-     ]
+     ],
+     "param": "a_log",
+     "kind": "gdn"
     },
     {
      "name": "dt_bias",
@@ -4997,7 +5465,9 @@
      "dtype": 3,
      "shape": [
       32
-     ]
+     ],
+     "param": "dt_bias",
+     "kind": "gdn"
     },
     {
      "name": "norm_w",
@@ -5005,7 +5475,9 @@
      "dtype": 3,
      "shape": [
       128
-     ]
+     ],
+     "param": "norm_w",
+     "kind": "gdn"
     },
     {
      "name": "w_out",
@@ -5014,7 +5486,9 @@
      "shape": [
       2048,
       4096
-     ]
+     ],
+     "param": "w_out",
+     "kind": "gdn"
     },
     {
      "name": "s_out",
@@ -5023,7 +5497,9 @@
      "shape": [
       2048,
       128
-     ]
+     ],
+     "param": "s_out",
+     "kind": "gdn"
     },
     {
      "name": "ln2",
@@ -5031,7 +5507,9 @@
      "dtype": 3,
      "shape": [
       2048
-     ]
+     ],
+     "param": "ln2",
+     "kind": "gdn"
     },
     {
      "name": "w_gate",
@@ -5040,7 +5518,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_gate",
+     "kind": "gdn"
     },
     {
      "name": "s_gate",
@@ -5049,7 +5529,9 @@
      "shape": [
       512,
       64
-     ]
+     ],
+     "param": "s_gate",
+     "kind": "gdn"
     },
     {
      "name": "w_up",
@@ -5058,7 +5540,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_up",
+     "kind": "gdn"
     },
     {
      "name": "s_up",
@@ -5067,7 +5551,9 @@
      "shape": [
       512,
       64
-     ]
+     ],
+     "param": "s_up",
+     "kind": "gdn"
     },
     {
      "name": "w_down",
@@ -5076,7 +5562,9 @@
      "shape": [
       2048,
       512
-     ]
+     ],
+     "param": "w_down",
+     "kind": "gdn"
     },
     {
      "name": "s_down",
@@ -5085,7 +5573,9 @@
      "shape": [
       2048,
       16
-     ]
+     ],
+     "param": "s_down",
+     "kind": "gdn"
     },
     {
      "name": "w_router",
@@ -5094,7 +5584,9 @@
      "shape": [
       256,
       2048
-     ]
+     ],
+     "param": "w_router",
+     "kind": "gdn"
     },
     {
      "name": "w_shg",
@@ -5102,7 +5594,9 @@
      "dtype": 9,
      "shape": [
       2048
-     ]
+     ],
+     "param": "w_shg",
+     "kind": "gdn"
     },
     {
      "name": "state_in",
@@ -5197,7 +5691,9 @@
      "dtype": 3,
      "shape": [
       2048
-     ]
+     ],
+     "param": "ln1",
+     "kind": "gdn"
     },
     {
      "name": "w_qkv",
@@ -5206,7 +5702,9 @@
      "shape": [
       8192,
       2048
-     ]
+     ],
+     "param": "w_qkv",
+     "kind": "gdn"
     },
     {
      "name": "s_qkv",
@@ -5215,7 +5713,9 @@
      "shape": [
       8192,
       64
-     ]
+     ],
+     "param": "s_qkv",
+     "kind": "gdn"
     },
     {
      "name": "w_z",
@@ -5224,7 +5724,9 @@
      "shape": [
       4096,
       2048
-     ]
+     ],
+     "param": "w_z",
+     "kind": "gdn"
     },
     {
      "name": "s_z",
@@ -5233,7 +5735,9 @@
      "shape": [
       4096,
       64
-     ]
+     ],
+     "param": "s_z",
+     "kind": "gdn"
     },
     {
      "name": "w_b",
@@ -5242,7 +5746,9 @@
      "shape": [
       32,
       2048
-     ]
+     ],
+     "param": "w_b",
+     "kind": "gdn"
     },
     {
      "name": "s_b",
@@ -5251,7 +5757,9 @@
      "shape": [
       32,
       64
-     ]
+     ],
+     "param": "s_b",
+     "kind": "gdn"
     },
     {
      "name": "w_a",
@@ -5260,7 +5768,9 @@
      "shape": [
       32,
       2048
-     ]
+     ],
+     "param": "w_a",
+     "kind": "gdn"
     },
     {
      "name": "s_a",
@@ -5269,7 +5779,9 @@
      "shape": [
       32,
       64
-     ]
+     ],
+     "param": "s_a",
+     "kind": "gdn"
     },
     {
      "name": "conv_w",
@@ -5278,7 +5790,9 @@
      "shape": [
       8192,
       4
-     ]
+     ],
+     "param": "conv_w",
+     "kind": "gdn"
     },
     {
      "name": "a_log",
@@ -5286,7 +5800,9 @@
      "dtype": 3,
      "shape": [
       32
-     ]
+     ],
+     "param": "a_log",
+     "kind": "gdn"
     },
     {
      "name": "dt_bias",
@@ -5294,7 +5810,9 @@
      "dtype": 3,
      "shape": [
       32
-     ]
+     ],
+     "param": "dt_bias",
+     "kind": "gdn"
     },
     {
      "name": "norm_w",
@@ -5302,7 +5820,9 @@
      "dtype": 3,
      "shape": [
       128
-     ]
+     ],
+     "param": "norm_w",
+     "kind": "gdn"
     },
     {
      "name": "w_out",
@@ -5311,7 +5831,9 @@
      "shape": [
       2048,
       4096
-     ]
+     ],
+     "param": "w_out",
+     "kind": "gdn"
     },
     {
      "name": "s_out",
@@ -5320,7 +5842,9 @@
      "shape": [
       2048,
       128
-     ]
+     ],
+     "param": "s_out",
+     "kind": "gdn"
     },
     {
      "name": "ln2",
@@ -5328,7 +5852,9 @@
      "dtype": 3,
      "shape": [
       2048
-     ]
+     ],
+     "param": "ln2",
+     "kind": "gdn"
     },
     {
      "name": "w_gate",
@@ -5337,7 +5863,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_gate",
+     "kind": "gdn"
     },
     {
      "name": "s_gate",
@@ -5346,7 +5874,9 @@
      "shape": [
       512,
       64
-     ]
+     ],
+     "param": "s_gate",
+     "kind": "gdn"
     },
     {
      "name": "w_up",
@@ -5355,7 +5885,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_up",
+     "kind": "gdn"
     },
     {
      "name": "s_up",
@@ -5364,7 +5896,9 @@
      "shape": [
       512,
       64
-     ]
+     ],
+     "param": "s_up",
+     "kind": "gdn"
     },
     {
      "name": "w_down",
@@ -5373,7 +5907,9 @@
      "shape": [
       2048,
       512
-     ]
+     ],
+     "param": "w_down",
+     "kind": "gdn"
     },
     {
      "name": "s_down",
@@ -5382,7 +5918,9 @@
      "shape": [
       2048,
       16
-     ]
+     ],
+     "param": "s_down",
+     "kind": "gdn"
     },
     {
      "name": "w_router",
@@ -5391,7 +5929,9 @@
      "shape": [
       256,
       2048
-     ]
+     ],
+     "param": "w_router",
+     "kind": "gdn"
     },
     {
      "name": "w_shg",
@@ -5399,7 +5939,9 @@
      "dtype": 9,
      "shape": [
       2048
-     ]
+     ],
+     "param": "w_shg",
+     "kind": "gdn"
     },
     {
      "name": "state_in",
@@ -5494,7 +6036,9 @@
      "dtype": 3,
      "shape": [
       2048
-     ]
+     ],
+     "param": "ln1",
+     "kind": "attn"
     },
     {
      "name": "w_q",
@@ -5503,7 +6047,9 @@
      "shape": [
       8192,
       2048
-     ]
+     ],
+     "param": "w_q",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_k",
@@ -5512,7 +6058,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_k",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_v",
@@ -5521,7 +6069,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_v",
+     "kind": "attn_bf16"
     },
     {
      "name": "q_norm",
@@ -5529,7 +6079,9 @@
      "dtype": 3,
      "shape": [
       256
-     ]
+     ],
+     "param": "q_norm",
+     "kind": "attn"
     },
     {
      "name": "k_norm",
@@ -5537,7 +6089,9 @@
      "dtype": 3,
      "shape": [
       256
-     ]
+     ],
+     "param": "k_norm",
+     "kind": "attn"
     },
     {
      "name": "cos",
@@ -5590,7 +6144,9 @@
      "shape": [
       2048,
       4096
-     ]
+     ],
+     "param": "w_o",
+     "kind": "attn_bf16"
     },
     {
      "name": "ln2",
@@ -5598,7 +6154,9 @@
      "dtype": 3,
      "shape": [
       2048
-     ]
+     ],
+     "param": "ln2",
+     "kind": "attn"
     },
     {
      "name": "w_gate",
@@ -5607,7 +6165,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_gate",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_up",
@@ -5616,7 +6176,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_up",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_down",
@@ -5625,7 +6187,9 @@
      "shape": [
       2048,
       512
-     ]
+     ],
+     "param": "w_down",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_router",
@@ -5634,7 +6198,9 @@
      "shape": [
       256,
       2048
-     ]
+     ],
+     "param": "w_router",
+     "kind": "attn"
     },
     {
      "name": "w_shg",
@@ -5642,7 +6208,9 @@
      "dtype": 9,
      "shape": [
       2048
-     ]
+     ],
+     "param": "w_shg",
+     "kind": "attn"
     }
    ],
    "out": [
@@ -5715,7 +6283,9 @@
      "dtype": 3,
      "shape": [
       2048
-     ]
+     ],
+     "param": "ln1",
+     "kind": "attn"
     },
     {
      "name": "w_q",
@@ -5724,7 +6294,9 @@
      "shape": [
       8192,
       2048
-     ]
+     ],
+     "param": "w_q",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_k",
@@ -5733,7 +6305,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_k",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_v",
@@ -5742,7 +6316,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_v",
+     "kind": "attn_bf16"
     },
     {
      "name": "q_norm",
@@ -5750,7 +6326,9 @@
      "dtype": 3,
      "shape": [
       256
-     ]
+     ],
+     "param": "q_norm",
+     "kind": "attn"
     },
     {
      "name": "k_norm",
@@ -5758,7 +6336,9 @@
      "dtype": 3,
      "shape": [
       256
-     ]
+     ],
+     "param": "k_norm",
+     "kind": "attn"
     },
     {
      "name": "cos",
@@ -5811,7 +6391,9 @@
      "shape": [
       2048,
       4096
-     ]
+     ],
+     "param": "w_o",
+     "kind": "attn_bf16"
     },
     {
      "name": "ln2",
@@ -5819,7 +6401,9 @@
      "dtype": 3,
      "shape": [
       2048
-     ]
+     ],
+     "param": "ln2",
+     "kind": "attn"
     },
     {
      "name": "w_gate",
@@ -5828,7 +6412,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_gate",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_up",
@@ -5837,7 +6423,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_up",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_down",
@@ -5846,7 +6434,9 @@
      "shape": [
       2048,
       512
-     ]
+     ],
+     "param": "w_down",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_router",
@@ -5855,7 +6445,9 @@
      "shape": [
       256,
       2048
-     ]
+     ],
+     "param": "w_router",
+     "kind": "attn"
     },
     {
      "name": "w_shg",
@@ -5863,7 +6455,9 @@
      "dtype": 9,
      "shape": [
       2048
-     ]
+     ],
+     "param": "w_shg",
+     "kind": "attn"
     }
    ],
    "out": [
@@ -5936,7 +6530,9 @@
      "dtype": 3,
      "shape": [
       2048
-     ]
+     ],
+     "param": "ln1",
+     "kind": "attn"
     },
     {
      "name": "w_q",
@@ -5945,7 +6541,9 @@
      "shape": [
       8192,
       2048
-     ]
+     ],
+     "param": "w_q",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_k",
@@ -5954,7 +6552,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_k",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_v",
@@ -5963,7 +6563,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_v",
+     "kind": "attn_bf16"
     },
     {
      "name": "q_norm",
@@ -5971,7 +6573,9 @@
      "dtype": 3,
      "shape": [
       256
-     ]
+     ],
+     "param": "q_norm",
+     "kind": "attn"
     },
     {
      "name": "k_norm",
@@ -5979,7 +6583,9 @@
      "dtype": 3,
      "shape": [
       256
-     ]
+     ],
+     "param": "k_norm",
+     "kind": "attn"
     },
     {
      "name": "cos",
@@ -6032,7 +6638,9 @@
      "shape": [
       2048,
       4096
-     ]
+     ],
+     "param": "w_o",
+     "kind": "attn_bf16"
     },
     {
      "name": "ln2",
@@ -6040,7 +6648,9 @@
      "dtype": 3,
      "shape": [
       2048
-     ]
+     ],
+     "param": "ln2",
+     "kind": "attn"
     },
     {
      "name": "w_gate",
@@ -6049,7 +6659,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_gate",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_up",
@@ -6058,7 +6670,9 @@
      "shape": [
       512,
       2048
-     ]
+     ],
+     "param": "w_up",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_down",
@@ -6067,7 +6681,9 @@
      "shape": [
       2048,
       512
-     ]
+     ],
+     "param": "w_down",
+     "kind": "attn_bf16"
     },
     {
      "name": "w_router",
@@ -6076,7 +6692,9 @@
      "shape": [
       256,
       2048
-     ]
+     ],
+     "param": "w_router",
+     "kind": "attn"
     },
     {
      "name": "w_shg",
@@ -6084,7 +6702,9 @@
      "dtype": 9,
      "shape": [
       2048
-     ]
+     ],
+     "param": "w_shg",
+     "kind": "attn"
     }
    ],
    "out": [
@@ -6176,7 +6796,9 @@
       256,
       1024,
       1024
-     ]
+     ],
+     "param": "e_gw",
+     "kind": "experts"
     },
     {
      "name": "e_gs",
@@ -6186,7 +6808,9 @@
       256,
       1024,
       64
-     ]
+     ],
+     "param": "e_gs",
+     "kind": "experts"
     },
     {
      "name": "e_dw",
@@ -6196,7 +6820,9 @@
       256,
       2048,
       256
-     ]
+     ],
+     "param": "e_dw",
+     "kind": "experts"
     },
     {
      "name": "e_ds",
@@ -6206,7 +6832,9 @@
       256,
       2048,
       16
-     ]
+     ],
+     "param": "e_ds",
+     "kind": "experts"
     }
    ],
    "out": [
@@ -6260,7 +6888,9 @@
       256,
       1024,
       1024
-     ]
+     ],
+     "param": "e_gw",
+     "kind": "experts"
     },
     {
      "name": "e_gs",
@@ -6270,7 +6900,9 @@
       256,
       1024,
       64
-     ]
+     ],
+     "param": "e_gs",
+     "kind": "experts"
     },
     {
      "name": "e_dw",
@@ -6280,7 +6912,9 @@
       256,
       2048,
       256
-     ]
+     ],
+     "param": "e_dw",
+     "kind": "experts"
     },
     {
      "name": "e_ds",
@@ -6290,7 +6924,9 @@
       256,
       2048,
       16
-     ]
+     ],
+     "param": "e_ds",
+     "kind": "experts"
     }
    ],
    "out": [
@@ -6344,7 +6980,9 @@
       256,
       1024,
       1024
-     ]
+     ],
+     "param": "e_gw",
+     "kind": "experts"
     },
     {
      "name": "e_gs",
@@ -6354,7 +6992,9 @@
       256,
       1024,
       64
-     ]
+     ],
+     "param": "e_gs",
+     "kind": "experts"
     },
     {
      "name": "e_dw",
@@ -6364,7 +7004,9 @@
       256,
       2048,
       256
-     ]
+     ],
+     "param": "e_dw",
+     "kind": "experts"
     },
     {
      "name": "e_ds",
@@ -6374,7 +7016,9 @@
       256,
       2048,
       16
-     ]
+     ],
+     "param": "e_ds",
+     "kind": "experts"
     }
    ],
    "out": [
@@ -6428,7 +7072,9 @@
       256,
       1024,
       1024
-     ]
+     ],
+     "param": "e_gw",
+     "kind": "experts"
     },
     {
      "name": "e_gs",
@@ -6438,7 +7084,9 @@
       256,
       1024,
       64
-     ]
+     ],
+     "param": "e_gs",
+     "kind": "experts"
     },
     {
      "name": "e_dw",
@@ -6448,7 +7096,9 @@
       256,
       2048,
       256
-     ]
+     ],
+     "param": "e_dw",
+     "kind": "experts"
     },
     {
      "name": "e_ds",
@@ -6458,7 +7108,9 @@
       256,
       2048,
       16
-     ]
+     ],
+     "param": "e_ds",
+     "kind": "experts"
     }
    ],
    "out": [
@@ -6512,7 +7164,9 @@
       256,
       1024,
       1024
-     ]
+     ],
+     "param": "e_gw",
+     "kind": "experts"
     },
     {
      "name": "e_gs",
@@ -6522,7 +7176,9 @@
       256,
       1024,
       64
-     ]
+     ],
+     "param": "e_gs",
+     "kind": "experts"
     },
     {
      "name": "e_dw",
@@ -6532,7 +7188,9 @@
       256,
       2048,
       256
-     ]
+     ],
+     "param": "e_dw",
+     "kind": "experts"
     },
     {
      "name": "e_ds",
@@ -6542,7 +7200,9 @@
       256,
       2048,
       16
-     ]
+     ],
+     "param": "e_ds",
+     "kind": "experts"
     }
    ],
    "out": [
@@ -6596,7 +7256,9 @@
       256,
       1024,
       1024
-     ]
+     ],
+     "param": "e_gw",
+     "kind": "experts"
     },
     {
      "name": "e_gs",
@@ -6606,7 +7268,9 @@
       256,
       1024,
       64
-     ]
+     ],
+     "param": "e_gs",
+     "kind": "experts"
     },
     {
      "name": "e_dw",
@@ -6616,7 +7280,9 @@
       256,
       2048,
       256
-     ]
+     ],
+     "param": "e_dw",
+     "kind": "experts"
     },
     {
      "name": "e_ds",
@@ -6626,7 +7292,9 @@
       256,
       2048,
       16
-     ]
+     ],
+     "param": "e_ds",
+     "kind": "experts"
     }
    ],
    "out": [
