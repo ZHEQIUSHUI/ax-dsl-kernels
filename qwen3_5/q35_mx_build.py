@@ -26,6 +26,7 @@ import axnn.dsl as ax
 from axnn.dsl.kernels.utils import rmsnorm
 from axnn.dsl.kernels.utils.linear import linear
 from axnn.frontend import graph_utils
+from axnn.opset.datatype import DType
 import board_io
 import q35_step as q
 import q35_chat_build as cb
@@ -91,6 +92,17 @@ def oc_tile_fp8(cols):
 # cos 0.999989 against the single-core kernel (whole K: 0.999977)
 PRJ_ROWS = int(os.environ.get("PRJ_ROWS", 0))
 PRJ_KSPLIT = int(os.environ.get("PRJ_KSPLIT", 0))
+# PRJ_IC=<channels> (with PRJ_ROWS; prefill, more than one row): each output tile of an MX / NVFP4 projection over input
+# tiles of that many channels, summed in fp32 and cast to the output once (instead of PRJ_KSPLIT; the tile loop
+# pipelines the weight loads). PRJ_ACC: f32: every tile's product in fp32 (an fp32 sum throughout; MXFP8 about as fast
+# as bf16 products, FP4 weights much slower), part: every tile's product rounded to bf16 once, the tiles summed in
+# fp32 (as PRJ_KSPLIT's slices, with more of them), auto (default): f32 for MXFP8 weights, part for FP4 ones;
+# f32only / partonly: auto for the MXFP8 / the FP4 weights only, the others as without PRJ_IC.
+# Simulator, one core, 128 rows: 9B MLP down MXFP4 13.4 -> 17.4, 27B down 10.5 -> 16.7 TFLOPS. Off by default
+PRJ_IC = int(os.environ.get("PRJ_IC", 0))
+PRJ_NMC_OC = int(os.environ.get("PRJ_NMC_OC", 0))
+PRJ_NMC_IC = int(os.environ.get("PRJ_NMC_IC", 768))
+PRJ_ACC = os.environ.get("PRJ_ACC", "auto")
 
 
 def oc_tile_fp4(cols):
@@ -102,8 +114,18 @@ def proj_mx(x, w, name, output_dtype=ax.bf16):
     nv = dict(weight_scale2=s2) if s2 is not None else {}  # NVFP4: its tensor scale2
     gs = NVG if s2 is not None else GROUP
     tile = oc_tile_fp4(w.shape[1]) if s2 is not None else oc_tile_fp8(w.shape[1]) if s is not None else q.oc_tile(w.shape[1])
+    if PRJ_NMC_OC and s is not None and x.shape[-2] > 1:
+        # PRJ_NMC_OC / PRJ_NMC_IC (prefill): sglang's tiling, output tiles of PRJ_NMC_OC rows over input tiles of PRJ_NMC_IC
+        # channels accumulated in place (NMC add-assign, the first tile initializing)
+        return linear(x, w, s, name, output_dtype=output_dtype, oc_tile_size=min(PRJ_NMC_OC, w.shape[0]),
+                      ic_tile_size=min(PRJ_NMC_IC, w.shape[1]), ic_accumulation="nmc",
+                      prezero_ic_accumulator=os.environ.get("PRJ_NMC_PREZERO") == "1", **nv)
     if PRJ_ROWS and s is not None:
         tile = min(PRJ_ROWS, w.shape[0])
+        if PRJ_IC and x.shape[-2] > 1 and w.shape[1] > PRJ_IC:
+            fp4 = DType(w.dtype).typename in ("MXFP4", "NVFP4", "MXFP4_X2", "NVFP4_X2")
+            if not (PRJ_ACC == "f32only" and fp4) and not (PRJ_ACC == "partonly" and not fp4):
+                return proj_ic(x, w, s, nv, gs, tile, name, output_dtype)
         if PRJ_KSPLIT and w.shape[1] > PRJ_KSPLIT and x.shape[-2] * w.shape[0] * 4 <= (2 << 20):  # fp32 sum within 2 MB
             acc = None
             for k0 in range(0, w.shape[1], PRJ_KSPLIT):
@@ -113,6 +135,32 @@ def proj_mx(x, w, name, output_dtype=ax.bf16):
                 acc = ax.dsl.cast(part, dtype=ax.fp32) if acc is None else ax.dsl.add(acc, part, output_dtype=ax.fp32)
             return ax.dsl.cast(acc, dtype=output_dtype)
     return linear(x, w, s, name, output_dtype=output_dtype, oc_tile_size=tile, **nv)
+
+
+def proj_ic(x, w, s, nv, gs, tile, name, output_dtype):
+    """proj_mx with PRJ_IC: per output tile of `tile` rows the input tiles of PRJ_IC channels, summed in fp32 and cast
+    once (PRJ_ACC f32: fp32 products, linear's teng accumulation; part: bf16 products, one linear per tile)"""
+    acc_mode = PRJ_ACC
+    if acc_mode in ("auto", "f32only", "partonly"):
+        fp4 = DType(w.dtype).typename in ("MXFP4", "NVFP4", "MXFP4_X2", "NVFP4_X2")
+        acc_mode = "part" if fp4 else "f32"
+    if acc_mode == "f32":
+        y = linear(x, w, s, name, output_dtype=ax.fp32, oc_tile_size=tile, ic_tile_size=PRJ_IC, ic_accumulation="teng",
+                   **nv)
+        return ax.dsl.cast(y, dtype=output_dtype)
+    assert acc_mode == "part", f"PRJ_ACC {PRJ_ACC}"
+    K = w.shape[1]
+    out = ax.dsl.create_tensor((*x.shape[:-1], w.shape[0]), output_dtype, name=f"{name}_output")
+    for o0 in range(0, w.shape[0], tile):
+        os_ = slice(o0, min(o0 + tile, w.shape[0]))
+        acc = None
+        for i0 in range(0, K, PRJ_IC):
+            ks = slice(i0, min(i0 + PRJ_IC, K))
+            p = linear(x[..., ks], w[os_, ks], s[os_, ks.start // gs : ks.stop // gs], f"{name}_o{o0}_i{i0}",
+                       output_dtype=ax.bf16, oc_tile_size=tile, **nv)
+            acc = ax.dsl.cast(p, dtype=ax.fp32) if acc is None else ax.dsl.add(acc, p, output_dtype=ax.fp32)
+        ax.dsl.cast(acc, dtype=output_dtype, r=out[..., os_])
+    return out
 
 
 def slice_w_mx(w, rows=slice(None), cols=slice(None)):

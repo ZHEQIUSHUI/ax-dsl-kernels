@@ -429,8 +429,7 @@ CHUNK = min(P, int(os.environ.get("CHUNK", 32)))
 # PBLK=<rows>: a chunk of more rows runs in halves down to PBLK rows inside the one call (the layer body per block of
 # rows, the second half continuing from the first's state, conv rows and K / V, as q35_prefill's REF_HALF): a larger
 # chunk per call (fewer calls per layer) whose blocks each fit the OCM as a PBLK-row chunk does; each block's
-# arithmetic is the PBLK-row kernel's. Each block's body starts its own SHM_LIVE (KEEP_SHM): a block's shared OCM
-# tensors are kept until that block's output store, not past it into the next block's
+# arithmetic is the PBLK-row kernel's
 PBLK = int(os.environ.get("PBLK", 0))
 POS_OFF = [0]  # the block's first position after pos
 

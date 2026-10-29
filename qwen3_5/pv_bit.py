@@ -1,4 +1,6 @@
-"""Bitwise checks of the GDN prefill kernels with a valid-row count (PAD, q35_step.with_pad): one four-core packed
+"""(CALLS=<n>: n consecutive calls of the plain kernel over the next tokens' rows, the state and conv state carried; the
+outputs concatenated: a 512-row chunk in blocks against 4 calls of the 128-row kernel)
+Bitwise checks of the GDN prefill kernels with a valid-row count (PAD, q35_step.with_pad): one four-core packed
 GDN prefill call (PCHUNK = P) from a zero state on layer 0's weights, NVROWS tokens (rows of L.tokens(W, 0)) and the
 padding rows filled per FILL (next: the following tokens' rows, last: copies of the last token's, zero); saves the
 tokens' outputs, the state and the conv state to <out>.pt. PV=0: the plain kernel (NVROWS = P).
@@ -40,6 +42,20 @@ def main():
     fn = K.gdn_layer_mx4_pk if K.MX4 else K.gdn_layer_mx_pk
     if PV:
         fn = q.with_pad(fn)
+    calls = int(os.environ.get("CALLS", 1))
+    if calls > 1:  # n calls of the plain kernel, each P rows of the next tokens
+        st = torch.zeros((L.NV, L.DK, L.DV))
+        cv = torch.zeros((1, L.CONV - 1, 2 * L.KD + L.VD), dtype=torch.bfloat16)
+        k = L.kern(fn, f"bit_{fn.__name__}")
+        outs = []
+        for c in range(calls):
+            case = dict(pk, x=L.tokens(W, c * L.P), out=torch.zeros((1, L.P, L.H), dtype=torch.bfloat16), state_in=st,
+                        conv_in=cv, state_out=torch.zeros_like(st), conv_out=torch.zeros_like(cv))
+            L.run(k, L.CORES, case, L.order(fn))
+            outs.append(case["out"].clone())
+            st, cv = case["state_out"].clone(), case["conv_out"].clone()
+        torch.save({"out": torch.cat(outs, dim=1), "state": st, "conv": cv}, sys.argv[1])
+        return
     x = L.tokens(W, 0)
     if fill == "last":
         x[:, n:] = x[:, n - 1 : n]
