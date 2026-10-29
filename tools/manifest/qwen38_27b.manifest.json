@@ -1,0 +1,6062 @@
+{
+ "format": 1,
+ "model": "qwen35_dense",
+ "context": 16384,
+ "cores": 4,
+ "params": {
+  "gdn": {
+   "ln1": {
+    "gguf": "attn_norm.weight",
+    "convert": "tensor",
+    "bytes": 20480,
+    "dtype": 3,
+    "shape": [
+     5120
+    ]
+   },
+   "w_qkv": {
+    "gguf": "attn_qkv.weight",
+    "convert": "mxfp4",
+    "bytes": 26214400,
+    "dtype": 15,
+    "shape": [
+     10240,
+     5120
+    ]
+   },
+   "s_qkv": {
+    "gguf": "attn_qkv.weight",
+    "convert": "mxfp4_scales",
+    "bytes": 1638400,
+    "dtype": 1,
+    "shape": [
+     10240,
+     160
+    ]
+   },
+   "w_z": {
+    "gguf": "attn_gate.weight",
+    "convert": "mxfp4",
+    "bytes": 15728640,
+    "dtype": 15,
+    "shape": [
+     6144,
+     5120
+    ]
+   },
+   "s_z": {
+    "gguf": "attn_gate.weight",
+    "convert": "mxfp4_scales",
+    "bytes": 983040,
+    "dtype": 1,
+    "shape": [
+     6144,
+     160
+    ]
+   },
+   "w_b": {
+    "gguf": "ssm_beta.weight",
+    "convert": "mxfp4",
+    "bytes": 122880,
+    "dtype": 15,
+    "shape": [
+     48,
+     5120
+    ]
+   },
+   "s_b": {
+    "gguf": "ssm_beta.weight",
+    "convert": "mxfp4_scales",
+    "bytes": 7680,
+    "dtype": 1,
+    "shape": [
+     48,
+     160
+    ]
+   },
+   "w_a": {
+    "gguf": "ssm_alpha.weight",
+    "convert": "mxfp4",
+    "bytes": 122880,
+    "dtype": 15,
+    "shape": [
+     48,
+     5120
+    ]
+   },
+   "s_a": {
+    "gguf": "ssm_alpha.weight",
+    "convert": "mxfp4_scales",
+    "bytes": 7680,
+    "dtype": 1,
+    "shape": [
+     48,
+     160
+    ]
+   },
+   "conv_w": {
+    "gguf": "ssm_conv1d.weight",
+    "convert": "bf16_taps_reversed",
+    "bytes": 81920,
+    "dtype": 9,
+    "shape": [
+     10240,
+     4
+    ]
+   },
+   "a_log": {
+    "gguf": "ssm_a",
+    "convert": "log_neg",
+    "bytes": 192,
+    "dtype": 3,
+    "shape": [
+     48
+    ]
+   },
+   "dt_bias": {
+    "gguf": "ssm_dt.bias",
+    "convert": "tensor",
+    "bytes": 192,
+    "dtype": 3,
+    "shape": [
+     48
+    ]
+   },
+   "norm_w": {
+    "gguf": "ssm_norm.weight",
+    "convert": "tensor",
+    "bytes": 512,
+    "dtype": 3,
+    "shape": [
+     128
+    ]
+   },
+   "w_out": {
+    "gguf": "ssm_out.weight",
+    "convert": "mxfp4",
+    "bytes": 15728640,
+    "dtype": 15,
+    "shape": [
+     5120,
+     6144
+    ]
+   },
+   "s_out": {
+    "gguf": "ssm_out.weight",
+    "convert": "mxfp4_scales",
+    "bytes": 983040,
+    "dtype": 1,
+    "shape": [
+     5120,
+     192
+    ]
+   },
+   "ln2": {
+    "gguf": "post_attention_norm.weight",
+    "convert": "tensor",
+    "bytes": 20480,
+    "dtype": 3,
+    "shape": [
+     5120
+    ]
+   },
+   "w_gate": {
+    "gguf": "ffn_gate.weight",
+    "convert": "mxfp4",
+    "bytes": 44564480,
+    "dtype": 15,
+    "shape": [
+     17408,
+     5120
+    ]
+   },
+   "s_gate": {
+    "gguf": "ffn_gate.weight",
+    "convert": "mxfp4_scales",
+    "bytes": 2785280,
+    "dtype": 1,
+    "shape": [
+     17408,
+     160
+    ]
+   },
+   "w_up": {
+    "gguf": "ffn_up.weight",
+    "convert": "mxfp4",
+    "bytes": 44564480,
+    "dtype": 15,
+    "shape": [
+     17408,
+     5120
+    ]
+   },
+   "s_up": {
+    "gguf": "ffn_up.weight",
+    "convert": "mxfp4_scales",
+    "bytes": 2785280,
+    "dtype": 1,
+    "shape": [
+     17408,
+     160
+    ]
+   },
+   "w_down": {
+    "gguf": "ffn_down.weight",
+    "convert": "mxfp4",
+    "bytes": 44564480,
+    "dtype": 15,
+    "shape": [
+     5120,
+     17408
+    ]
+   },
+   "s_down": {
+    "gguf": "ffn_down.weight",
+    "convert": "mxfp4_scales",
+    "bytes": 2785280,
+    "dtype": 1,
+    "shape": [
+     5120,
+     544
+    ]
+   }
+  },
+  "attn": {
+   "ln1": {
+    "gguf": "attn_norm.weight",
+    "convert": "tensor",
+    "bytes": 20480,
+    "dtype": 3,
+    "shape": [
+     5120
+    ]
+   },
+   "w_q": {
+    "gguf": "attn_q.weight",
+    "convert": "mxfp4",
+    "bytes": 31457280,
+    "dtype": 15,
+    "shape": [
+     12288,
+     5120
+    ]
+   },
+   "s_q": {
+    "gguf": "attn_q.weight",
+    "convert": "mxfp4_scales",
+    "bytes": 1966080,
+    "dtype": 1,
+    "shape": [
+     12288,
+     160
+    ]
+   },
+   "w_k": {
+    "gguf": "attn_k.weight",
+    "convert": "mxfp4",
+    "bytes": 2621440,
+    "dtype": 15,
+    "shape": [
+     1024,
+     5120
+    ]
+   },
+   "s_k": {
+    "gguf": "attn_k.weight",
+    "convert": "mxfp4_scales",
+    "bytes": 163840,
+    "dtype": 1,
+    "shape": [
+     1024,
+     160
+    ]
+   },
+   "w_v": {
+    "gguf": "attn_v.weight",
+    "convert": "mxfp4",
+    "bytes": 2621440,
+    "dtype": 15,
+    "shape": [
+     1024,
+     5120
+    ]
+   },
+   "s_v": {
+    "gguf": "attn_v.weight",
+    "convert": "mxfp4_scales",
+    "bytes": 163840,
+    "dtype": 1,
+    "shape": [
+     1024,
+     160
+    ]
+   },
+   "q_norm": {
+    "gguf": "attn_q_norm.weight",
+    "convert": "tensor",
+    "bytes": 1024,
+    "dtype": 3,
+    "shape": [
+     256
+    ]
+   },
+   "k_norm": {
+    "gguf": "attn_k_norm.weight",
+    "convert": "tensor",
+    "bytes": 1024,
+    "dtype": 3,
+    "shape": [
+     256
+    ]
+   },
+   "w_o": {
+    "gguf": "attn_output.weight",
+    "convert": "mxfp4",
+    "bytes": 15728640,
+    "dtype": 15,
+    "shape": [
+     5120,
+     6144
+    ]
+   },
+   "s_o": {
+    "gguf": "attn_output.weight",
+    "convert": "mxfp4_scales",
+    "bytes": 983040,
+    "dtype": 1,
+    "shape": [
+     5120,
+     192
+    ]
+   },
+   "ln2": {
+    "gguf": "post_attention_norm.weight",
+    "convert": "tensor",
+    "bytes": 20480,
+    "dtype": 3,
+    "shape": [
+     5120
+    ]
+   },
+   "w_gate": {
+    "gguf": "ffn_gate.weight",
+    "convert": "mxfp4",
+    "bytes": 44564480,
+    "dtype": 15,
+    "shape": [
+     17408,
+     5120
+    ]
+   },
+   "s_gate": {
+    "gguf": "ffn_gate.weight",
+    "convert": "mxfp4_scales",
+    "bytes": 2785280,
+    "dtype": 1,
+    "shape": [
+     17408,
+     160
+    ]
+   },
+   "w_up": {
+    "gguf": "ffn_up.weight",
+    "convert": "mxfp4",
+    "bytes": 44564480,
+    "dtype": 15,
+    "shape": [
+     17408,
+     5120
+    ]
+   },
+   "s_up": {
+    "gguf": "ffn_up.weight",
+    "convert": "mxfp4_scales",
+    "bytes": 2785280,
+    "dtype": 1,
+    "shape": [
+     17408,
+     160
+    ]
+   },
+   "w_down": {
+    "gguf": "ffn_down.weight",
+    "convert": "mxfp4",
+    "bytes": 44564480,
+    "dtype": 15,
+    "shape": [
+     5120,
+     17408
+    ]
+   },
+   "s_down": {
+    "gguf": "ffn_down.weight",
+    "convert": "mxfp4_scales",
+    "bytes": 2785280,
+    "dtype": 1,
+    "shape": [
+     5120,
+     544
+    ]
+   }
+  }
+ },
+ "kernels": {
+  "decode.group": {
+   "file": "qwen35_group16_gggagggagggaggga_mx4_kvc_c16384_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 10240,
+     "dtype": 9,
+     "shape": [
+      1,
+      1,
+      5120
+     ]
+    },
+    {
+     "name": "p4",
+     "bytes": 1521909760,
+     "dtype": 15,
+     "shape": [
+      -1251147776
+     ]
+    },
+    {
+     "name": "pw",
+     "bytes": 1,
+     "dtype": 11,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "ps",
+     "bytes": 95119360,
+     "dtype": 1,
+     "shape": [
+      95119360
+     ]
+    },
+    {
+     "name": "pf",
+     "bytes": 337152,
+     "dtype": 3,
+     "shape": [
+      84288
+     ]
+    },
+    {
+     "name": "pb",
+     "bytes": 491520,
+     "dtype": 9,
+     "shape": [
+      245760
+     ]
+    },
+    {
+     "name": "p4_1",
+     "bytes": 1521909760,
+     "dtype": 15,
+     "shape": [
+      -1251147776
+     ]
+    },
+    {
+     "name": "ps_1",
+     "bytes": 95119360,
+     "dtype": 1,
+     "shape": [
+      95119360
+     ]
+    },
+    {
+     "name": "pf_1",
+     "bytes": 337152,
+     "dtype": 3,
+     "shape": [
+      84288
+     ]
+    },
+    {
+     "name": "pb_1",
+     "bytes": 491520,
+     "dtype": 9,
+     "shape": [
+      245760
+     ]
+    },
+    {
+     "name": "cs",
+     "bytes": 128,
+     "dtype": 9,
+     "shape": [
+      2,
+      32
+     ]
+    },
+    {
+     "name": "pn",
+     "bytes": 8,
+     "dtype": 6,
+     "shape": [
+      2
+     ]
+    },
+    {
+     "name": "mask",
+     "bytes": 32768,
+     "dtype": 9,
+     "shape": [
+      64,
+      256
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 10240,
+     "dtype": 9,
+     "shape": [
+      1,
+      1,
+      5120
+     ]
+    },
+    {
+     "name": "st0",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "cv0",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    },
+    {
+     "name": "st1",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "cv1",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    },
+    {
+     "name": "st2",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "cv2",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    },
+    {
+     "name": "kc3",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    },
+    {
+     "name": "vc3",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    },
+    {
+     "name": "st4",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "cv4",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    },
+    {
+     "name": "st5",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "cv5",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    },
+    {
+     "name": "st6",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "cv6",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    },
+    {
+     "name": "kc7",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    },
+    {
+     "name": "vc7",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    },
+    {
+     "name": "st8",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "cv8",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    },
+    {
+     "name": "st9",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "cv9",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    },
+    {
+     "name": "st10",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "cv10",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    },
+    {
+     "name": "kc11",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    },
+    {
+     "name": "vc11",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    },
+    {
+     "name": "st12",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "cv12",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    },
+    {
+     "name": "st13",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "cv13",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    },
+    {
+     "name": "st14",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "cv14",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    },
+    {
+     "name": "kc15",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    },
+    {
+     "name": "vc15",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    }
+   ],
+   "packs": {
+    "p4": 1521909760,
+    "pw": 1,
+    "ps": 95119360,
+    "pf": 337152,
+    "pb": 491520,
+    "p4_1": 1521909760,
+    "ps_1": 95119360,
+    "pf_1": 337152,
+    "pb_1": 491520
+   },
+   "members": [
+    {
+     "name": "L0.ln1",
+     "pack": "pf",
+     "offset": 0,
+     "bytes": 20480,
+     "layer": 0,
+     "param": "ln1"
+    },
+    {
+     "name": "L0.w_qkv",
+     "pack": "p4",
+     "offset": 0,
+     "bytes": 26214400,
+     "layer": 0,
+     "param": "w_qkv"
+    },
+    {
+     "name": "L0.s_qkv",
+     "pack": "ps",
+     "offset": 0,
+     "bytes": 1638400,
+     "layer": 0,
+     "param": "s_qkv"
+    },
+    {
+     "name": "L0.w_z",
+     "pack": "p4",
+     "offset": 26214400,
+     "bytes": 15728640,
+     "layer": 0,
+     "param": "w_z"
+    },
+    {
+     "name": "L0.s_z",
+     "pack": "ps",
+     "offset": 1638400,
+     "bytes": 983040,
+     "layer": 0,
+     "param": "s_z"
+    },
+    {
+     "name": "L0.w_b",
+     "pack": "p4",
+     "offset": 41943040,
+     "bytes": 122880,
+     "layer": 0,
+     "param": "w_b"
+    },
+    {
+     "name": "L0.s_b",
+     "pack": "ps",
+     "offset": 2621440,
+     "bytes": 7680,
+     "layer": 0,
+     "param": "s_b"
+    },
+    {
+     "name": "L0.w_a",
+     "pack": "p4",
+     "offset": 42065920,
+     "bytes": 122880,
+     "layer": 0,
+     "param": "w_a"
+    },
+    {
+     "name": "L0.s_a",
+     "pack": "ps",
+     "offset": 2629120,
+     "bytes": 7680,
+     "layer": 0,
+     "param": "s_a"
+    },
+    {
+     "name": "L0.conv_w",
+     "pack": "pb",
+     "offset": 0,
+     "bytes": 81920,
+     "layer": 0,
+     "param": "conv_w"
+    },
+    {
+     "name": "L0.a_log",
+     "pack": "pf",
+     "offset": 20480,
+     "bytes": 192,
+     "layer": 0,
+     "param": "a_log"
+    },
+    {
+     "name": "L0.dt_bias",
+     "pack": "pf",
+     "offset": 20672,
+     "bytes": 192,
+     "layer": 0,
+     "param": "dt_bias"
+    },
+    {
+     "name": "L0.norm_w",
+     "pack": "pf",
+     "offset": 20864,
+     "bytes": 512,
+     "layer": 0,
+     "param": "norm_w"
+    },
+    {
+     "name": "L0.w_out",
+     "pack": "p4",
+     "offset": 42188800,
+     "bytes": 15728640,
+     "layer": 0,
+     "param": "w_out",
+     "strips": [
+      5120,
+      3072,
+      256
+     ]
+    },
+    {
+     "name": "L0.s_out",
+     "pack": "ps",
+     "offset": 2636800,
+     "bytes": 983040,
+     "layer": 0,
+     "param": "s_out",
+     "strips": [
+      5120,
+      192,
+      16
+     ]
+    },
+    {
+     "name": "L0.ln2",
+     "pack": "pf",
+     "offset": 21376,
+     "bytes": 20480,
+     "layer": 0,
+     "param": "ln2"
+    },
+    {
+     "name": "L0.w_gate",
+     "pack": "p4",
+     "offset": 57917440,
+     "bytes": 44564480,
+     "layer": 0,
+     "param": "w_gate"
+    },
+    {
+     "name": "L0.s_gate",
+     "pack": "ps",
+     "offset": 3619840,
+     "bytes": 2785280,
+     "layer": 0,
+     "param": "s_gate"
+    },
+    {
+     "name": "L0.w_up",
+     "pack": "p4",
+     "offset": 102481920,
+     "bytes": 44564480,
+     "layer": 0,
+     "param": "w_up"
+    },
+    {
+     "name": "L0.s_up",
+     "pack": "ps",
+     "offset": 6405120,
+     "bytes": 2785280,
+     "layer": 0,
+     "param": "s_up"
+    },
+    {
+     "name": "L0.w_down",
+     "pack": "p4",
+     "offset": 147046400,
+     "bytes": 44564480,
+     "layer": 0,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L0.s_down",
+     "pack": "ps",
+     "offset": 9190400,
+     "bytes": 2785280,
+     "layer": 0,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    },
+    {
+     "name": "L1.ln1",
+     "pack": "pf",
+     "offset": 41856,
+     "bytes": 20480,
+     "layer": 1,
+     "param": "ln1"
+    },
+    {
+     "name": "L1.w_qkv",
+     "pack": "p4",
+     "offset": 191610880,
+     "bytes": 26214400,
+     "layer": 1,
+     "param": "w_qkv"
+    },
+    {
+     "name": "L1.s_qkv",
+     "pack": "ps",
+     "offset": 11975680,
+     "bytes": 1638400,
+     "layer": 1,
+     "param": "s_qkv"
+    },
+    {
+     "name": "L1.w_z",
+     "pack": "p4",
+     "offset": 217825280,
+     "bytes": 15728640,
+     "layer": 1,
+     "param": "w_z"
+    },
+    {
+     "name": "L1.s_z",
+     "pack": "ps",
+     "offset": 13614080,
+     "bytes": 983040,
+     "layer": 1,
+     "param": "s_z"
+    },
+    {
+     "name": "L1.w_b",
+     "pack": "p4",
+     "offset": 233553920,
+     "bytes": 122880,
+     "layer": 1,
+     "param": "w_b"
+    },
+    {
+     "name": "L1.s_b",
+     "pack": "ps",
+     "offset": 14597120,
+     "bytes": 7680,
+     "layer": 1,
+     "param": "s_b"
+    },
+    {
+     "name": "L1.w_a",
+     "pack": "p4",
+     "offset": 233676800,
+     "bytes": 122880,
+     "layer": 1,
+     "param": "w_a"
+    },
+    {
+     "name": "L1.s_a",
+     "pack": "ps",
+     "offset": 14604800,
+     "bytes": 7680,
+     "layer": 1,
+     "param": "s_a"
+    },
+    {
+     "name": "L1.conv_w",
+     "pack": "pb",
+     "offset": 81920,
+     "bytes": 81920,
+     "layer": 1,
+     "param": "conv_w"
+    },
+    {
+     "name": "L1.a_log",
+     "pack": "pf",
+     "offset": 62336,
+     "bytes": 192,
+     "layer": 1,
+     "param": "a_log"
+    },
+    {
+     "name": "L1.dt_bias",
+     "pack": "pf",
+     "offset": 62528,
+     "bytes": 192,
+     "layer": 1,
+     "param": "dt_bias"
+    },
+    {
+     "name": "L1.norm_w",
+     "pack": "pf",
+     "offset": 62720,
+     "bytes": 512,
+     "layer": 1,
+     "param": "norm_w"
+    },
+    {
+     "name": "L1.w_out",
+     "pack": "p4",
+     "offset": 233799680,
+     "bytes": 15728640,
+     "layer": 1,
+     "param": "w_out",
+     "strips": [
+      5120,
+      3072,
+      256
+     ]
+    },
+    {
+     "name": "L1.s_out",
+     "pack": "ps",
+     "offset": 14612480,
+     "bytes": 983040,
+     "layer": 1,
+     "param": "s_out",
+     "strips": [
+      5120,
+      192,
+      16
+     ]
+    },
+    {
+     "name": "L1.ln2",
+     "pack": "pf",
+     "offset": 63232,
+     "bytes": 20480,
+     "layer": 1,
+     "param": "ln2"
+    },
+    {
+     "name": "L1.w_gate",
+     "pack": "p4",
+     "offset": 249528320,
+     "bytes": 44564480,
+     "layer": 1,
+     "param": "w_gate"
+    },
+    {
+     "name": "L1.s_gate",
+     "pack": "ps",
+     "offset": 15595520,
+     "bytes": 2785280,
+     "layer": 1,
+     "param": "s_gate"
+    },
+    {
+     "name": "L1.w_up",
+     "pack": "p4",
+     "offset": 294092800,
+     "bytes": 44564480,
+     "layer": 1,
+     "param": "w_up"
+    },
+    {
+     "name": "L1.s_up",
+     "pack": "ps",
+     "offset": 18380800,
+     "bytes": 2785280,
+     "layer": 1,
+     "param": "s_up"
+    },
+    {
+     "name": "L1.w_down",
+     "pack": "p4",
+     "offset": 338657280,
+     "bytes": 44564480,
+     "layer": 1,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L1.s_down",
+     "pack": "ps",
+     "offset": 21166080,
+     "bytes": 2785280,
+     "layer": 1,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    },
+    {
+     "name": "L2.ln1",
+     "pack": "pf",
+     "offset": 83712,
+     "bytes": 20480,
+     "layer": 2,
+     "param": "ln1"
+    },
+    {
+     "name": "L2.w_qkv",
+     "pack": "p4",
+     "offset": 383221760,
+     "bytes": 26214400,
+     "layer": 2,
+     "param": "w_qkv"
+    },
+    {
+     "name": "L2.s_qkv",
+     "pack": "ps",
+     "offset": 23951360,
+     "bytes": 1638400,
+     "layer": 2,
+     "param": "s_qkv"
+    },
+    {
+     "name": "L2.w_z",
+     "pack": "p4",
+     "offset": 409436160,
+     "bytes": 15728640,
+     "layer": 2,
+     "param": "w_z"
+    },
+    {
+     "name": "L2.s_z",
+     "pack": "ps",
+     "offset": 25589760,
+     "bytes": 983040,
+     "layer": 2,
+     "param": "s_z"
+    },
+    {
+     "name": "L2.w_b",
+     "pack": "p4",
+     "offset": 425164800,
+     "bytes": 122880,
+     "layer": 2,
+     "param": "w_b"
+    },
+    {
+     "name": "L2.s_b",
+     "pack": "ps",
+     "offset": 26572800,
+     "bytes": 7680,
+     "layer": 2,
+     "param": "s_b"
+    },
+    {
+     "name": "L2.w_a",
+     "pack": "p4",
+     "offset": 425287680,
+     "bytes": 122880,
+     "layer": 2,
+     "param": "w_a"
+    },
+    {
+     "name": "L2.s_a",
+     "pack": "ps",
+     "offset": 26580480,
+     "bytes": 7680,
+     "layer": 2,
+     "param": "s_a"
+    },
+    {
+     "name": "L2.conv_w",
+     "pack": "pb",
+     "offset": 163840,
+     "bytes": 81920,
+     "layer": 2,
+     "param": "conv_w"
+    },
+    {
+     "name": "L2.a_log",
+     "pack": "pf",
+     "offset": 104192,
+     "bytes": 192,
+     "layer": 2,
+     "param": "a_log"
+    },
+    {
+     "name": "L2.dt_bias",
+     "pack": "pf",
+     "offset": 104384,
+     "bytes": 192,
+     "layer": 2,
+     "param": "dt_bias"
+    },
+    {
+     "name": "L2.norm_w",
+     "pack": "pf",
+     "offset": 104576,
+     "bytes": 512,
+     "layer": 2,
+     "param": "norm_w"
+    },
+    {
+     "name": "L2.w_out",
+     "pack": "p4",
+     "offset": 425410560,
+     "bytes": 15728640,
+     "layer": 2,
+     "param": "w_out",
+     "strips": [
+      5120,
+      3072,
+      256
+     ]
+    },
+    {
+     "name": "L2.s_out",
+     "pack": "ps",
+     "offset": 26588160,
+     "bytes": 983040,
+     "layer": 2,
+     "param": "s_out",
+     "strips": [
+      5120,
+      192,
+      16
+     ]
+    },
+    {
+     "name": "L2.ln2",
+     "pack": "pf",
+     "offset": 105088,
+     "bytes": 20480,
+     "layer": 2,
+     "param": "ln2"
+    },
+    {
+     "name": "L2.w_gate",
+     "pack": "p4",
+     "offset": 441139200,
+     "bytes": 44564480,
+     "layer": 2,
+     "param": "w_gate"
+    },
+    {
+     "name": "L2.s_gate",
+     "pack": "ps",
+     "offset": 27571200,
+     "bytes": 2785280,
+     "layer": 2,
+     "param": "s_gate"
+    },
+    {
+     "name": "L2.w_up",
+     "pack": "p4",
+     "offset": 485703680,
+     "bytes": 44564480,
+     "layer": 2,
+     "param": "w_up"
+    },
+    {
+     "name": "L2.s_up",
+     "pack": "ps",
+     "offset": 30356480,
+     "bytes": 2785280,
+     "layer": 2,
+     "param": "s_up"
+    },
+    {
+     "name": "L2.w_down",
+     "pack": "p4",
+     "offset": 530268160,
+     "bytes": 44564480,
+     "layer": 2,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L2.s_down",
+     "pack": "ps",
+     "offset": 33141760,
+     "bytes": 2785280,
+     "layer": 2,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    },
+    {
+     "name": "L3.ln1",
+     "pack": "pf",
+     "offset": 125568,
+     "bytes": 20480,
+     "layer": 3,
+     "param": "ln1"
+    },
+    {
+     "name": "L3.w_q",
+     "pack": "p4",
+     "offset": 574832640,
+     "bytes": 31457280,
+     "layer": 3,
+     "param": "w_q"
+    },
+    {
+     "name": "L3.s_q",
+     "pack": "ps",
+     "offset": 35927040,
+     "bytes": 1966080,
+     "layer": 3,
+     "param": "s_q"
+    },
+    {
+     "name": "L3.w_k",
+     "pack": "p4",
+     "offset": 606289920,
+     "bytes": 2621440,
+     "layer": 3,
+     "param": "w_k"
+    },
+    {
+     "name": "L3.s_k",
+     "pack": "ps",
+     "offset": 37893120,
+     "bytes": 163840,
+     "layer": 3,
+     "param": "s_k"
+    },
+    {
+     "name": "L3.w_v",
+     "pack": "p4",
+     "offset": 608911360,
+     "bytes": 2621440,
+     "layer": 3,
+     "param": "w_v"
+    },
+    {
+     "name": "L3.s_v",
+     "pack": "ps",
+     "offset": 38056960,
+     "bytes": 163840,
+     "layer": 3,
+     "param": "s_v"
+    },
+    {
+     "name": "L3.q_norm",
+     "pack": "pf",
+     "offset": 146048,
+     "bytes": 1024,
+     "layer": 3,
+     "param": "q_norm"
+    },
+    {
+     "name": "L3.k_norm",
+     "pack": "pf",
+     "offset": 147072,
+     "bytes": 1024,
+     "layer": 3,
+     "param": "k_norm"
+    },
+    {
+     "name": "L3.w_o",
+     "pack": "p4",
+     "offset": 611532800,
+     "bytes": 15728640,
+     "layer": 3,
+     "param": "w_o",
+     "strips": [
+      5120,
+      3072,
+      768
+     ]
+    },
+    {
+     "name": "L3.s_o",
+     "pack": "ps",
+     "offset": 38220800,
+     "bytes": 983040,
+     "layer": 3,
+     "param": "s_o",
+     "strips": [
+      5120,
+      192,
+      48
+     ]
+    },
+    {
+     "name": "L3.ln2",
+     "pack": "pf",
+     "offset": 148096,
+     "bytes": 20480,
+     "layer": 3,
+     "param": "ln2"
+    },
+    {
+     "name": "L3.w_gate",
+     "pack": "p4",
+     "offset": 627261440,
+     "bytes": 44564480,
+     "layer": 3,
+     "param": "w_gate"
+    },
+    {
+     "name": "L3.s_gate",
+     "pack": "ps",
+     "offset": 39203840,
+     "bytes": 2785280,
+     "layer": 3,
+     "param": "s_gate"
+    },
+    {
+     "name": "L3.w_up",
+     "pack": "p4",
+     "offset": 671825920,
+     "bytes": 44564480,
+     "layer": 3,
+     "param": "w_up"
+    },
+    {
+     "name": "L3.s_up",
+     "pack": "ps",
+     "offset": 41989120,
+     "bytes": 2785280,
+     "layer": 3,
+     "param": "s_up"
+    },
+    {
+     "name": "L3.w_down",
+     "pack": "p4",
+     "offset": 716390400,
+     "bytes": 44564480,
+     "layer": 3,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L3.s_down",
+     "pack": "ps",
+     "offset": 44774400,
+     "bytes": 2785280,
+     "layer": 3,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    },
+    {
+     "name": "L4.ln1",
+     "pack": "pf",
+     "offset": 168576,
+     "bytes": 20480,
+     "layer": 4,
+     "param": "ln1"
+    },
+    {
+     "name": "L4.w_qkv",
+     "pack": "p4",
+     "offset": 760954880,
+     "bytes": 26214400,
+     "layer": 4,
+     "param": "w_qkv"
+    },
+    {
+     "name": "L4.s_qkv",
+     "pack": "ps",
+     "offset": 47559680,
+     "bytes": 1638400,
+     "layer": 4,
+     "param": "s_qkv"
+    },
+    {
+     "name": "L4.w_z",
+     "pack": "p4",
+     "offset": 787169280,
+     "bytes": 15728640,
+     "layer": 4,
+     "param": "w_z"
+    },
+    {
+     "name": "L4.s_z",
+     "pack": "ps",
+     "offset": 49198080,
+     "bytes": 983040,
+     "layer": 4,
+     "param": "s_z"
+    },
+    {
+     "name": "L4.w_b",
+     "pack": "p4",
+     "offset": 802897920,
+     "bytes": 122880,
+     "layer": 4,
+     "param": "w_b"
+    },
+    {
+     "name": "L4.s_b",
+     "pack": "ps",
+     "offset": 50181120,
+     "bytes": 7680,
+     "layer": 4,
+     "param": "s_b"
+    },
+    {
+     "name": "L4.w_a",
+     "pack": "p4",
+     "offset": 803020800,
+     "bytes": 122880,
+     "layer": 4,
+     "param": "w_a"
+    },
+    {
+     "name": "L4.s_a",
+     "pack": "ps",
+     "offset": 50188800,
+     "bytes": 7680,
+     "layer": 4,
+     "param": "s_a"
+    },
+    {
+     "name": "L4.conv_w",
+     "pack": "pb",
+     "offset": 245760,
+     "bytes": 81920,
+     "layer": 4,
+     "param": "conv_w"
+    },
+    {
+     "name": "L4.a_log",
+     "pack": "pf",
+     "offset": 189056,
+     "bytes": 192,
+     "layer": 4,
+     "param": "a_log"
+    },
+    {
+     "name": "L4.dt_bias",
+     "pack": "pf",
+     "offset": 189248,
+     "bytes": 192,
+     "layer": 4,
+     "param": "dt_bias"
+    },
+    {
+     "name": "L4.norm_w",
+     "pack": "pf",
+     "offset": 189440,
+     "bytes": 512,
+     "layer": 4,
+     "param": "norm_w"
+    },
+    {
+     "name": "L4.w_out",
+     "pack": "p4",
+     "offset": 803143680,
+     "bytes": 15728640,
+     "layer": 4,
+     "param": "w_out",
+     "strips": [
+      5120,
+      3072,
+      256
+     ]
+    },
+    {
+     "name": "L4.s_out",
+     "pack": "ps",
+     "offset": 50196480,
+     "bytes": 983040,
+     "layer": 4,
+     "param": "s_out",
+     "strips": [
+      5120,
+      192,
+      16
+     ]
+    },
+    {
+     "name": "L4.ln2",
+     "pack": "pf",
+     "offset": 189952,
+     "bytes": 20480,
+     "layer": 4,
+     "param": "ln2"
+    },
+    {
+     "name": "L4.w_gate",
+     "pack": "p4",
+     "offset": 818872320,
+     "bytes": 44564480,
+     "layer": 4,
+     "param": "w_gate"
+    },
+    {
+     "name": "L4.s_gate",
+     "pack": "ps",
+     "offset": 51179520,
+     "bytes": 2785280,
+     "layer": 4,
+     "param": "s_gate"
+    },
+    {
+     "name": "L4.w_up",
+     "pack": "p4",
+     "offset": 863436800,
+     "bytes": 44564480,
+     "layer": 4,
+     "param": "w_up"
+    },
+    {
+     "name": "L4.s_up",
+     "pack": "ps",
+     "offset": 53964800,
+     "bytes": 2785280,
+     "layer": 4,
+     "param": "s_up"
+    },
+    {
+     "name": "L4.w_down",
+     "pack": "p4",
+     "offset": 908001280,
+     "bytes": 44564480,
+     "layer": 4,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L4.s_down",
+     "pack": "ps",
+     "offset": 56750080,
+     "bytes": 2785280,
+     "layer": 4,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    },
+    {
+     "name": "L5.ln1",
+     "pack": "pf",
+     "offset": 210432,
+     "bytes": 20480,
+     "layer": 5,
+     "param": "ln1"
+    },
+    {
+     "name": "L5.w_qkv",
+     "pack": "p4",
+     "offset": 952565760,
+     "bytes": 26214400,
+     "layer": 5,
+     "param": "w_qkv"
+    },
+    {
+     "name": "L5.s_qkv",
+     "pack": "ps",
+     "offset": 59535360,
+     "bytes": 1638400,
+     "layer": 5,
+     "param": "s_qkv"
+    },
+    {
+     "name": "L5.w_z",
+     "pack": "p4",
+     "offset": 978780160,
+     "bytes": 15728640,
+     "layer": 5,
+     "param": "w_z"
+    },
+    {
+     "name": "L5.s_z",
+     "pack": "ps",
+     "offset": 61173760,
+     "bytes": 983040,
+     "layer": 5,
+     "param": "s_z"
+    },
+    {
+     "name": "L5.w_b",
+     "pack": "p4",
+     "offset": 994508800,
+     "bytes": 122880,
+     "layer": 5,
+     "param": "w_b"
+    },
+    {
+     "name": "L5.s_b",
+     "pack": "ps",
+     "offset": 62156800,
+     "bytes": 7680,
+     "layer": 5,
+     "param": "s_b"
+    },
+    {
+     "name": "L5.w_a",
+     "pack": "p4",
+     "offset": 994631680,
+     "bytes": 122880,
+     "layer": 5,
+     "param": "w_a"
+    },
+    {
+     "name": "L5.s_a",
+     "pack": "ps",
+     "offset": 62164480,
+     "bytes": 7680,
+     "layer": 5,
+     "param": "s_a"
+    },
+    {
+     "name": "L5.conv_w",
+     "pack": "pb",
+     "offset": 327680,
+     "bytes": 81920,
+     "layer": 5,
+     "param": "conv_w"
+    },
+    {
+     "name": "L5.a_log",
+     "pack": "pf",
+     "offset": 230912,
+     "bytes": 192,
+     "layer": 5,
+     "param": "a_log"
+    },
+    {
+     "name": "L5.dt_bias",
+     "pack": "pf",
+     "offset": 231104,
+     "bytes": 192,
+     "layer": 5,
+     "param": "dt_bias"
+    },
+    {
+     "name": "L5.norm_w",
+     "pack": "pf",
+     "offset": 231296,
+     "bytes": 512,
+     "layer": 5,
+     "param": "norm_w"
+    },
+    {
+     "name": "L5.w_out",
+     "pack": "p4",
+     "offset": 994754560,
+     "bytes": 15728640,
+     "layer": 5,
+     "param": "w_out",
+     "strips": [
+      5120,
+      3072,
+      256
+     ]
+    },
+    {
+     "name": "L5.s_out",
+     "pack": "ps",
+     "offset": 62172160,
+     "bytes": 983040,
+     "layer": 5,
+     "param": "s_out",
+     "strips": [
+      5120,
+      192,
+      16
+     ]
+    },
+    {
+     "name": "L5.ln2",
+     "pack": "pf",
+     "offset": 231808,
+     "bytes": 20480,
+     "layer": 5,
+     "param": "ln2"
+    },
+    {
+     "name": "L5.w_gate",
+     "pack": "p4",
+     "offset": 1010483200,
+     "bytes": 44564480,
+     "layer": 5,
+     "param": "w_gate"
+    },
+    {
+     "name": "L5.s_gate",
+     "pack": "ps",
+     "offset": 63155200,
+     "bytes": 2785280,
+     "layer": 5,
+     "param": "s_gate"
+    },
+    {
+     "name": "L5.w_up",
+     "pack": "p4",
+     "offset": 1055047680,
+     "bytes": 44564480,
+     "layer": 5,
+     "param": "w_up"
+    },
+    {
+     "name": "L5.s_up",
+     "pack": "ps",
+     "offset": 65940480,
+     "bytes": 2785280,
+     "layer": 5,
+     "param": "s_up"
+    },
+    {
+     "name": "L5.w_down",
+     "pack": "p4",
+     "offset": 1099612160,
+     "bytes": 44564480,
+     "layer": 5,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L5.s_down",
+     "pack": "ps",
+     "offset": 68725760,
+     "bytes": 2785280,
+     "layer": 5,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    },
+    {
+     "name": "L6.ln1",
+     "pack": "pf",
+     "offset": 252288,
+     "bytes": 20480,
+     "layer": 6,
+     "param": "ln1"
+    },
+    {
+     "name": "L6.w_qkv",
+     "pack": "p4",
+     "offset": 1144176640,
+     "bytes": 26214400,
+     "layer": 6,
+     "param": "w_qkv"
+    },
+    {
+     "name": "L6.s_qkv",
+     "pack": "ps",
+     "offset": 71511040,
+     "bytes": 1638400,
+     "layer": 6,
+     "param": "s_qkv"
+    },
+    {
+     "name": "L6.w_z",
+     "pack": "p4",
+     "offset": 1170391040,
+     "bytes": 15728640,
+     "layer": 6,
+     "param": "w_z"
+    },
+    {
+     "name": "L6.s_z",
+     "pack": "ps",
+     "offset": 73149440,
+     "bytes": 983040,
+     "layer": 6,
+     "param": "s_z"
+    },
+    {
+     "name": "L6.w_b",
+     "pack": "p4",
+     "offset": 1186119680,
+     "bytes": 122880,
+     "layer": 6,
+     "param": "w_b"
+    },
+    {
+     "name": "L6.s_b",
+     "pack": "ps",
+     "offset": 74132480,
+     "bytes": 7680,
+     "layer": 6,
+     "param": "s_b"
+    },
+    {
+     "name": "L6.w_a",
+     "pack": "p4",
+     "offset": 1186242560,
+     "bytes": 122880,
+     "layer": 6,
+     "param": "w_a"
+    },
+    {
+     "name": "L6.s_a",
+     "pack": "ps",
+     "offset": 74140160,
+     "bytes": 7680,
+     "layer": 6,
+     "param": "s_a"
+    },
+    {
+     "name": "L6.conv_w",
+     "pack": "pb",
+     "offset": 409600,
+     "bytes": 81920,
+     "layer": 6,
+     "param": "conv_w"
+    },
+    {
+     "name": "L6.a_log",
+     "pack": "pf",
+     "offset": 272768,
+     "bytes": 192,
+     "layer": 6,
+     "param": "a_log"
+    },
+    {
+     "name": "L6.dt_bias",
+     "pack": "pf",
+     "offset": 272960,
+     "bytes": 192,
+     "layer": 6,
+     "param": "dt_bias"
+    },
+    {
+     "name": "L6.norm_w",
+     "pack": "pf",
+     "offset": 273152,
+     "bytes": 512,
+     "layer": 6,
+     "param": "norm_w"
+    },
+    {
+     "name": "L6.w_out",
+     "pack": "p4",
+     "offset": 1186365440,
+     "bytes": 15728640,
+     "layer": 6,
+     "param": "w_out",
+     "strips": [
+      5120,
+      3072,
+      256
+     ]
+    },
+    {
+     "name": "L6.s_out",
+     "pack": "ps",
+     "offset": 74147840,
+     "bytes": 983040,
+     "layer": 6,
+     "param": "s_out",
+     "strips": [
+      5120,
+      192,
+      16
+     ]
+    },
+    {
+     "name": "L6.ln2",
+     "pack": "pf",
+     "offset": 273664,
+     "bytes": 20480,
+     "layer": 6,
+     "param": "ln2"
+    },
+    {
+     "name": "L6.w_gate",
+     "pack": "p4",
+     "offset": 1202094080,
+     "bytes": 44564480,
+     "layer": 6,
+     "param": "w_gate"
+    },
+    {
+     "name": "L6.s_gate",
+     "pack": "ps",
+     "offset": 75130880,
+     "bytes": 2785280,
+     "layer": 6,
+     "param": "s_gate"
+    },
+    {
+     "name": "L6.w_up",
+     "pack": "p4",
+     "offset": 1246658560,
+     "bytes": 44564480,
+     "layer": 6,
+     "param": "w_up"
+    },
+    {
+     "name": "L6.s_up",
+     "pack": "ps",
+     "offset": 77916160,
+     "bytes": 2785280,
+     "layer": 6,
+     "param": "s_up"
+    },
+    {
+     "name": "L6.w_down",
+     "pack": "p4",
+     "offset": 1291223040,
+     "bytes": 44564480,
+     "layer": 6,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L6.s_down",
+     "pack": "ps",
+     "offset": 80701440,
+     "bytes": 2785280,
+     "layer": 6,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    },
+    {
+     "name": "L7.ln1",
+     "pack": "pf",
+     "offset": 294144,
+     "bytes": 20480,
+     "layer": 7,
+     "param": "ln1"
+    },
+    {
+     "name": "L7.w_q",
+     "pack": "p4",
+     "offset": 1335787520,
+     "bytes": 31457280,
+     "layer": 7,
+     "param": "w_q"
+    },
+    {
+     "name": "L7.s_q",
+     "pack": "ps",
+     "offset": 83486720,
+     "bytes": 1966080,
+     "layer": 7,
+     "param": "s_q"
+    },
+    {
+     "name": "L7.w_k",
+     "pack": "p4",
+     "offset": 1367244800,
+     "bytes": 2621440,
+     "layer": 7,
+     "param": "w_k"
+    },
+    {
+     "name": "L7.s_k",
+     "pack": "ps",
+     "offset": 85452800,
+     "bytes": 163840,
+     "layer": 7,
+     "param": "s_k"
+    },
+    {
+     "name": "L7.w_v",
+     "pack": "p4",
+     "offset": 1369866240,
+     "bytes": 2621440,
+     "layer": 7,
+     "param": "w_v"
+    },
+    {
+     "name": "L7.s_v",
+     "pack": "ps",
+     "offset": 85616640,
+     "bytes": 163840,
+     "layer": 7,
+     "param": "s_v"
+    },
+    {
+     "name": "L7.q_norm",
+     "pack": "pf",
+     "offset": 314624,
+     "bytes": 1024,
+     "layer": 7,
+     "param": "q_norm"
+    },
+    {
+     "name": "L7.k_norm",
+     "pack": "pf",
+     "offset": 315648,
+     "bytes": 1024,
+     "layer": 7,
+     "param": "k_norm"
+    },
+    {
+     "name": "L7.w_o",
+     "pack": "p4",
+     "offset": 1372487680,
+     "bytes": 15728640,
+     "layer": 7,
+     "param": "w_o",
+     "strips": [
+      5120,
+      3072,
+      768
+     ]
+    },
+    {
+     "name": "L7.s_o",
+     "pack": "ps",
+     "offset": 85780480,
+     "bytes": 983040,
+     "layer": 7,
+     "param": "s_o",
+     "strips": [
+      5120,
+      192,
+      48
+     ]
+    },
+    {
+     "name": "L7.ln2",
+     "pack": "pf",
+     "offset": 316672,
+     "bytes": 20480,
+     "layer": 7,
+     "param": "ln2"
+    },
+    {
+     "name": "L7.w_gate",
+     "pack": "p4",
+     "offset": 1388216320,
+     "bytes": 44564480,
+     "layer": 7,
+     "param": "w_gate"
+    },
+    {
+     "name": "L7.s_gate",
+     "pack": "ps",
+     "offset": 86763520,
+     "bytes": 2785280,
+     "layer": 7,
+     "param": "s_gate"
+    },
+    {
+     "name": "L7.w_up",
+     "pack": "p4",
+     "offset": 1432780800,
+     "bytes": 44564480,
+     "layer": 7,
+     "param": "w_up"
+    },
+    {
+     "name": "L7.s_up",
+     "pack": "ps",
+     "offset": 89548800,
+     "bytes": 2785280,
+     "layer": 7,
+     "param": "s_up"
+    },
+    {
+     "name": "L7.w_down",
+     "pack": "p4",
+     "offset": 1477345280,
+     "bytes": 44564480,
+     "layer": 7,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L7.s_down",
+     "pack": "ps",
+     "offset": 92334080,
+     "bytes": 2785280,
+     "layer": 7,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    },
+    {
+     "name": "L8.ln1",
+     "pack": "pf_1",
+     "offset": 0,
+     "bytes": 20480,
+     "layer": 8,
+     "param": "ln1"
+    },
+    {
+     "name": "L8.w_qkv",
+     "pack": "p4_1",
+     "offset": 0,
+     "bytes": 26214400,
+     "layer": 8,
+     "param": "w_qkv"
+    },
+    {
+     "name": "L8.s_qkv",
+     "pack": "ps_1",
+     "offset": 0,
+     "bytes": 1638400,
+     "layer": 8,
+     "param": "s_qkv"
+    },
+    {
+     "name": "L8.w_z",
+     "pack": "p4_1",
+     "offset": 26214400,
+     "bytes": 15728640,
+     "layer": 8,
+     "param": "w_z"
+    },
+    {
+     "name": "L8.s_z",
+     "pack": "ps_1",
+     "offset": 1638400,
+     "bytes": 983040,
+     "layer": 8,
+     "param": "s_z"
+    },
+    {
+     "name": "L8.w_b",
+     "pack": "p4_1",
+     "offset": 41943040,
+     "bytes": 122880,
+     "layer": 8,
+     "param": "w_b"
+    },
+    {
+     "name": "L8.s_b",
+     "pack": "ps_1",
+     "offset": 2621440,
+     "bytes": 7680,
+     "layer": 8,
+     "param": "s_b"
+    },
+    {
+     "name": "L8.w_a",
+     "pack": "p4_1",
+     "offset": 42065920,
+     "bytes": 122880,
+     "layer": 8,
+     "param": "w_a"
+    },
+    {
+     "name": "L8.s_a",
+     "pack": "ps_1",
+     "offset": 2629120,
+     "bytes": 7680,
+     "layer": 8,
+     "param": "s_a"
+    },
+    {
+     "name": "L8.conv_w",
+     "pack": "pb_1",
+     "offset": 0,
+     "bytes": 81920,
+     "layer": 8,
+     "param": "conv_w"
+    },
+    {
+     "name": "L8.a_log",
+     "pack": "pf_1",
+     "offset": 20480,
+     "bytes": 192,
+     "layer": 8,
+     "param": "a_log"
+    },
+    {
+     "name": "L8.dt_bias",
+     "pack": "pf_1",
+     "offset": 20672,
+     "bytes": 192,
+     "layer": 8,
+     "param": "dt_bias"
+    },
+    {
+     "name": "L8.norm_w",
+     "pack": "pf_1",
+     "offset": 20864,
+     "bytes": 512,
+     "layer": 8,
+     "param": "norm_w"
+    },
+    {
+     "name": "L8.w_out",
+     "pack": "p4_1",
+     "offset": 42188800,
+     "bytes": 15728640,
+     "layer": 8,
+     "param": "w_out",
+     "strips": [
+      5120,
+      3072,
+      256
+     ]
+    },
+    {
+     "name": "L8.s_out",
+     "pack": "ps_1",
+     "offset": 2636800,
+     "bytes": 983040,
+     "layer": 8,
+     "param": "s_out",
+     "strips": [
+      5120,
+      192,
+      16
+     ]
+    },
+    {
+     "name": "L8.ln2",
+     "pack": "pf_1",
+     "offset": 21376,
+     "bytes": 20480,
+     "layer": 8,
+     "param": "ln2"
+    },
+    {
+     "name": "L8.w_gate",
+     "pack": "p4_1",
+     "offset": 57917440,
+     "bytes": 44564480,
+     "layer": 8,
+     "param": "w_gate"
+    },
+    {
+     "name": "L8.s_gate",
+     "pack": "ps_1",
+     "offset": 3619840,
+     "bytes": 2785280,
+     "layer": 8,
+     "param": "s_gate"
+    },
+    {
+     "name": "L8.w_up",
+     "pack": "p4_1",
+     "offset": 102481920,
+     "bytes": 44564480,
+     "layer": 8,
+     "param": "w_up"
+    },
+    {
+     "name": "L8.s_up",
+     "pack": "ps_1",
+     "offset": 6405120,
+     "bytes": 2785280,
+     "layer": 8,
+     "param": "s_up"
+    },
+    {
+     "name": "L8.w_down",
+     "pack": "p4_1",
+     "offset": 147046400,
+     "bytes": 44564480,
+     "layer": 8,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L8.s_down",
+     "pack": "ps_1",
+     "offset": 9190400,
+     "bytes": 2785280,
+     "layer": 8,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    },
+    {
+     "name": "L9.ln1",
+     "pack": "pf_1",
+     "offset": 41856,
+     "bytes": 20480,
+     "layer": 9,
+     "param": "ln1"
+    },
+    {
+     "name": "L9.w_qkv",
+     "pack": "p4_1",
+     "offset": 191610880,
+     "bytes": 26214400,
+     "layer": 9,
+     "param": "w_qkv"
+    },
+    {
+     "name": "L9.s_qkv",
+     "pack": "ps_1",
+     "offset": 11975680,
+     "bytes": 1638400,
+     "layer": 9,
+     "param": "s_qkv"
+    },
+    {
+     "name": "L9.w_z",
+     "pack": "p4_1",
+     "offset": 217825280,
+     "bytes": 15728640,
+     "layer": 9,
+     "param": "w_z"
+    },
+    {
+     "name": "L9.s_z",
+     "pack": "ps_1",
+     "offset": 13614080,
+     "bytes": 983040,
+     "layer": 9,
+     "param": "s_z"
+    },
+    {
+     "name": "L9.w_b",
+     "pack": "p4_1",
+     "offset": 233553920,
+     "bytes": 122880,
+     "layer": 9,
+     "param": "w_b"
+    },
+    {
+     "name": "L9.s_b",
+     "pack": "ps_1",
+     "offset": 14597120,
+     "bytes": 7680,
+     "layer": 9,
+     "param": "s_b"
+    },
+    {
+     "name": "L9.w_a",
+     "pack": "p4_1",
+     "offset": 233676800,
+     "bytes": 122880,
+     "layer": 9,
+     "param": "w_a"
+    },
+    {
+     "name": "L9.s_a",
+     "pack": "ps_1",
+     "offset": 14604800,
+     "bytes": 7680,
+     "layer": 9,
+     "param": "s_a"
+    },
+    {
+     "name": "L9.conv_w",
+     "pack": "pb_1",
+     "offset": 81920,
+     "bytes": 81920,
+     "layer": 9,
+     "param": "conv_w"
+    },
+    {
+     "name": "L9.a_log",
+     "pack": "pf_1",
+     "offset": 62336,
+     "bytes": 192,
+     "layer": 9,
+     "param": "a_log"
+    },
+    {
+     "name": "L9.dt_bias",
+     "pack": "pf_1",
+     "offset": 62528,
+     "bytes": 192,
+     "layer": 9,
+     "param": "dt_bias"
+    },
+    {
+     "name": "L9.norm_w",
+     "pack": "pf_1",
+     "offset": 62720,
+     "bytes": 512,
+     "layer": 9,
+     "param": "norm_w"
+    },
+    {
+     "name": "L9.w_out",
+     "pack": "p4_1",
+     "offset": 233799680,
+     "bytes": 15728640,
+     "layer": 9,
+     "param": "w_out",
+     "strips": [
+      5120,
+      3072,
+      256
+     ]
+    },
+    {
+     "name": "L9.s_out",
+     "pack": "ps_1",
+     "offset": 14612480,
+     "bytes": 983040,
+     "layer": 9,
+     "param": "s_out",
+     "strips": [
+      5120,
+      192,
+      16
+     ]
+    },
+    {
+     "name": "L9.ln2",
+     "pack": "pf_1",
+     "offset": 63232,
+     "bytes": 20480,
+     "layer": 9,
+     "param": "ln2"
+    },
+    {
+     "name": "L9.w_gate",
+     "pack": "p4_1",
+     "offset": 249528320,
+     "bytes": 44564480,
+     "layer": 9,
+     "param": "w_gate"
+    },
+    {
+     "name": "L9.s_gate",
+     "pack": "ps_1",
+     "offset": 15595520,
+     "bytes": 2785280,
+     "layer": 9,
+     "param": "s_gate"
+    },
+    {
+     "name": "L9.w_up",
+     "pack": "p4_1",
+     "offset": 294092800,
+     "bytes": 44564480,
+     "layer": 9,
+     "param": "w_up"
+    },
+    {
+     "name": "L9.s_up",
+     "pack": "ps_1",
+     "offset": 18380800,
+     "bytes": 2785280,
+     "layer": 9,
+     "param": "s_up"
+    },
+    {
+     "name": "L9.w_down",
+     "pack": "p4_1",
+     "offset": 338657280,
+     "bytes": 44564480,
+     "layer": 9,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L9.s_down",
+     "pack": "ps_1",
+     "offset": 21166080,
+     "bytes": 2785280,
+     "layer": 9,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    },
+    {
+     "name": "L10.ln1",
+     "pack": "pf_1",
+     "offset": 83712,
+     "bytes": 20480,
+     "layer": 10,
+     "param": "ln1"
+    },
+    {
+     "name": "L10.w_qkv",
+     "pack": "p4_1",
+     "offset": 383221760,
+     "bytes": 26214400,
+     "layer": 10,
+     "param": "w_qkv"
+    },
+    {
+     "name": "L10.s_qkv",
+     "pack": "ps_1",
+     "offset": 23951360,
+     "bytes": 1638400,
+     "layer": 10,
+     "param": "s_qkv"
+    },
+    {
+     "name": "L10.w_z",
+     "pack": "p4_1",
+     "offset": 409436160,
+     "bytes": 15728640,
+     "layer": 10,
+     "param": "w_z"
+    },
+    {
+     "name": "L10.s_z",
+     "pack": "ps_1",
+     "offset": 25589760,
+     "bytes": 983040,
+     "layer": 10,
+     "param": "s_z"
+    },
+    {
+     "name": "L10.w_b",
+     "pack": "p4_1",
+     "offset": 425164800,
+     "bytes": 122880,
+     "layer": 10,
+     "param": "w_b"
+    },
+    {
+     "name": "L10.s_b",
+     "pack": "ps_1",
+     "offset": 26572800,
+     "bytes": 7680,
+     "layer": 10,
+     "param": "s_b"
+    },
+    {
+     "name": "L10.w_a",
+     "pack": "p4_1",
+     "offset": 425287680,
+     "bytes": 122880,
+     "layer": 10,
+     "param": "w_a"
+    },
+    {
+     "name": "L10.s_a",
+     "pack": "ps_1",
+     "offset": 26580480,
+     "bytes": 7680,
+     "layer": 10,
+     "param": "s_a"
+    },
+    {
+     "name": "L10.conv_w",
+     "pack": "pb_1",
+     "offset": 163840,
+     "bytes": 81920,
+     "layer": 10,
+     "param": "conv_w"
+    },
+    {
+     "name": "L10.a_log",
+     "pack": "pf_1",
+     "offset": 104192,
+     "bytes": 192,
+     "layer": 10,
+     "param": "a_log"
+    },
+    {
+     "name": "L10.dt_bias",
+     "pack": "pf_1",
+     "offset": 104384,
+     "bytes": 192,
+     "layer": 10,
+     "param": "dt_bias"
+    },
+    {
+     "name": "L10.norm_w",
+     "pack": "pf_1",
+     "offset": 104576,
+     "bytes": 512,
+     "layer": 10,
+     "param": "norm_w"
+    },
+    {
+     "name": "L10.w_out",
+     "pack": "p4_1",
+     "offset": 425410560,
+     "bytes": 15728640,
+     "layer": 10,
+     "param": "w_out",
+     "strips": [
+      5120,
+      3072,
+      256
+     ]
+    },
+    {
+     "name": "L10.s_out",
+     "pack": "ps_1",
+     "offset": 26588160,
+     "bytes": 983040,
+     "layer": 10,
+     "param": "s_out",
+     "strips": [
+      5120,
+      192,
+      16
+     ]
+    },
+    {
+     "name": "L10.ln2",
+     "pack": "pf_1",
+     "offset": 105088,
+     "bytes": 20480,
+     "layer": 10,
+     "param": "ln2"
+    },
+    {
+     "name": "L10.w_gate",
+     "pack": "p4_1",
+     "offset": 441139200,
+     "bytes": 44564480,
+     "layer": 10,
+     "param": "w_gate"
+    },
+    {
+     "name": "L10.s_gate",
+     "pack": "ps_1",
+     "offset": 27571200,
+     "bytes": 2785280,
+     "layer": 10,
+     "param": "s_gate"
+    },
+    {
+     "name": "L10.w_up",
+     "pack": "p4_1",
+     "offset": 485703680,
+     "bytes": 44564480,
+     "layer": 10,
+     "param": "w_up"
+    },
+    {
+     "name": "L10.s_up",
+     "pack": "ps_1",
+     "offset": 30356480,
+     "bytes": 2785280,
+     "layer": 10,
+     "param": "s_up"
+    },
+    {
+     "name": "L10.w_down",
+     "pack": "p4_1",
+     "offset": 530268160,
+     "bytes": 44564480,
+     "layer": 10,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L10.s_down",
+     "pack": "ps_1",
+     "offset": 33141760,
+     "bytes": 2785280,
+     "layer": 10,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    },
+    {
+     "name": "L11.ln1",
+     "pack": "pf_1",
+     "offset": 125568,
+     "bytes": 20480,
+     "layer": 11,
+     "param": "ln1"
+    },
+    {
+     "name": "L11.w_q",
+     "pack": "p4_1",
+     "offset": 574832640,
+     "bytes": 31457280,
+     "layer": 11,
+     "param": "w_q"
+    },
+    {
+     "name": "L11.s_q",
+     "pack": "ps_1",
+     "offset": 35927040,
+     "bytes": 1966080,
+     "layer": 11,
+     "param": "s_q"
+    },
+    {
+     "name": "L11.w_k",
+     "pack": "p4_1",
+     "offset": 606289920,
+     "bytes": 2621440,
+     "layer": 11,
+     "param": "w_k"
+    },
+    {
+     "name": "L11.s_k",
+     "pack": "ps_1",
+     "offset": 37893120,
+     "bytes": 163840,
+     "layer": 11,
+     "param": "s_k"
+    },
+    {
+     "name": "L11.w_v",
+     "pack": "p4_1",
+     "offset": 608911360,
+     "bytes": 2621440,
+     "layer": 11,
+     "param": "w_v"
+    },
+    {
+     "name": "L11.s_v",
+     "pack": "ps_1",
+     "offset": 38056960,
+     "bytes": 163840,
+     "layer": 11,
+     "param": "s_v"
+    },
+    {
+     "name": "L11.q_norm",
+     "pack": "pf_1",
+     "offset": 146048,
+     "bytes": 1024,
+     "layer": 11,
+     "param": "q_norm"
+    },
+    {
+     "name": "L11.k_norm",
+     "pack": "pf_1",
+     "offset": 147072,
+     "bytes": 1024,
+     "layer": 11,
+     "param": "k_norm"
+    },
+    {
+     "name": "L11.w_o",
+     "pack": "p4_1",
+     "offset": 611532800,
+     "bytes": 15728640,
+     "layer": 11,
+     "param": "w_o",
+     "strips": [
+      5120,
+      3072,
+      768
+     ]
+    },
+    {
+     "name": "L11.s_o",
+     "pack": "ps_1",
+     "offset": 38220800,
+     "bytes": 983040,
+     "layer": 11,
+     "param": "s_o",
+     "strips": [
+      5120,
+      192,
+      48
+     ]
+    },
+    {
+     "name": "L11.ln2",
+     "pack": "pf_1",
+     "offset": 148096,
+     "bytes": 20480,
+     "layer": 11,
+     "param": "ln2"
+    },
+    {
+     "name": "L11.w_gate",
+     "pack": "p4_1",
+     "offset": 627261440,
+     "bytes": 44564480,
+     "layer": 11,
+     "param": "w_gate"
+    },
+    {
+     "name": "L11.s_gate",
+     "pack": "ps_1",
+     "offset": 39203840,
+     "bytes": 2785280,
+     "layer": 11,
+     "param": "s_gate"
+    },
+    {
+     "name": "L11.w_up",
+     "pack": "p4_1",
+     "offset": 671825920,
+     "bytes": 44564480,
+     "layer": 11,
+     "param": "w_up"
+    },
+    {
+     "name": "L11.s_up",
+     "pack": "ps_1",
+     "offset": 41989120,
+     "bytes": 2785280,
+     "layer": 11,
+     "param": "s_up"
+    },
+    {
+     "name": "L11.w_down",
+     "pack": "p4_1",
+     "offset": 716390400,
+     "bytes": 44564480,
+     "layer": 11,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L11.s_down",
+     "pack": "ps_1",
+     "offset": 44774400,
+     "bytes": 2785280,
+     "layer": 11,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    },
+    {
+     "name": "L12.ln1",
+     "pack": "pf_1",
+     "offset": 168576,
+     "bytes": 20480,
+     "layer": 12,
+     "param": "ln1"
+    },
+    {
+     "name": "L12.w_qkv",
+     "pack": "p4_1",
+     "offset": 760954880,
+     "bytes": 26214400,
+     "layer": 12,
+     "param": "w_qkv"
+    },
+    {
+     "name": "L12.s_qkv",
+     "pack": "ps_1",
+     "offset": 47559680,
+     "bytes": 1638400,
+     "layer": 12,
+     "param": "s_qkv"
+    },
+    {
+     "name": "L12.w_z",
+     "pack": "p4_1",
+     "offset": 787169280,
+     "bytes": 15728640,
+     "layer": 12,
+     "param": "w_z"
+    },
+    {
+     "name": "L12.s_z",
+     "pack": "ps_1",
+     "offset": 49198080,
+     "bytes": 983040,
+     "layer": 12,
+     "param": "s_z"
+    },
+    {
+     "name": "L12.w_b",
+     "pack": "p4_1",
+     "offset": 802897920,
+     "bytes": 122880,
+     "layer": 12,
+     "param": "w_b"
+    },
+    {
+     "name": "L12.s_b",
+     "pack": "ps_1",
+     "offset": 50181120,
+     "bytes": 7680,
+     "layer": 12,
+     "param": "s_b"
+    },
+    {
+     "name": "L12.w_a",
+     "pack": "p4_1",
+     "offset": 803020800,
+     "bytes": 122880,
+     "layer": 12,
+     "param": "w_a"
+    },
+    {
+     "name": "L12.s_a",
+     "pack": "ps_1",
+     "offset": 50188800,
+     "bytes": 7680,
+     "layer": 12,
+     "param": "s_a"
+    },
+    {
+     "name": "L12.conv_w",
+     "pack": "pb_1",
+     "offset": 245760,
+     "bytes": 81920,
+     "layer": 12,
+     "param": "conv_w"
+    },
+    {
+     "name": "L12.a_log",
+     "pack": "pf_1",
+     "offset": 189056,
+     "bytes": 192,
+     "layer": 12,
+     "param": "a_log"
+    },
+    {
+     "name": "L12.dt_bias",
+     "pack": "pf_1",
+     "offset": 189248,
+     "bytes": 192,
+     "layer": 12,
+     "param": "dt_bias"
+    },
+    {
+     "name": "L12.norm_w",
+     "pack": "pf_1",
+     "offset": 189440,
+     "bytes": 512,
+     "layer": 12,
+     "param": "norm_w"
+    },
+    {
+     "name": "L12.w_out",
+     "pack": "p4_1",
+     "offset": 803143680,
+     "bytes": 15728640,
+     "layer": 12,
+     "param": "w_out",
+     "strips": [
+      5120,
+      3072,
+      256
+     ]
+    },
+    {
+     "name": "L12.s_out",
+     "pack": "ps_1",
+     "offset": 50196480,
+     "bytes": 983040,
+     "layer": 12,
+     "param": "s_out",
+     "strips": [
+      5120,
+      192,
+      16
+     ]
+    },
+    {
+     "name": "L12.ln2",
+     "pack": "pf_1",
+     "offset": 189952,
+     "bytes": 20480,
+     "layer": 12,
+     "param": "ln2"
+    },
+    {
+     "name": "L12.w_gate",
+     "pack": "p4_1",
+     "offset": 818872320,
+     "bytes": 44564480,
+     "layer": 12,
+     "param": "w_gate"
+    },
+    {
+     "name": "L12.s_gate",
+     "pack": "ps_1",
+     "offset": 51179520,
+     "bytes": 2785280,
+     "layer": 12,
+     "param": "s_gate"
+    },
+    {
+     "name": "L12.w_up",
+     "pack": "p4_1",
+     "offset": 863436800,
+     "bytes": 44564480,
+     "layer": 12,
+     "param": "w_up"
+    },
+    {
+     "name": "L12.s_up",
+     "pack": "ps_1",
+     "offset": 53964800,
+     "bytes": 2785280,
+     "layer": 12,
+     "param": "s_up"
+    },
+    {
+     "name": "L12.w_down",
+     "pack": "p4_1",
+     "offset": 908001280,
+     "bytes": 44564480,
+     "layer": 12,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L12.s_down",
+     "pack": "ps_1",
+     "offset": 56750080,
+     "bytes": 2785280,
+     "layer": 12,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    },
+    {
+     "name": "L13.ln1",
+     "pack": "pf_1",
+     "offset": 210432,
+     "bytes": 20480,
+     "layer": 13,
+     "param": "ln1"
+    },
+    {
+     "name": "L13.w_qkv",
+     "pack": "p4_1",
+     "offset": 952565760,
+     "bytes": 26214400,
+     "layer": 13,
+     "param": "w_qkv"
+    },
+    {
+     "name": "L13.s_qkv",
+     "pack": "ps_1",
+     "offset": 59535360,
+     "bytes": 1638400,
+     "layer": 13,
+     "param": "s_qkv"
+    },
+    {
+     "name": "L13.w_z",
+     "pack": "p4_1",
+     "offset": 978780160,
+     "bytes": 15728640,
+     "layer": 13,
+     "param": "w_z"
+    },
+    {
+     "name": "L13.s_z",
+     "pack": "ps_1",
+     "offset": 61173760,
+     "bytes": 983040,
+     "layer": 13,
+     "param": "s_z"
+    },
+    {
+     "name": "L13.w_b",
+     "pack": "p4_1",
+     "offset": 994508800,
+     "bytes": 122880,
+     "layer": 13,
+     "param": "w_b"
+    },
+    {
+     "name": "L13.s_b",
+     "pack": "ps_1",
+     "offset": 62156800,
+     "bytes": 7680,
+     "layer": 13,
+     "param": "s_b"
+    },
+    {
+     "name": "L13.w_a",
+     "pack": "p4_1",
+     "offset": 994631680,
+     "bytes": 122880,
+     "layer": 13,
+     "param": "w_a"
+    },
+    {
+     "name": "L13.s_a",
+     "pack": "ps_1",
+     "offset": 62164480,
+     "bytes": 7680,
+     "layer": 13,
+     "param": "s_a"
+    },
+    {
+     "name": "L13.conv_w",
+     "pack": "pb_1",
+     "offset": 327680,
+     "bytes": 81920,
+     "layer": 13,
+     "param": "conv_w"
+    },
+    {
+     "name": "L13.a_log",
+     "pack": "pf_1",
+     "offset": 230912,
+     "bytes": 192,
+     "layer": 13,
+     "param": "a_log"
+    },
+    {
+     "name": "L13.dt_bias",
+     "pack": "pf_1",
+     "offset": 231104,
+     "bytes": 192,
+     "layer": 13,
+     "param": "dt_bias"
+    },
+    {
+     "name": "L13.norm_w",
+     "pack": "pf_1",
+     "offset": 231296,
+     "bytes": 512,
+     "layer": 13,
+     "param": "norm_w"
+    },
+    {
+     "name": "L13.w_out",
+     "pack": "p4_1",
+     "offset": 994754560,
+     "bytes": 15728640,
+     "layer": 13,
+     "param": "w_out",
+     "strips": [
+      5120,
+      3072,
+      256
+     ]
+    },
+    {
+     "name": "L13.s_out",
+     "pack": "ps_1",
+     "offset": 62172160,
+     "bytes": 983040,
+     "layer": 13,
+     "param": "s_out",
+     "strips": [
+      5120,
+      192,
+      16
+     ]
+    },
+    {
+     "name": "L13.ln2",
+     "pack": "pf_1",
+     "offset": 231808,
+     "bytes": 20480,
+     "layer": 13,
+     "param": "ln2"
+    },
+    {
+     "name": "L13.w_gate",
+     "pack": "p4_1",
+     "offset": 1010483200,
+     "bytes": 44564480,
+     "layer": 13,
+     "param": "w_gate"
+    },
+    {
+     "name": "L13.s_gate",
+     "pack": "ps_1",
+     "offset": 63155200,
+     "bytes": 2785280,
+     "layer": 13,
+     "param": "s_gate"
+    },
+    {
+     "name": "L13.w_up",
+     "pack": "p4_1",
+     "offset": 1055047680,
+     "bytes": 44564480,
+     "layer": 13,
+     "param": "w_up"
+    },
+    {
+     "name": "L13.s_up",
+     "pack": "ps_1",
+     "offset": 65940480,
+     "bytes": 2785280,
+     "layer": 13,
+     "param": "s_up"
+    },
+    {
+     "name": "L13.w_down",
+     "pack": "p4_1",
+     "offset": 1099612160,
+     "bytes": 44564480,
+     "layer": 13,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L13.s_down",
+     "pack": "ps_1",
+     "offset": 68725760,
+     "bytes": 2785280,
+     "layer": 13,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    },
+    {
+     "name": "L14.ln1",
+     "pack": "pf_1",
+     "offset": 252288,
+     "bytes": 20480,
+     "layer": 14,
+     "param": "ln1"
+    },
+    {
+     "name": "L14.w_qkv",
+     "pack": "p4_1",
+     "offset": 1144176640,
+     "bytes": 26214400,
+     "layer": 14,
+     "param": "w_qkv"
+    },
+    {
+     "name": "L14.s_qkv",
+     "pack": "ps_1",
+     "offset": 71511040,
+     "bytes": 1638400,
+     "layer": 14,
+     "param": "s_qkv"
+    },
+    {
+     "name": "L14.w_z",
+     "pack": "p4_1",
+     "offset": 1170391040,
+     "bytes": 15728640,
+     "layer": 14,
+     "param": "w_z"
+    },
+    {
+     "name": "L14.s_z",
+     "pack": "ps_1",
+     "offset": 73149440,
+     "bytes": 983040,
+     "layer": 14,
+     "param": "s_z"
+    },
+    {
+     "name": "L14.w_b",
+     "pack": "p4_1",
+     "offset": 1186119680,
+     "bytes": 122880,
+     "layer": 14,
+     "param": "w_b"
+    },
+    {
+     "name": "L14.s_b",
+     "pack": "ps_1",
+     "offset": 74132480,
+     "bytes": 7680,
+     "layer": 14,
+     "param": "s_b"
+    },
+    {
+     "name": "L14.w_a",
+     "pack": "p4_1",
+     "offset": 1186242560,
+     "bytes": 122880,
+     "layer": 14,
+     "param": "w_a"
+    },
+    {
+     "name": "L14.s_a",
+     "pack": "ps_1",
+     "offset": 74140160,
+     "bytes": 7680,
+     "layer": 14,
+     "param": "s_a"
+    },
+    {
+     "name": "L14.conv_w",
+     "pack": "pb_1",
+     "offset": 409600,
+     "bytes": 81920,
+     "layer": 14,
+     "param": "conv_w"
+    },
+    {
+     "name": "L14.a_log",
+     "pack": "pf_1",
+     "offset": 272768,
+     "bytes": 192,
+     "layer": 14,
+     "param": "a_log"
+    },
+    {
+     "name": "L14.dt_bias",
+     "pack": "pf_1",
+     "offset": 272960,
+     "bytes": 192,
+     "layer": 14,
+     "param": "dt_bias"
+    },
+    {
+     "name": "L14.norm_w",
+     "pack": "pf_1",
+     "offset": 273152,
+     "bytes": 512,
+     "layer": 14,
+     "param": "norm_w"
+    },
+    {
+     "name": "L14.w_out",
+     "pack": "p4_1",
+     "offset": 1186365440,
+     "bytes": 15728640,
+     "layer": 14,
+     "param": "w_out",
+     "strips": [
+      5120,
+      3072,
+      256
+     ]
+    },
+    {
+     "name": "L14.s_out",
+     "pack": "ps_1",
+     "offset": 74147840,
+     "bytes": 983040,
+     "layer": 14,
+     "param": "s_out",
+     "strips": [
+      5120,
+      192,
+      16
+     ]
+    },
+    {
+     "name": "L14.ln2",
+     "pack": "pf_1",
+     "offset": 273664,
+     "bytes": 20480,
+     "layer": 14,
+     "param": "ln2"
+    },
+    {
+     "name": "L14.w_gate",
+     "pack": "p4_1",
+     "offset": 1202094080,
+     "bytes": 44564480,
+     "layer": 14,
+     "param": "w_gate"
+    },
+    {
+     "name": "L14.s_gate",
+     "pack": "ps_1",
+     "offset": 75130880,
+     "bytes": 2785280,
+     "layer": 14,
+     "param": "s_gate"
+    },
+    {
+     "name": "L14.w_up",
+     "pack": "p4_1",
+     "offset": 1246658560,
+     "bytes": 44564480,
+     "layer": 14,
+     "param": "w_up"
+    },
+    {
+     "name": "L14.s_up",
+     "pack": "ps_1",
+     "offset": 77916160,
+     "bytes": 2785280,
+     "layer": 14,
+     "param": "s_up"
+    },
+    {
+     "name": "L14.w_down",
+     "pack": "p4_1",
+     "offset": 1291223040,
+     "bytes": 44564480,
+     "layer": 14,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L14.s_down",
+     "pack": "ps_1",
+     "offset": 80701440,
+     "bytes": 2785280,
+     "layer": 14,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    },
+    {
+     "name": "L15.ln1",
+     "pack": "pf_1",
+     "offset": 294144,
+     "bytes": 20480,
+     "layer": 15,
+     "param": "ln1"
+    },
+    {
+     "name": "L15.w_q",
+     "pack": "p4_1",
+     "offset": 1335787520,
+     "bytes": 31457280,
+     "layer": 15,
+     "param": "w_q"
+    },
+    {
+     "name": "L15.s_q",
+     "pack": "ps_1",
+     "offset": 83486720,
+     "bytes": 1966080,
+     "layer": 15,
+     "param": "s_q"
+    },
+    {
+     "name": "L15.w_k",
+     "pack": "p4_1",
+     "offset": 1367244800,
+     "bytes": 2621440,
+     "layer": 15,
+     "param": "w_k"
+    },
+    {
+     "name": "L15.s_k",
+     "pack": "ps_1",
+     "offset": 85452800,
+     "bytes": 163840,
+     "layer": 15,
+     "param": "s_k"
+    },
+    {
+     "name": "L15.w_v",
+     "pack": "p4_1",
+     "offset": 1369866240,
+     "bytes": 2621440,
+     "layer": 15,
+     "param": "w_v"
+    },
+    {
+     "name": "L15.s_v",
+     "pack": "ps_1",
+     "offset": 85616640,
+     "bytes": 163840,
+     "layer": 15,
+     "param": "s_v"
+    },
+    {
+     "name": "L15.q_norm",
+     "pack": "pf_1",
+     "offset": 314624,
+     "bytes": 1024,
+     "layer": 15,
+     "param": "q_norm"
+    },
+    {
+     "name": "L15.k_norm",
+     "pack": "pf_1",
+     "offset": 315648,
+     "bytes": 1024,
+     "layer": 15,
+     "param": "k_norm"
+    },
+    {
+     "name": "L15.w_o",
+     "pack": "p4_1",
+     "offset": 1372487680,
+     "bytes": 15728640,
+     "layer": 15,
+     "param": "w_o",
+     "strips": [
+      5120,
+      3072,
+      768
+     ]
+    },
+    {
+     "name": "L15.s_o",
+     "pack": "ps_1",
+     "offset": 85780480,
+     "bytes": 983040,
+     "layer": 15,
+     "param": "s_o",
+     "strips": [
+      5120,
+      192,
+      48
+     ]
+    },
+    {
+     "name": "L15.ln2",
+     "pack": "pf_1",
+     "offset": 316672,
+     "bytes": 20480,
+     "layer": 15,
+     "param": "ln2"
+    },
+    {
+     "name": "L15.w_gate",
+     "pack": "p4_1",
+     "offset": 1388216320,
+     "bytes": 44564480,
+     "layer": 15,
+     "param": "w_gate"
+    },
+    {
+     "name": "L15.s_gate",
+     "pack": "ps_1",
+     "offset": 86763520,
+     "bytes": 2785280,
+     "layer": 15,
+     "param": "s_gate"
+    },
+    {
+     "name": "L15.w_up",
+     "pack": "p4_1",
+     "offset": 1432780800,
+     "bytes": 44564480,
+     "layer": 15,
+     "param": "w_up"
+    },
+    {
+     "name": "L15.s_up",
+     "pack": "ps_1",
+     "offset": 89548800,
+     "bytes": 2785280,
+     "layer": 15,
+     "param": "s_up"
+    },
+    {
+     "name": "L15.w_down",
+     "pack": "p4_1",
+     "offset": 1477345280,
+     "bytes": 44564480,
+     "layer": 15,
+     "param": "w_down",
+     "strips": [
+      5120,
+      8704,
+      2176
+     ]
+    },
+    {
+     "name": "L15.s_down",
+     "pack": "ps_1",
+     "offset": 92334080,
+     "bytes": 2785280,
+     "layer": 15,
+     "param": "s_down",
+     "strips": [
+      5120,
+      544,
+      136
+     ]
+    }
+   ]
+  },
+  "lm_head": {
+   "file": "mul_mat_mx4_n248320_k5120_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 10240,
+     "dtype": 9,
+     "shape": [
+      1,
+      5120
+     ]
+    },
+    {
+     "name": "w",
+     "bytes": 635699200,
+     "dtype": 15,
+     "shape": [
+      248320,
+      5120
+     ]
+    },
+    {
+     "name": "s",
+     "bytes": 39731200,
+     "dtype": 1,
+     "shape": [
+      248320,
+      160
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 993280,
+     "dtype": 3,
+     "shape": [
+      1,
+      248320
+     ]
+    }
+   ]
+  },
+  "prefill128.gdn": {
+   "file": "qwen35_gdn_prefill128_mx4_pv_pk_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 1310720,
+     "dtype": 9,
+     "shape": [
+      1,
+      128,
+      5120
+     ]
+    },
+    {
+     "name": "p4",
+     "bytes": 191610880,
+     "dtype": 15,
+     "shape": [
+      383221760
+     ]
+    },
+    {
+     "name": "pw",
+     "bytes": 1,
+     "dtype": 11,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "ps",
+     "bytes": 11975680,
+     "dtype": 1,
+     "shape": [
+      11975680
+     ]
+    },
+    {
+     "name": "pf",
+     "bytes": 41856,
+     "dtype": 3,
+     "shape": [
+      10464
+     ]
+    },
+    {
+     "name": "pb",
+     "bytes": 81920,
+     "dtype": 9,
+     "shape": [
+      40960
+     ]
+    },
+    {
+     "name": "rv",
+     "bytes": 512,
+     "dtype": 3,
+     "shape": [
+      128
+     ]
+    },
+    {
+     "name": "cix",
+     "bytes": 12,
+     "dtype": 6,
+     "shape": [
+      3
+     ]
+    },
+    {
+     "name": "state_in",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "conv_in",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 1310720,
+     "dtype": 9,
+     "shape": [
+      1,
+      128,
+      5120
+     ]
+    },
+    {
+     "name": "state_out",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "conv_out",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    }
+   ],
+   "packs": {
+    "p4": 191610880,
+    "ps": 11975680,
+    "pf": 41856,
+    "pb": 81920
+   },
+   "members": [
+    {
+     "name": "ln1",
+     "pack": "pf",
+     "offset": 0,
+     "bytes": 20480,
+     "param": "ln1"
+    },
+    {
+     "name": "w_qkv",
+     "pack": "p4",
+     "offset": 0,
+     "bytes": 26214400,
+     "param": "w_qkv"
+    },
+    {
+     "name": "s_qkv",
+     "pack": "ps",
+     "offset": 0,
+     "bytes": 1638400,
+     "param": "s_qkv"
+    },
+    {
+     "name": "w_z",
+     "pack": "p4",
+     "offset": 26214400,
+     "bytes": 15728640,
+     "param": "w_z"
+    },
+    {
+     "name": "s_z",
+     "pack": "ps",
+     "offset": 1638400,
+     "bytes": 983040,
+     "param": "s_z"
+    },
+    {
+     "name": "w_b",
+     "pack": "p4",
+     "offset": 41943040,
+     "bytes": 122880,
+     "param": "w_b"
+    },
+    {
+     "name": "s_b",
+     "pack": "ps",
+     "offset": 2621440,
+     "bytes": 7680,
+     "param": "s_b"
+    },
+    {
+     "name": "w_a",
+     "pack": "p4",
+     "offset": 42065920,
+     "bytes": 122880,
+     "param": "w_a"
+    },
+    {
+     "name": "s_a",
+     "pack": "ps",
+     "offset": 2629120,
+     "bytes": 7680,
+     "param": "s_a"
+    },
+    {
+     "name": "conv_w",
+     "pack": "pb",
+     "offset": 0,
+     "bytes": 81920,
+     "param": "conv_w"
+    },
+    {
+     "name": "a_log",
+     "pack": "pf",
+     "offset": 20480,
+     "bytes": 192,
+     "param": "a_log"
+    },
+    {
+     "name": "dt_bias",
+     "pack": "pf",
+     "offset": 20672,
+     "bytes": 192,
+     "param": "dt_bias"
+    },
+    {
+     "name": "norm_w",
+     "pack": "pf",
+     "offset": 20864,
+     "bytes": 512,
+     "param": "norm_w"
+    },
+    {
+     "name": "w_out",
+     "pack": "p4",
+     "offset": 42188800,
+     "bytes": 15728640,
+     "param": "w_out"
+    },
+    {
+     "name": "s_out",
+     "pack": "ps",
+     "offset": 2636800,
+     "bytes": 983040,
+     "param": "s_out"
+    },
+    {
+     "name": "ln2",
+     "pack": "pf",
+     "offset": 21376,
+     "bytes": 20480,
+     "param": "ln2"
+    },
+    {
+     "name": "w_gate",
+     "pack": "p4",
+     "offset": 57917440,
+     "bytes": 44564480,
+     "param": "w_gate"
+    },
+    {
+     "name": "s_gate",
+     "pack": "ps",
+     "offset": 3619840,
+     "bytes": 2785280,
+     "param": "s_gate"
+    },
+    {
+     "name": "w_up",
+     "pack": "p4",
+     "offset": 102481920,
+     "bytes": 44564480,
+     "param": "w_up"
+    },
+    {
+     "name": "s_up",
+     "pack": "ps",
+     "offset": 6405120,
+     "bytes": 2785280,
+     "param": "s_up"
+    },
+    {
+     "name": "w_down",
+     "pack": "p4",
+     "offset": 147046400,
+     "bytes": 44564480,
+     "param": "w_down"
+    },
+    {
+     "name": "s_down",
+     "pack": "ps",
+     "offset": 9190400,
+     "bytes": 2785280,
+     "param": "s_down"
+    }
+   ]
+  },
+  "prefill64.gdn": {
+   "file": "qwen35_gdn_prefill64_mx4_pv_pk_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 655360,
+     "dtype": 9,
+     "shape": [
+      1,
+      64,
+      5120
+     ]
+    },
+    {
+     "name": "p4",
+     "bytes": 191610880,
+     "dtype": 15,
+     "shape": [
+      383221760
+     ]
+    },
+    {
+     "name": "pw",
+     "bytes": 1,
+     "dtype": 11,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "ps",
+     "bytes": 11975680,
+     "dtype": 1,
+     "shape": [
+      11975680
+     ]
+    },
+    {
+     "name": "pf",
+     "bytes": 41856,
+     "dtype": 3,
+     "shape": [
+      10464
+     ]
+    },
+    {
+     "name": "pb",
+     "bytes": 81920,
+     "dtype": 9,
+     "shape": [
+      40960
+     ]
+    },
+    {
+     "name": "rv",
+     "bytes": 256,
+     "dtype": 3,
+     "shape": [
+      64
+     ]
+    },
+    {
+     "name": "cix",
+     "bytes": 12,
+     "dtype": 6,
+     "shape": [
+      3
+     ]
+    },
+    {
+     "name": "state_in",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "conv_in",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 655360,
+     "dtype": 9,
+     "shape": [
+      1,
+      64,
+      5120
+     ]
+    },
+    {
+     "name": "state_out",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "conv_out",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    }
+   ],
+   "packs": {
+    "p4": 191610880,
+    "ps": 11975680,
+    "pf": 41856,
+    "pb": 81920
+   },
+   "members": [
+    {
+     "name": "ln1",
+     "pack": "pf",
+     "offset": 0,
+     "bytes": 20480,
+     "param": "ln1"
+    },
+    {
+     "name": "w_qkv",
+     "pack": "p4",
+     "offset": 0,
+     "bytes": 26214400,
+     "param": "w_qkv"
+    },
+    {
+     "name": "s_qkv",
+     "pack": "ps",
+     "offset": 0,
+     "bytes": 1638400,
+     "param": "s_qkv"
+    },
+    {
+     "name": "w_z",
+     "pack": "p4",
+     "offset": 26214400,
+     "bytes": 15728640,
+     "param": "w_z"
+    },
+    {
+     "name": "s_z",
+     "pack": "ps",
+     "offset": 1638400,
+     "bytes": 983040,
+     "param": "s_z"
+    },
+    {
+     "name": "w_b",
+     "pack": "p4",
+     "offset": 41943040,
+     "bytes": 122880,
+     "param": "w_b"
+    },
+    {
+     "name": "s_b",
+     "pack": "ps",
+     "offset": 2621440,
+     "bytes": 7680,
+     "param": "s_b"
+    },
+    {
+     "name": "w_a",
+     "pack": "p4",
+     "offset": 42065920,
+     "bytes": 122880,
+     "param": "w_a"
+    },
+    {
+     "name": "s_a",
+     "pack": "ps",
+     "offset": 2629120,
+     "bytes": 7680,
+     "param": "s_a"
+    },
+    {
+     "name": "conv_w",
+     "pack": "pb",
+     "offset": 0,
+     "bytes": 81920,
+     "param": "conv_w"
+    },
+    {
+     "name": "a_log",
+     "pack": "pf",
+     "offset": 20480,
+     "bytes": 192,
+     "param": "a_log"
+    },
+    {
+     "name": "dt_bias",
+     "pack": "pf",
+     "offset": 20672,
+     "bytes": 192,
+     "param": "dt_bias"
+    },
+    {
+     "name": "norm_w",
+     "pack": "pf",
+     "offset": 20864,
+     "bytes": 512,
+     "param": "norm_w"
+    },
+    {
+     "name": "w_out",
+     "pack": "p4",
+     "offset": 42188800,
+     "bytes": 15728640,
+     "param": "w_out"
+    },
+    {
+     "name": "s_out",
+     "pack": "ps",
+     "offset": 2636800,
+     "bytes": 983040,
+     "param": "s_out"
+    },
+    {
+     "name": "ln2",
+     "pack": "pf",
+     "offset": 21376,
+     "bytes": 20480,
+     "param": "ln2"
+    },
+    {
+     "name": "w_gate",
+     "pack": "p4",
+     "offset": 57917440,
+     "bytes": 44564480,
+     "param": "w_gate"
+    },
+    {
+     "name": "s_gate",
+     "pack": "ps",
+     "offset": 3619840,
+     "bytes": 2785280,
+     "param": "s_gate"
+    },
+    {
+     "name": "w_up",
+     "pack": "p4",
+     "offset": 102481920,
+     "bytes": 44564480,
+     "param": "w_up"
+    },
+    {
+     "name": "s_up",
+     "pack": "ps",
+     "offset": 6405120,
+     "bytes": 2785280,
+     "param": "s_up"
+    },
+    {
+     "name": "w_down",
+     "pack": "p4",
+     "offset": 147046400,
+     "bytes": 44564480,
+     "param": "w_down"
+    },
+    {
+     "name": "s_down",
+     "pack": "ps",
+     "offset": 9190400,
+     "bytes": 2785280,
+     "param": "s_down"
+    }
+   ]
+  },
+  "prefill16.gdn": {
+   "file": "qwen35_gdn_prefill16_mx4_pv_pk_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 163840,
+     "dtype": 9,
+     "shape": [
+      1,
+      16,
+      5120
+     ]
+    },
+    {
+     "name": "p4",
+     "bytes": 191610880,
+     "dtype": 15,
+     "shape": [
+      383221760
+     ]
+    },
+    {
+     "name": "pw",
+     "bytes": 1,
+     "dtype": 11,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "ps",
+     "bytes": 11975680,
+     "dtype": 1,
+     "shape": [
+      11975680
+     ]
+    },
+    {
+     "name": "pf",
+     "bytes": 41856,
+     "dtype": 3,
+     "shape": [
+      10464
+     ]
+    },
+    {
+     "name": "pb",
+     "bytes": 81920,
+     "dtype": 9,
+     "shape": [
+      40960
+     ]
+    },
+    {
+     "name": "rv",
+     "bytes": 64,
+     "dtype": 3,
+     "shape": [
+      16
+     ]
+    },
+    {
+     "name": "cix",
+     "bytes": 12,
+     "dtype": 6,
+     "shape": [
+      3
+     ]
+    },
+    {
+     "name": "state_in",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "conv_in",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 163840,
+     "dtype": 9,
+     "shape": [
+      1,
+      16,
+      5120
+     ]
+    },
+    {
+     "name": "state_out",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "conv_out",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    }
+   ],
+   "packs": {
+    "p4": 191610880,
+    "ps": 11975680,
+    "pf": 41856,
+    "pb": 81920
+   },
+   "members": [
+    {
+     "name": "ln1",
+     "pack": "pf",
+     "offset": 0,
+     "bytes": 20480,
+     "param": "ln1"
+    },
+    {
+     "name": "w_qkv",
+     "pack": "p4",
+     "offset": 0,
+     "bytes": 26214400,
+     "param": "w_qkv"
+    },
+    {
+     "name": "s_qkv",
+     "pack": "ps",
+     "offset": 0,
+     "bytes": 1638400,
+     "param": "s_qkv"
+    },
+    {
+     "name": "w_z",
+     "pack": "p4",
+     "offset": 26214400,
+     "bytes": 15728640,
+     "param": "w_z"
+    },
+    {
+     "name": "s_z",
+     "pack": "ps",
+     "offset": 1638400,
+     "bytes": 983040,
+     "param": "s_z"
+    },
+    {
+     "name": "w_b",
+     "pack": "p4",
+     "offset": 41943040,
+     "bytes": 122880,
+     "param": "w_b"
+    },
+    {
+     "name": "s_b",
+     "pack": "ps",
+     "offset": 2621440,
+     "bytes": 7680,
+     "param": "s_b"
+    },
+    {
+     "name": "w_a",
+     "pack": "p4",
+     "offset": 42065920,
+     "bytes": 122880,
+     "param": "w_a"
+    },
+    {
+     "name": "s_a",
+     "pack": "ps",
+     "offset": 2629120,
+     "bytes": 7680,
+     "param": "s_a"
+    },
+    {
+     "name": "conv_w",
+     "pack": "pb",
+     "offset": 0,
+     "bytes": 81920,
+     "param": "conv_w"
+    },
+    {
+     "name": "a_log",
+     "pack": "pf",
+     "offset": 20480,
+     "bytes": 192,
+     "param": "a_log"
+    },
+    {
+     "name": "dt_bias",
+     "pack": "pf",
+     "offset": 20672,
+     "bytes": 192,
+     "param": "dt_bias"
+    },
+    {
+     "name": "norm_w",
+     "pack": "pf",
+     "offset": 20864,
+     "bytes": 512,
+     "param": "norm_w"
+    },
+    {
+     "name": "w_out",
+     "pack": "p4",
+     "offset": 42188800,
+     "bytes": 15728640,
+     "param": "w_out"
+    },
+    {
+     "name": "s_out",
+     "pack": "ps",
+     "offset": 2636800,
+     "bytes": 983040,
+     "param": "s_out"
+    },
+    {
+     "name": "ln2",
+     "pack": "pf",
+     "offset": 21376,
+     "bytes": 20480,
+     "param": "ln2"
+    },
+    {
+     "name": "w_gate",
+     "pack": "p4",
+     "offset": 57917440,
+     "bytes": 44564480,
+     "param": "w_gate"
+    },
+    {
+     "name": "s_gate",
+     "pack": "ps",
+     "offset": 3619840,
+     "bytes": 2785280,
+     "param": "s_gate"
+    },
+    {
+     "name": "w_up",
+     "pack": "p4",
+     "offset": 102481920,
+     "bytes": 44564480,
+     "param": "w_up"
+    },
+    {
+     "name": "s_up",
+     "pack": "ps",
+     "offset": 6405120,
+     "bytes": 2785280,
+     "param": "s_up"
+    },
+    {
+     "name": "w_down",
+     "pack": "p4",
+     "offset": 147046400,
+     "bytes": 44564480,
+     "param": "w_down"
+    },
+    {
+     "name": "s_down",
+     "pack": "ps",
+     "offset": 9190400,
+     "bytes": 2785280,
+     "param": "s_down"
+    }
+   ]
+  },
+  "prefill4.gdn": {
+   "file": "qwen35_gdn_prefill4_mx4_pv_pk_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 40960,
+     "dtype": 9,
+     "shape": [
+      1,
+      4,
+      5120
+     ]
+    },
+    {
+     "name": "p4",
+     "bytes": 191610880,
+     "dtype": 15,
+     "shape": [
+      383221760
+     ]
+    },
+    {
+     "name": "pw",
+     "bytes": 1,
+     "dtype": 11,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "ps",
+     "bytes": 11975680,
+     "dtype": 1,
+     "shape": [
+      11975680
+     ]
+    },
+    {
+     "name": "pf",
+     "bytes": 41856,
+     "dtype": 3,
+     "shape": [
+      10464
+     ]
+    },
+    {
+     "name": "pb",
+     "bytes": 81920,
+     "dtype": 9,
+     "shape": [
+      40960
+     ]
+    },
+    {
+     "name": "rv",
+     "bytes": 16,
+     "dtype": 3,
+     "shape": [
+      4
+     ]
+    },
+    {
+     "name": "cix",
+     "bytes": 12,
+     "dtype": 6,
+     "shape": [
+      3
+     ]
+    },
+    {
+     "name": "state_in",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "conv_in",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 40960,
+     "dtype": 9,
+     "shape": [
+      1,
+      4,
+      5120
+     ]
+    },
+    {
+     "name": "state_out",
+     "bytes": 3145728,
+     "dtype": 3,
+     "shape": [
+      48,
+      128,
+      128
+     ]
+    },
+    {
+     "name": "conv_out",
+     "bytes": 61440,
+     "dtype": 9,
+     "shape": [
+      1,
+      3,
+      10240
+     ]
+    }
+   ],
+   "packs": {
+    "p4": 191610880,
+    "ps": 11975680,
+    "pf": 41856,
+    "pb": 81920
+   },
+   "members": [
+    {
+     "name": "ln1",
+     "pack": "pf",
+     "offset": 0,
+     "bytes": 20480,
+     "param": "ln1"
+    },
+    {
+     "name": "w_qkv",
+     "pack": "p4",
+     "offset": 0,
+     "bytes": 26214400,
+     "param": "w_qkv"
+    },
+    {
+     "name": "s_qkv",
+     "pack": "ps",
+     "offset": 0,
+     "bytes": 1638400,
+     "param": "s_qkv"
+    },
+    {
+     "name": "w_z",
+     "pack": "p4",
+     "offset": 26214400,
+     "bytes": 15728640,
+     "param": "w_z"
+    },
+    {
+     "name": "s_z",
+     "pack": "ps",
+     "offset": 1638400,
+     "bytes": 983040,
+     "param": "s_z"
+    },
+    {
+     "name": "w_b",
+     "pack": "p4",
+     "offset": 41943040,
+     "bytes": 122880,
+     "param": "w_b"
+    },
+    {
+     "name": "s_b",
+     "pack": "ps",
+     "offset": 2621440,
+     "bytes": 7680,
+     "param": "s_b"
+    },
+    {
+     "name": "w_a",
+     "pack": "p4",
+     "offset": 42065920,
+     "bytes": 122880,
+     "param": "w_a"
+    },
+    {
+     "name": "s_a",
+     "pack": "ps",
+     "offset": 2629120,
+     "bytes": 7680,
+     "param": "s_a"
+    },
+    {
+     "name": "conv_w",
+     "pack": "pb",
+     "offset": 0,
+     "bytes": 81920,
+     "param": "conv_w"
+    },
+    {
+     "name": "a_log",
+     "pack": "pf",
+     "offset": 20480,
+     "bytes": 192,
+     "param": "a_log"
+    },
+    {
+     "name": "dt_bias",
+     "pack": "pf",
+     "offset": 20672,
+     "bytes": 192,
+     "param": "dt_bias"
+    },
+    {
+     "name": "norm_w",
+     "pack": "pf",
+     "offset": 20864,
+     "bytes": 512,
+     "param": "norm_w"
+    },
+    {
+     "name": "w_out",
+     "pack": "p4",
+     "offset": 42188800,
+     "bytes": 15728640,
+     "param": "w_out"
+    },
+    {
+     "name": "s_out",
+     "pack": "ps",
+     "offset": 2636800,
+     "bytes": 983040,
+     "param": "s_out"
+    },
+    {
+     "name": "ln2",
+     "pack": "pf",
+     "offset": 21376,
+     "bytes": 20480,
+     "param": "ln2"
+    },
+    {
+     "name": "w_gate",
+     "pack": "p4",
+     "offset": 57917440,
+     "bytes": 44564480,
+     "param": "w_gate"
+    },
+    {
+     "name": "s_gate",
+     "pack": "ps",
+     "offset": 3619840,
+     "bytes": 2785280,
+     "param": "s_gate"
+    },
+    {
+     "name": "w_up",
+     "pack": "p4",
+     "offset": 102481920,
+     "bytes": 44564480,
+     "param": "w_up"
+    },
+    {
+     "name": "s_up",
+     "pack": "ps",
+     "offset": 6405120,
+     "bytes": 2785280,
+     "param": "s_up"
+    },
+    {
+     "name": "w_down",
+     "pack": "p4",
+     "offset": 147046400,
+     "bytes": 44564480,
+     "param": "w_down"
+    },
+    {
+     "name": "s_down",
+     "pack": "ps",
+     "offset": 9190400,
+     "bytes": 2785280,
+     "param": "s_down"
+    }
+   ]
+  },
+  "prefill128.attn": {
+   "file": "qwen35_attn_prefill128_mx4_pk_kvc_c16384_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 1310720,
+     "dtype": 9,
+     "shape": [
+      1,
+      128,
+      5120
+     ]
+    },
+    {
+     "name": "p4",
+     "bytes": 186122240,
+     "dtype": 15,
+     "shape": [
+      372244480
+     ]
+    },
+    {
+     "name": "pw",
+     "bytes": 1,
+     "dtype": 11,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "ps",
+     "bytes": 11632640,
+     "dtype": 1,
+     "shape": [
+      11632640
+     ]
+    },
+    {
+     "name": "pf",
+     "bytes": 43008,
+     "dtype": 3,
+     "shape": [
+      10752
+     ]
+    },
+    {
+     "name": "cos",
+     "bytes": 8192,
+     "dtype": 9,
+     "shape": [
+      128,
+      32
+     ]
+    },
+    {
+     "name": "sin",
+     "bytes": 8192,
+     "dtype": 9,
+     "shape": [
+      128,
+      32
+     ]
+    },
+    {
+     "name": "pos",
+     "bytes": 4,
+     "dtype": 6,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "nblk",
+     "bytes": 4,
+     "dtype": 6,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "mask",
+     "bytes": 4194304,
+     "dtype": 9,
+     "shape": [
+      64,
+      128,
+      256
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 1310720,
+     "dtype": 9,
+     "shape": [
+      1,
+      128,
+      5120
+     ]
+    },
+    {
+     "name": "kc",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    },
+    {
+     "name": "vc",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    }
+   ],
+   "packs": {
+    "p4": 186122240,
+    "ps": 11632640,
+    "pf": 43008
+   },
+   "members": [
+    {
+     "name": "ln1",
+     "pack": "pf",
+     "offset": 0,
+     "bytes": 20480,
+     "param": "ln1"
+    },
+    {
+     "name": "w_q",
+     "pack": "p4",
+     "offset": 0,
+     "bytes": 31457280,
+     "param": "w_q"
+    },
+    {
+     "name": "s_q",
+     "pack": "ps",
+     "offset": 0,
+     "bytes": 1966080,
+     "param": "s_q"
+    },
+    {
+     "name": "w_k",
+     "pack": "p4",
+     "offset": 31457280,
+     "bytes": 2621440,
+     "param": "w_k"
+    },
+    {
+     "name": "s_k",
+     "pack": "ps",
+     "offset": 1966080,
+     "bytes": 163840,
+     "param": "s_k"
+    },
+    {
+     "name": "w_v",
+     "pack": "p4",
+     "offset": 34078720,
+     "bytes": 2621440,
+     "param": "w_v"
+    },
+    {
+     "name": "s_v",
+     "pack": "ps",
+     "offset": 2129920,
+     "bytes": 163840,
+     "param": "s_v"
+    },
+    {
+     "name": "q_norm",
+     "pack": "pf",
+     "offset": 20480,
+     "bytes": 1024,
+     "param": "q_norm"
+    },
+    {
+     "name": "k_norm",
+     "pack": "pf",
+     "offset": 21504,
+     "bytes": 1024,
+     "param": "k_norm"
+    },
+    {
+     "name": "w_o",
+     "pack": "p4",
+     "offset": 36700160,
+     "bytes": 15728640,
+     "param": "w_o"
+    },
+    {
+     "name": "s_o",
+     "pack": "ps",
+     "offset": 2293760,
+     "bytes": 983040,
+     "param": "s_o"
+    },
+    {
+     "name": "ln2",
+     "pack": "pf",
+     "offset": 22528,
+     "bytes": 20480,
+     "param": "ln2"
+    },
+    {
+     "name": "w_gate",
+     "pack": "p4",
+     "offset": 52428800,
+     "bytes": 44564480,
+     "param": "w_gate"
+    },
+    {
+     "name": "s_gate",
+     "pack": "ps",
+     "offset": 3276800,
+     "bytes": 2785280,
+     "param": "s_gate"
+    },
+    {
+     "name": "w_up",
+     "pack": "p4",
+     "offset": 96993280,
+     "bytes": 44564480,
+     "param": "w_up"
+    },
+    {
+     "name": "s_up",
+     "pack": "ps",
+     "offset": 6062080,
+     "bytes": 2785280,
+     "param": "s_up"
+    },
+    {
+     "name": "w_down",
+     "pack": "p4",
+     "offset": 141557760,
+     "bytes": 44564480,
+     "param": "w_down"
+    },
+    {
+     "name": "s_down",
+     "pack": "ps",
+     "offset": 8847360,
+     "bytes": 2785280,
+     "param": "s_down"
+    }
+   ]
+  },
+  "prefill64.attn": {
+   "file": "qwen35_attn_prefill64_mx4_pk_kvc_c16384_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 655360,
+     "dtype": 9,
+     "shape": [
+      1,
+      64,
+      5120
+     ]
+    },
+    {
+     "name": "p4",
+     "bytes": 186122240,
+     "dtype": 15,
+     "shape": [
+      372244480
+     ]
+    },
+    {
+     "name": "pw",
+     "bytes": 1,
+     "dtype": 11,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "ps",
+     "bytes": 11632640,
+     "dtype": 1,
+     "shape": [
+      11632640
+     ]
+    },
+    {
+     "name": "pf",
+     "bytes": 43008,
+     "dtype": 3,
+     "shape": [
+      10752
+     ]
+    },
+    {
+     "name": "cos",
+     "bytes": 4096,
+     "dtype": 9,
+     "shape": [
+      64,
+      32
+     ]
+    },
+    {
+     "name": "sin",
+     "bytes": 4096,
+     "dtype": 9,
+     "shape": [
+      64,
+      32
+     ]
+    },
+    {
+     "name": "pos",
+     "bytes": 4,
+     "dtype": 6,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "nblk",
+     "bytes": 4,
+     "dtype": 6,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "mask",
+     "bytes": 2097152,
+     "dtype": 9,
+     "shape": [
+      64,
+      64,
+      256
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 655360,
+     "dtype": 9,
+     "shape": [
+      1,
+      64,
+      5120
+     ]
+    },
+    {
+     "name": "kc",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    },
+    {
+     "name": "vc",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    }
+   ],
+   "packs": {
+    "p4": 186122240,
+    "ps": 11632640,
+    "pf": 43008
+   },
+   "members": [
+    {
+     "name": "ln1",
+     "pack": "pf",
+     "offset": 0,
+     "bytes": 20480,
+     "param": "ln1"
+    },
+    {
+     "name": "w_q",
+     "pack": "p4",
+     "offset": 0,
+     "bytes": 31457280,
+     "param": "w_q"
+    },
+    {
+     "name": "s_q",
+     "pack": "ps",
+     "offset": 0,
+     "bytes": 1966080,
+     "param": "s_q"
+    },
+    {
+     "name": "w_k",
+     "pack": "p4",
+     "offset": 31457280,
+     "bytes": 2621440,
+     "param": "w_k"
+    },
+    {
+     "name": "s_k",
+     "pack": "ps",
+     "offset": 1966080,
+     "bytes": 163840,
+     "param": "s_k"
+    },
+    {
+     "name": "w_v",
+     "pack": "p4",
+     "offset": 34078720,
+     "bytes": 2621440,
+     "param": "w_v"
+    },
+    {
+     "name": "s_v",
+     "pack": "ps",
+     "offset": 2129920,
+     "bytes": 163840,
+     "param": "s_v"
+    },
+    {
+     "name": "q_norm",
+     "pack": "pf",
+     "offset": 20480,
+     "bytes": 1024,
+     "param": "q_norm"
+    },
+    {
+     "name": "k_norm",
+     "pack": "pf",
+     "offset": 21504,
+     "bytes": 1024,
+     "param": "k_norm"
+    },
+    {
+     "name": "w_o",
+     "pack": "p4",
+     "offset": 36700160,
+     "bytes": 15728640,
+     "param": "w_o"
+    },
+    {
+     "name": "s_o",
+     "pack": "ps",
+     "offset": 2293760,
+     "bytes": 983040,
+     "param": "s_o"
+    },
+    {
+     "name": "ln2",
+     "pack": "pf",
+     "offset": 22528,
+     "bytes": 20480,
+     "param": "ln2"
+    },
+    {
+     "name": "w_gate",
+     "pack": "p4",
+     "offset": 52428800,
+     "bytes": 44564480,
+     "param": "w_gate"
+    },
+    {
+     "name": "s_gate",
+     "pack": "ps",
+     "offset": 3276800,
+     "bytes": 2785280,
+     "param": "s_gate"
+    },
+    {
+     "name": "w_up",
+     "pack": "p4",
+     "offset": 96993280,
+     "bytes": 44564480,
+     "param": "w_up"
+    },
+    {
+     "name": "s_up",
+     "pack": "ps",
+     "offset": 6062080,
+     "bytes": 2785280,
+     "param": "s_up"
+    },
+    {
+     "name": "w_down",
+     "pack": "p4",
+     "offset": 141557760,
+     "bytes": 44564480,
+     "param": "w_down"
+    },
+    {
+     "name": "s_down",
+     "pack": "ps",
+     "offset": 8847360,
+     "bytes": 2785280,
+     "param": "s_down"
+    }
+   ]
+  },
+  "prefill16.attn": {
+   "file": "qwen35_attn_prefill16_mx4_pk_kvc_c16384_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 163840,
+     "dtype": 9,
+     "shape": [
+      1,
+      16,
+      5120
+     ]
+    },
+    {
+     "name": "p4",
+     "bytes": 186122240,
+     "dtype": 15,
+     "shape": [
+      372244480
+     ]
+    },
+    {
+     "name": "pw",
+     "bytes": 1,
+     "dtype": 11,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "ps",
+     "bytes": 11632640,
+     "dtype": 1,
+     "shape": [
+      11632640
+     ]
+    },
+    {
+     "name": "pf",
+     "bytes": 43008,
+     "dtype": 3,
+     "shape": [
+      10752
+     ]
+    },
+    {
+     "name": "cos",
+     "bytes": 1024,
+     "dtype": 9,
+     "shape": [
+      16,
+      32
+     ]
+    },
+    {
+     "name": "sin",
+     "bytes": 1024,
+     "dtype": 9,
+     "shape": [
+      16,
+      32
+     ]
+    },
+    {
+     "name": "pos",
+     "bytes": 4,
+     "dtype": 6,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "nblk",
+     "bytes": 4,
+     "dtype": 6,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "mask",
+     "bytes": 524288,
+     "dtype": 9,
+     "shape": [
+      64,
+      16,
+      256
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 163840,
+     "dtype": 9,
+     "shape": [
+      1,
+      16,
+      5120
+     ]
+    },
+    {
+     "name": "kc",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    },
+    {
+     "name": "vc",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    }
+   ],
+   "packs": {
+    "p4": 186122240,
+    "ps": 11632640,
+    "pf": 43008
+   },
+   "members": [
+    {
+     "name": "ln1",
+     "pack": "pf",
+     "offset": 0,
+     "bytes": 20480,
+     "param": "ln1"
+    },
+    {
+     "name": "w_q",
+     "pack": "p4",
+     "offset": 0,
+     "bytes": 31457280,
+     "param": "w_q"
+    },
+    {
+     "name": "s_q",
+     "pack": "ps",
+     "offset": 0,
+     "bytes": 1966080,
+     "param": "s_q"
+    },
+    {
+     "name": "w_k",
+     "pack": "p4",
+     "offset": 31457280,
+     "bytes": 2621440,
+     "param": "w_k"
+    },
+    {
+     "name": "s_k",
+     "pack": "ps",
+     "offset": 1966080,
+     "bytes": 163840,
+     "param": "s_k"
+    },
+    {
+     "name": "w_v",
+     "pack": "p4",
+     "offset": 34078720,
+     "bytes": 2621440,
+     "param": "w_v"
+    },
+    {
+     "name": "s_v",
+     "pack": "ps",
+     "offset": 2129920,
+     "bytes": 163840,
+     "param": "s_v"
+    },
+    {
+     "name": "q_norm",
+     "pack": "pf",
+     "offset": 20480,
+     "bytes": 1024,
+     "param": "q_norm"
+    },
+    {
+     "name": "k_norm",
+     "pack": "pf",
+     "offset": 21504,
+     "bytes": 1024,
+     "param": "k_norm"
+    },
+    {
+     "name": "w_o",
+     "pack": "p4",
+     "offset": 36700160,
+     "bytes": 15728640,
+     "param": "w_o"
+    },
+    {
+     "name": "s_o",
+     "pack": "ps",
+     "offset": 2293760,
+     "bytes": 983040,
+     "param": "s_o"
+    },
+    {
+     "name": "ln2",
+     "pack": "pf",
+     "offset": 22528,
+     "bytes": 20480,
+     "param": "ln2"
+    },
+    {
+     "name": "w_gate",
+     "pack": "p4",
+     "offset": 52428800,
+     "bytes": 44564480,
+     "param": "w_gate"
+    },
+    {
+     "name": "s_gate",
+     "pack": "ps",
+     "offset": 3276800,
+     "bytes": 2785280,
+     "param": "s_gate"
+    },
+    {
+     "name": "w_up",
+     "pack": "p4",
+     "offset": 96993280,
+     "bytes": 44564480,
+     "param": "w_up"
+    },
+    {
+     "name": "s_up",
+     "pack": "ps",
+     "offset": 6062080,
+     "bytes": 2785280,
+     "param": "s_up"
+    },
+    {
+     "name": "w_down",
+     "pack": "p4",
+     "offset": 141557760,
+     "bytes": 44564480,
+     "param": "w_down"
+    },
+    {
+     "name": "s_down",
+     "pack": "ps",
+     "offset": 8847360,
+     "bytes": 2785280,
+     "param": "s_down"
+    }
+   ]
+  },
+  "prefill4.attn": {
+   "file": "qwen35_attn_prefill4_mx4_pk_kvc_c16384_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 40960,
+     "dtype": 9,
+     "shape": [
+      1,
+      4,
+      5120
+     ]
+    },
+    {
+     "name": "p4",
+     "bytes": 186122240,
+     "dtype": 15,
+     "shape": [
+      372244480
+     ]
+    },
+    {
+     "name": "pw",
+     "bytes": 1,
+     "dtype": 11,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "ps",
+     "bytes": 11632640,
+     "dtype": 1,
+     "shape": [
+      11632640
+     ]
+    },
+    {
+     "name": "pf",
+     "bytes": 43008,
+     "dtype": 3,
+     "shape": [
+      10752
+     ]
+    },
+    {
+     "name": "cos",
+     "bytes": 256,
+     "dtype": 9,
+     "shape": [
+      4,
+      32
+     ]
+    },
+    {
+     "name": "sin",
+     "bytes": 256,
+     "dtype": 9,
+     "shape": [
+      4,
+      32
+     ]
+    },
+    {
+     "name": "pos",
+     "bytes": 4,
+     "dtype": 6,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "nblk",
+     "bytes": 4,
+     "dtype": 6,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "mask",
+     "bytes": 131072,
+     "dtype": 9,
+     "shape": [
+      64,
+      4,
+      256
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 40960,
+     "dtype": 9,
+     "shape": [
+      1,
+      4,
+      5120
+     ]
+    },
+    {
+     "name": "kc",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    },
+    {
+     "name": "vc",
+     "bytes": 33554432,
+     "dtype": 0,
+     "shape": [
+      16384,
+      1024
+     ]
+    }
+   ],
+   "packs": {
+    "p4": 186122240,
+    "ps": 11632640,
+    "pf": 43008
+   },
+   "members": [
+    {
+     "name": "ln1",
+     "pack": "pf",
+     "offset": 0,
+     "bytes": 20480,
+     "param": "ln1"
+    },
+    {
+     "name": "w_q",
+     "pack": "p4",
+     "offset": 0,
+     "bytes": 31457280,
+     "param": "w_q"
+    },
+    {
+     "name": "s_q",
+     "pack": "ps",
+     "offset": 0,
+     "bytes": 1966080,
+     "param": "s_q"
+    },
+    {
+     "name": "w_k",
+     "pack": "p4",
+     "offset": 31457280,
+     "bytes": 2621440,
+     "param": "w_k"
+    },
+    {
+     "name": "s_k",
+     "pack": "ps",
+     "offset": 1966080,
+     "bytes": 163840,
+     "param": "s_k"
+    },
+    {
+     "name": "w_v",
+     "pack": "p4",
+     "offset": 34078720,
+     "bytes": 2621440,
+     "param": "w_v"
+    },
+    {
+     "name": "s_v",
+     "pack": "ps",
+     "offset": 2129920,
+     "bytes": 163840,
+     "param": "s_v"
+    },
+    {
+     "name": "q_norm",
+     "pack": "pf",
+     "offset": 20480,
+     "bytes": 1024,
+     "param": "q_norm"
+    },
+    {
+     "name": "k_norm",
+     "pack": "pf",
+     "offset": 21504,
+     "bytes": 1024,
+     "param": "k_norm"
+    },
+    {
+     "name": "w_o",
+     "pack": "p4",
+     "offset": 36700160,
+     "bytes": 15728640,
+     "param": "w_o"
+    },
+    {
+     "name": "s_o",
+     "pack": "ps",
+     "offset": 2293760,
+     "bytes": 983040,
+     "param": "s_o"
+    },
+    {
+     "name": "ln2",
+     "pack": "pf",
+     "offset": 22528,
+     "bytes": 20480,
+     "param": "ln2"
+    },
+    {
+     "name": "w_gate",
+     "pack": "p4",
+     "offset": 52428800,
+     "bytes": 44564480,
+     "param": "w_gate"
+    },
+    {
+     "name": "s_gate",
+     "pack": "ps",
+     "offset": 3276800,
+     "bytes": 2785280,
+     "param": "s_gate"
+    },
+    {
+     "name": "w_up",
+     "pack": "p4",
+     "offset": 96993280,
+     "bytes": 44564480,
+     "param": "w_up"
+    },
+    {
+     "name": "s_up",
+     "pack": "ps",
+     "offset": 6062080,
+     "bytes": 2785280,
+     "param": "s_up"
+    },
+    {
+     "name": "w_down",
+     "pack": "p4",
+     "offset": 141557760,
+     "bytes": 44564480,
+     "param": "w_down"
+    },
+    {
+     "name": "s_down",
+     "pack": "ps",
+     "offset": 8847360,
+     "bytes": 2785280,
+     "param": "s_down"
+    }
+   ]
+  }
+ }
+}
