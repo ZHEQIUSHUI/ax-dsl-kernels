@@ -2,17 +2,19 @@
 # Qwen3.8-27B kernels: build.sh <out dir>
 #   NPU_DECODE   npu-codebase checkout at 7913a0599 (the axnn of the decode group), its .venv set up
 #   NPU_PREFILL  npu-codebase checkout at cad0db3d6 (fix/sglang_axera_opt: axnn + sgl-kernel-axera of the prefill kernel)
-# Writes the decode group (+ .layout) and the whole-model prefill kernel, both as the board runtime loads them
-# (board_io: FP4 / E8M0 IO declared u8), and checks them against kernels.md5. The kernel directory adds the output head
-# and the 4-core ViT kernels of the delivered directory (unchanged; see README.md) and manifest.json.
+#   HF_27B       the Hugging Face Qwen3.8-27B directory (the ViT kernel's config)
+# Writes the decode group (+ .layout), the whole-model prefill kernel (both as the board runtime loads them, board_io:
+# FP4 / E8M0 IO declared u8) and the whole ViT kernel, and checks them against kernels.md5. The kernel directory adds
+# the output head of the delivered directory (unchanged; see README.md) and manifest.json.
 # A build runs the simulator only up to the compiled axmodel (minutes for the prefill, ~1.5 h for the decode group:
 # random weights of the config's shapes are generated and packed first).
 set -e
 OUT=$(mkdir -p "$1" && cd "$1" && pwd)
 D=$(cd "$(dirname "$0")" && pwd)
-: "${NPU_DECODE:?}" "${NPU_PREFILL:?}"
+: "${NPU_DECODE:?}" "${NPU_PREFILL:?}" "${HF_27B:?}"
 DEC=qwen38_27b_group16_gggagggagggaggga_mx4_kvc_c16384_npu4
 PRE=qwen38_27b_prefill256_mx4_kvc_c16384_npu4
+VIT=qwen38_27b_vit3072_npu4
 # run "$@" until the compiled axmodel matching $1 appears, then stop it
 until_compiled() {
     local pat=$1; shift
@@ -38,5 +40,13 @@ until_compiled() {
         python "$D/prefill/build27.py" "$OUT/o_pre" > "$OUT/pre.log" 2>&1
     cp "$(ls -t "$OUT"/o_pre/forward_qwen38_blocks.*.compiled.axmodel | head -1)" "$OUT/$PRE.axmodel"
     python "$D/board_io.py" "$OUT/$DEC.axmodel" "$OUT/$PRE.axmodel" > /dev/null
+)
+(   # ViT: 27 layers + merger unrolled in one kernel, 3072 patches (fewer at runtime: nblk key blocks), bf16 weights
+    source "$NPU_DECODE/.venv/bin/activate"; source "$NPU_DECODE/script/npu_dev" > /dev/null 2>&1
+    export PYTHONPATH=$D/vit MODEL=$HF_27B
+    rm -rf "$OUT/o_vit"
+    QB=512 BC=256 RUN_MODE=CRUN N=3072 GH=48 GW=64 DUMP="$OUT/o_vit" until_compiled \
+        "$OUT/o_vit/full3072_l27/cache/vit_full.*.compiled.axmodel" python "$D/vit/vit_full.py" > "$OUT/vit.log" 2>&1
+    cp "$(ls -t "$OUT"/o_vit/full3072_l27/cache/vit_full.*.compiled.axmodel | head -1)" "$OUT/$VIT.axmodel"
 )
 cd "$OUT" && grep -v mul_mat "$D/kernels.md5" | md5sum -c - || echo "differs from kernels.md5 (see README.md: reproducibility)"

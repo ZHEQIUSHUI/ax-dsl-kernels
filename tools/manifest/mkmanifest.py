@@ -178,6 +178,7 @@ def qwen38_27b_roles(io):
         "decode.group": "qwen38_27b_group16_gggagggagggaggga_mx4_kvc_c16384_npu4",
         "prefill": "qwen38_27b_prefill256_mx4_kvc_c16384_npu4",
         "lm_head": "mul_mat_mx4_n248320_k5120_npu4",
+        "vit": "qwen38_27b_vit3072_npu4",  # the whole vision encoder (27 layers + merger) in one call
     }
 
 
@@ -268,7 +269,7 @@ def main():
              qwen35_dense_roles(io) if model == "qwen35_dense" else qwen38_27b_roles(io) if model == "qwen38_27b" else
              ROLES[model])
     man = {"format": 1, "model": model, "context": ctx, "cores": 4, "params": {}, "kernels": {}}
-    for role, base in {**roles, **vit_roles(io)}.items():
+    for role, base in {**roles, **({} if "vit" in roles else vit_roles(io))}.items():
         f = base + ".axmodel"
         if f not in io:
             sys.exit(f"{role}: {f} not in {io_path}")
