@@ -15,7 +15,11 @@ with 12 heads of 64; 2B / 4B: 24 x 1024, 16 x 64; 9B / 27B / 35B-A3B: 27 x 1152,
 The host orders the patches in merge order (each 2 x 2 group consecutive, as the HF processor and llama.cpp do) and
 pads N to the kernel's patch count (whole key blocks); padded rows are computed and ignored.
 
-Written as qwen35_vit_<kernel><N>_h<H>_npu1.axmodel. Check on the simulator against transformers' Qwen3_5VisionModel,
+CORES=<n> (default 1): every kernel on n cores without synchronization, none reading another core's results:
+embed / pre / post / merge split by rows (N / CORES patches per core), the attention by heads (NH / CORES heads per
+core over all the patches, whose q / k / v the pre kernel's call before wrote).
+
+Written as qwen35_vit_<kernel><N>_h<H>_npu<CORES>.axmodel. Check on the simulator against transformers' Qwen3_5VisionModel,
 layer by layer. Usage:
   MODEL=<hf dir> N=256 python q35_vit.py [kernel_dir]
 """
@@ -51,9 +55,18 @@ N = int(os.environ.get("N", 256))  # patches per call, a multiple of BC and MT
 # 256 x 1152 does not build), else 128
 BC = int(os.environ.get("BC", 256 if H <= 768 else 128))  # key block of the attention
 QB = int(os.environ.get("QB", min(512, N)))  # query rows per block of the attention
-MT = int(os.environ.get("MT", 128))  # rows per tile of the projections
+CORES = int(os.environ.get("CORES", 1))
+MT = int(os.environ.get("MT", min(128, N // CORES)))  # rows per tile of the projections
 BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_vit"))
-assert N % BC == 0 and N % QB == 0 and N % MT == 0 and MT % (MERGE * MERGE) == 0
+RC = N // CORES  # rows per core (embed, pre, post, merge)
+NHC = NH // CORES  # heads per core (attention)
+assert N % BC == 0 and N % QB == 0 and RC % MT == 0 and MT % (MERGE * MERGE) == 0 and NH % CORES == 0
+
+
+def core_rows():
+    """the row tiles of this core: slices of MT rows within its RC rows"""
+    c = ax.program_id(0)
+    return [slice(c * RC + t * MT, c * RC + (t + 1) * MT) for t in range(RC // MT)]
 
 
 def oc_tile(cols):
@@ -79,8 +92,7 @@ def layernorm(x, w, b):
 
 
 def vit_embed(px, w_patch, b_patch, pos, out):
-    for t in range(N // MT):
-        rows = slice(t * MT, (t + 1) * MT)
+    for rows in core_rows():
         x = proj(ax.dsl.load(px[rows]).reshape(1, MT, CP), w_patch, b_patch, "vit_patch", output_dtype=ax.fp32)
         ax.dsl.store(ax.dsl.add(x, ax.dsl.load(pos[rows]).reshape(1, MT, H), output_dtype=ax.bf16).reshape(MT, H), r=out[rows])
     return out
@@ -88,8 +100,7 @@ def vit_embed(px, w_patch, b_patch, pos, out):
 
 def vit_pre(x, ln1_w, ln1_b, w_qkv, b_qkv, cos, sin, q_out, k_out, v_out):
     scale = ax.dsl.full(shape=(1,), dtype=ax.fp32, fill_value=HD**-0.5)
-    for t in range(N // MT):
-        rows = slice(t * MT, (t + 1) * MT)
+    for rows in core_rows():
         h = layernorm(ax.dsl.load(x[rows]).reshape(1, MT, H), ln1_w, ln1_b)
         cs, sn = ax.dsl.load(cos[rows]), ax.dsl.load(sin[rows])  # [MT, HD / 2]
         # w_qkv rows [q | k | v], each head-major; one projection each, so every result is contiguous
@@ -113,6 +124,7 @@ def vit_attn(qs, kc, vc, nblk, kmask, out):
     range_start = ax.dsl.from_numpy(np.array([0], dtype=np.int32), prefix="range_start")
     range_stop = ax.dsl.load(nblk)
     zero_col = ax.dsl.zeros(shape=(QB, 1), dtype=ax.bf16)
+    h0 = ax.program_id(0) * NHC  # this core's heads h0 .. h0 + NHC - 1
 
     def body(index, kc, vc, kmask, block_stride, kv_block_shape, mask_block_shape, zero_col, minus_1, *heads):
         t0 = ax.dsl.cast(ax.dsl.mul(index, block_stride), dtype=ax.uint32)
@@ -120,8 +132,9 @@ def vit_attn(qs, kc, vc, nblk, kmask, out):
         vb = ax.dsl.dynamic_ld(vc, t0, kv_block_shape, dim=(0,), output_shape=(BC, H))
         mq = ax.dsl.dynamic_ld(kmask, ax.dsl.cast(index, dtype=ax.uint32), mask_block_shape, dim=(0,),
                                output_shape=(1, QB, BC)).reshape(QB, BC)  # the key mask, one row per query row
-        for hh in range(NH):
-            qh, mi, li, oi = heads[4 * hh : 4 * hh + 4]
+        for j in range(NHC):
+            hh = h0 + j
+            qh, mi, li, oi = heads[4 * j : 4 * j + 4]
             kj = kb[:, hh * HD : (hh + 1) * HD]
             vj = vb[:, hh * HD : (hh + 1) * HD]
             m_s = ax.dsl.create_tensor(shape=(QB, 1 + BC + 1), dtype=ax.bf16)
@@ -147,8 +160,9 @@ def vit_attn(qs, kc, vc, nblk, kmask, out):
         rows = slice(b * QB, (b + 1) * QB)
         qa = ax.dsl.load(qs[rows])  # [QB, NH, HD]
         heads = []
-        for hh in range(NH):
-            qh = ax.dsl.create_tensor((QB, HD), ax.bf16, name=f"vit_q{b}_{hh}")
+        for j in range(NHC):
+            hh = h0 + j
+            qh = ax.dsl.create_tensor((QB, HD), ax.bf16, name=f"vit_q{b}_{j}")
             ax.dsl.move(x=qa[:, hh : hh + 1, :].reshape(QB, HD), r=qh)
             heads += [qh, ax.dsl.full(shape=(QB, 1), dtype=ax.bf16, fill_value=-3e38),
                       ax.dsl.zeros(shape=(QB,), dtype=ax.fp32), ax.dsl.zeros(shape=(QB, HD), dtype=ax.bf16)]
@@ -157,17 +171,16 @@ def vit_attn(qs, kc, vc, nblk, kmask, out):
         res = ax.dsl.range(index, range_start, range_stop, range_step, body, kc, vc, kmask, block_stride,
                            kv_block_shape, mask_block_shape, zero_col, minus_1, *heads)
         heads = res[8:]
-        o = ax.dsl.create_tensor((QB, H), ax.bf16, name=f"vit_o{b}")
-        for hh in range(NH):
-            _, _, li, oi = heads[4 * hh : 4 * hh + 4]
-            ax.dsl.div(oi, li.reshape(QB, 1), r=o[:, hh * HD : (hh + 1) * HD])
-        ax.dsl.store(o, r=out[rows])
+        o = ax.dsl.create_tensor((QB, NHC * HD), ax.bf16, name=f"vit_o{b}")
+        for j in range(NHC):
+            _, _, li, oi = heads[4 * j : 4 * j + 4]
+            ax.dsl.div(oi, li.reshape(QB, 1), r=o[:, j * HD : (j + 1) * HD])
+        ax.dsl.store(o, r=out[rows, h0 * HD : (h0 + NHC) * HD])
     return out
 
 
 def vit_post(x, attn, w_o, b_o, ln2_w, ln2_b, w_up, b_up, w_down, b_down, out):
-    for t in range(N // MT):
-        rows = slice(t * MT, (t + 1) * MT)
+    for rows in core_rows():
         xt = ax.dsl.load(x[rows]).reshape(1, MT, H)
         a = proj(ax.dsl.load(attn[rows]).reshape(1, MT, H), w_o, b_o, "vit_o", output_dtype=ax.fp32)
         x1 = ax.dsl.add(xt, a, output_dtype=ax.bf16)
@@ -179,12 +192,11 @@ def vit_post(x, attn, w_o, b_o, ln2_w, ln2_b, w_up, b_up, w_down, b_down, out):
 
 def vit_merge(x, ln_w, ln_b, w0, b0, w2, b2, out):
     G = MERGE * MERGE
-    for t in range(N // MT):
-        rows = slice(t * MT, (t + 1) * MT)
+    for rows in core_rows():
         h = layernorm(ax.dsl.load(x[rows]).reshape(1, MT, H), ln_w, ln_b).reshape(1, MT // G, G * H)
         u = ax.dsl.gelu(proj(h, w0, b0, "vit_mm0", output_dtype=ax.fp32), output_dtype=ax.bf16)
         y = proj(u, w2, b2, "vit_mm2", output_dtype=ax.fp32)
-        ax.dsl.store(y.reshape(MT // G, OUT), r=out[t * MT // G : (t + 1) * MT // G])
+        ax.dsl.store(y.reshape(MT // G, OUT), r=out[rows.start // G : rows.stop // G])
     return out
 
 
@@ -236,13 +248,13 @@ def attn_random():
     t = dict(qs=qf, kc=kf, vc=vf, nblk=torch.tensor([-(-n // BC)], dtype=torch.int32),
              kmask=kmask.reshape(N // BC, 1, BC).expand(N // BC, QB, BC).bfloat16().contiguous(),
              out=torch.zeros((N, H), dtype=torch.bfloat16))
-    kern(vit_attn, f"attn{N}")[1](*[t[a] for a in ATTN_ORDER])
+    kern(vit_attn, f"attn{N}")[CORES](*[t[a] for a in ATTN_ORDER])
     q32, k32, v32 = qf[:n].float(), kf[:n].float().view(n, NH, HD), vf[:n].float().view(n, NH, HD)
     att = torch.einsum("hqk,khd->qhd", torch.softmax(torch.einsum("qhd,khd->hqk", q32, k32), -1), v32).reshape(n, H)
     logger.info(f"vit attn N={N} H={H} QB={QB} BC={BC} (n={n}, random): cos vs torch {cos(t['out'][:n], att):.6f}")
     if len(sys.argv) > 1:  # the kernel alone, e.g. a new attention block size for existing other kernels
         (path,) = glob.glob(f"{BUILD}/attn{N}/cache/vit_attn.*.compiled.axmodel")
-        dst = board_io.kernel_file(os.path.abspath(sys.argv[1]), f"qwen35_vit_attn{N}_h{H}")
+        dst = board_io.kernel_file(os.path.abspath(sys.argv[1]), f"qwen35_vit_attn{N}_h{H}", CORES)
         shutil.copy(path, dst)
         logger.info(f"wrote {dst}")
 
@@ -250,7 +262,7 @@ def attn_random():
 def main():
     out_dir = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else None
     os.makedirs(BUILD, exist_ok=True)
-    ax.init(chip_num=1, core_num=1)
+    ax.init(chip_num=1, core_num=CORES)
     if os.environ.get("VIT_RANDOM") == "1":
         return attn_random()
     torch.manual_seed(0)
@@ -277,7 +289,7 @@ def main():
 
     def run(fn, sub, args, order):
         k = kern(fn, sub)
-        k[1](*[args[a] for a in order])
+        k[CORES](*[args[a] for a in order])
         built.append((sub, fn.__name__))
 
     # embed: px (one frame) against w0 + w1
@@ -340,7 +352,7 @@ def main():
         tag = f"h{H}"
         for sub, fn in built:
             (path,) = glob.glob(f"{BUILD}/{sub}/cache/{fn}.*.compiled.axmodel")
-            dst = board_io.kernel_file(out_dir, f"qwen35_{fn}{N}_{tag}")
+            dst = board_io.kernel_file(out_dir, f"qwen35_{fn}{N}_{tag}", CORES)
             shutil.copy(path, dst)
             logger.info(f"wrote {dst}")
 

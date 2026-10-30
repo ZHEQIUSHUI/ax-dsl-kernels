@@ -43,6 +43,8 @@ P = int(os.environ.get("PCHUNK", 16))
 # solver, CHUNK tokens per solve and HG value heads batched per solve; GDN=seq: token by token as the decode kernel
 GDN = os.environ.get("GDN", "chunk")
 CHUNK = min(P, int(os.environ.get("CHUNK", 32)))
+REF_HALF = int(os.environ.get("REF_HALF", 128))  # a reference chunk over this many tokens runs as two halves
+POS_OFF = 0  # the half's first position after pos (the second half of a halved attention chunk)
 HG = int(os.environ.get("HG", 8))
 H, D, HQ, HKV, G = q.H, q.D, q.HQ, q.HKV, q.G
 NK, NV, DK, DV, KD, VD = q.NK, q.NV, q.DK, q.DV, q.KD, q.VD
@@ -54,16 +56,50 @@ SCATTER = False
 
 def gdn_layer_prefill(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out, ln2, w_gate, w_up, w_down,
                       state_in, conv_in, out, state_out, conv_out):
+    global P
+    if P > REF_HALF:  # two halves: the second continues from the first's state and conv rows (in place)
+        assert not q.PADV, "padded chunks (rv / cix) up to REF_HALF rows"
+        full, P = P, P // 2
+        try:
+            w = (ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm_w, w_out, ln2, w_gate, w_up, w_down)
+            gdn_layer_prefill(x[:, :P], *w, state_in, conv_in, out[:, :P], state_out, conv_out)
+            gdn_layer_prefill(x[:, P:], *w, state_out, conv_out, out[:, P:], state_out, conv_out)
+        finally:
+            P = full
+        return
     xt = ax.dsl.load(x)  # [1, P, H]
     h = rmsnorm(xt, ax.dsl.load(ln1).reshape(1, 1, H), eps=EPS)
     qkv = q.proj(h, w_qkv, "gdn_qkv")  # [1, P, 2*KD+VD]
     z = q.proj(h, w_z, "gdn_z").reshape(1, P, NV, DV)
     b = q.proj(h, w_b, "gdn_b")
     a = q.proj(h, w_a, "gdn_a")
-    mixed = stateful_runtime_causal_depthwise_conv1d_silu(qkv, conv_w, conv_in, conv_out, q.CONV, "gdn_conv")
-    qm = mixed[:, :, 0:KD].reshape(1, P, NK, DK)
-    km = mixed[:, :, KD : 2 * KD].reshape(1, P, NK, DK)
-    vm = mixed[:, :, 2 * KD :].reshape(1, P, NV, DV)
+    C = 2 * KD + VD
+    # the depthwise convolution in channel blocks of its q / k / v parts, each channel's arithmetic unchanged. Blocked
+    # once the whole convolution's input, product and output no longer fit a job's OCM as bf16 (27B; the compiler places
+    # the 2B / 9B ones whole, whose kernels stay as built); a block is sized so they fit as fp32
+    if (P + q.CONV - 1) * C * 2 * 3 > q.ROWS_OCM:
+        w = 2048
+        while (P + q.CONV - 1) * w * 4 * 3 > q.ROWS_OCM and w > 128:
+            w //= 2
+        parts = []
+        for i, (c0, c1) in enumerate(((0, KD), (KD, 2 * KD), (2 * KD, C))):
+            if c1 - c0 <= w:
+                parts.append(q.causal_conv(
+                    qkv[:, :, c0:c1], conv_w[c0:c1], conv_in[:, :, c0:c1], conv_out[:, :, c0:c1], q.CONV, f"gdn_conv{i}"))
+                continue
+            t = ax.dsl.create_tensor((1, P, c1 - c0), ax.bf16, name=f"gdn_mixed{i}")
+            for b0 in range(c0, c1, w):
+                ch = slice(b0, min(c1, b0 + w))
+                ax.dsl.move(r=t[:, :, b0 - c0 : ch.stop - c0], x=q.causal_conv(
+                    qkv[:, :, ch], conv_w[ch], conv_in[:, :, ch], conv_out[:, :, ch], q.CONV, f"gdn_conv{i}_{b0}"))
+            parts.append(t)
+        qm, km, vm = parts
+        qm, km, vm = qm.reshape(1, P, NK, DK), km.reshape(1, P, NK, DK), vm.reshape(1, P, NV, DV)
+    else:
+        mixed = q.causal_conv(qkv, conv_w, conv_in, conv_out, q.CONV, "gdn_conv")
+        qm = mixed[:, :, 0:KD].reshape(1, P, NK, DK)
+        km = mixed[:, :, KD : 2 * KD].reshape(1, P, NK, DK)
+        vm = mixed[:, :, 2 * KD :].reshape(1, P, NV, DV)
 
     a_log_t = ax.dsl.load(a_log)
     dt_bias_t = ax.dsl.load(dt_bias)
@@ -87,8 +123,20 @@ def gdn_layer_prefill(x, ln1, w_qkv, w_z, w_b, w_a, conv_w, a_log, dt_bias, norm
                 ax.dsl.move(x=o_h.reshape(1, 1, 1, DV), r=core[:, t : t + 1, vh : vh + 1, :])
             ax.dsl.store(x=st.reshape(1, DK, DV), r=state_out[vh : vh + 1])
 
-    normed = rmsnorm(core, ax.dsl.load(norm_w).reshape(1, 1, 1, DV), eps=EPS)
-    gated = silu_gate(normed, z, activation_output_dtype=ax.fp32, output_dtype=ax.bf16).reshape(1, P, VD)
+    vg = NV  # value heads per output-gate pass: normed bf16, activated fp32, gated bf16 of a pass within a job's OCM
+    while P * vg * DV * (2 + 4 + 2) > q.ROWS_OCM and vg % 2 == 0:
+        vg //= 2
+    if vg == NV:
+        normed = rmsnorm(core, ax.dsl.load(norm_w).reshape(1, 1, 1, DV), eps=EPS)
+        gated = silu_gate(normed, z, activation_output_dtype=ax.fp32, output_dtype=ax.bf16).reshape(1, P, VD)
+    else:
+        gated = ax.dsl.create_tensor((1, P, NV, DV), ax.bf16, name="gdn_gated")
+        for h0 in range(0, NV, vg):
+            hs = slice(h0, h0 + vg)
+            normed = rmsnorm(core[:, :, hs], ax.dsl.load(norm_w).reshape(1, 1, 1, DV), eps=EPS)
+            ax.dsl.move(r=gated[:, :, hs], x=silu_gate(normed, z[:, :, hs], activation_output_dtype=ax.fp32,
+                                                       output_dtype=ax.bf16))
+        gated = gated.reshape(1, P, VD)
     x1 = ax.dsl.add(xt, q.proj(gated, w_out, "gdn_out"), output_dtype=ax.bf16)
     q.mlp_residual(x1, ln2, w_gate, w_up, w_down, out)
     return out, state_out, conv_out
@@ -100,7 +148,7 @@ def gdn_chunked(qm, km, vm, a, b, a_log_t, dt_bias_t, q_scale, state_in, state_o
     assert (NV == NK or q.VORDER == "tiled") and NK % HG == 0 and P % CHUNK == 0
     qn = ax.dsl.mul(l2norm_lastdim(qm), q_scale, output_dtype=ax.bf16)  # [1, P, NK, DK]
     kn = l2norm_lastdim(km)
-    g_all, beta_all = gdn_gate(a.reshape(1, P, NV), b.reshape(1, P, NV), a_log_t, dt_bias_t)  # [1, P, NV]
+    g_all, beta_all = q.pad_gate(*gdn_gate(a.reshape(1, P, NV), b.reshape(1, P, NV), a_log_t, dt_bias_t))  # [1, P, NV]
     prefix_all = chunk_prefix_sum_fp32(g_all, CHUNK, "gdn_prefix_g")  # restarts every CHUNK tokens
     exp_prefix_all = ax.dsl.exp(prefix_all, output_dtype=ax.fp32)
     for h0 in range(0, NV, HG):
@@ -124,15 +172,52 @@ def gdn_chunked(qm, km, vm, a, b, a_log_t, dt_bias_t, q_scale, state_in, state_o
 
 def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, pos, nblk, mask, w_o, ln2, w_gate, w_up,
                        w_down, out):
+    global P, POS_OFF
+    if P > REF_HALF:  # two halves: the second's rows at pos + P / 2, its mask rows and rope rows the second half's
+        full, P, off = P, P // 2, POS_OFF  # (nested halves: positions after the enclosing half's)
+        try:
+            w = (w_o, ln2, w_gate, w_up, w_down)
+            attn_layer_prefill(x[:, :P], ln1, w_q, w_k, w_v, q_norm, k_norm, cos[:P], sin[:P], kc, vc, pos, nblk,
+                               mask[:, :P], *w, out[:, :P])
+            POS_OFF = off + P
+            attn_layer_prefill(x[:, P:], ln1, w_q, w_k, w_v, q_norm, k_norm, cos[P:], sin[P:], kc, vc, pos, nblk,
+                               mask[:, P:], *w, out[:, P:])
+        finally:
+            P, POS_OFF = full, off
+        return
     xt = ax.dsl.load(x)  # [1, P, H]
     h = rmsnorm(xt, ax.dsl.load(ln1).reshape(1, 1, H), eps=EPS)
-    qg = q.proj(h, w_q, "attn_q").reshape(P, HQ, (2 if q.GATE else 1) * D)  # per head [q | gate] (Qwen3: q)
-    qh_all = rmsnorm(qg[:, :, 0:D], ax.dsl.load(q_norm).reshape(1, 1, D), eps=EPS)
-    gate = qg[:, :, D : 2 * D] if q.GATE else None
+    QW = (2 if q.GATE else 1) * D  # per head [q | gate] (Qwen3: q)
+    qp = HQ  # q heads per projection pass: all, or fewer while the pass's output (bf16) and its norm's fp32 rows
+    while P * qp * (QW * 2 + D * 4 * 2) > q.ROWS_OCM and qp % 2 == 0:  # exceed a job's OCM (9B P = 256)
+        qp //= 2
+    if qp == HQ:
+        qg = q.proj(h, w_q, "attn_q").reshape(P, HQ, QW)
+    cos_t, sin_t = ax.dsl.load(cos), ax.dsl.load(sin)  # [P, ROT/2]
+    hg = HQ  # q heads per norm + rope pass: all, or fewer while their fp32 rows exceed a job's OCM (9B P = 256)
+    while P * hg * D * 4 * 2 > q.ROWS_OCM and hg % 2 == 0:
+        hg //= 2
+    if qp < HQ:  # the projection, norm and rope per head group; the gates kept for the output
+        qh_all = ax.dsl.create_tensor((P, HQ, D), ax.bf16, name="q_rows")
+        gate = ax.dsl.create_tensor((P, HQ, D), ax.bf16, name="q_gate") if q.GATE else None
+        for h0 in range(0, HQ, qp):
+            part = q.proj(h, q.slice_w(w_q, rows=slice(h0 * QW, (h0 + qp) * QW)), f"attn_q{h0}").reshape(P, qp, QW)
+            if q.GATE:
+                ax.dsl.move(r=gate[:, h0 : h0 + qp, :], x=part[:, :, D : 2 * D])
+            qn = rmsnorm(part[:, :, 0:D], ax.dsl.load(q_norm).reshape(1, 1, D), eps=EPS)
+            ax.dsl.move(r=qh_all[:, h0 : h0 + qp, :], x=rope(qn, cos_t, sin_t, rotary_dim=ROT))
+    elif hg == HQ:
+        qh_all = rope(rmsnorm(qg[:, :, 0:D], ax.dsl.load(q_norm).reshape(1, 1, D), eps=EPS), cos_t, sin_t,
+                      rotary_dim=ROT)
+    else:
+        qh_all = ax.dsl.create_tensor((P, HQ, D), ax.bf16, name="q_rows")
+        for h0 in range(0, HQ, hg):
+            part = rmsnorm(qg[:, h0 : h0 + hg, 0:D], ax.dsl.load(q_norm).reshape(1, 1, D), eps=EPS)
+            ax.dsl.move(r=qh_all[:, h0 : h0 + hg, :], x=rope(part, cos_t, sin_t, rotary_dim=ROT))
+    if qp == HQ:
+        gate = qg[:, :, D : 2 * D] if q.GATE else None
     k = rmsnorm(q.proj(h, w_k, "attn_k").reshape(P, HKV, D), ax.dsl.load(k_norm).reshape(1, 1, D), eps=EPS)
     v = q.proj(h, w_v, "attn_v").reshape(P, HKV, D)
-    cos_t, sin_t = ax.dsl.load(cos), ax.dsl.load(sin)  # [P, ROT/2]
-    qh_all = rope(qh_all, cos_t, sin_t, rotary_dim=ROT)
     k = rope(k, cos_t, sin_t, rotary_dim=ROT)
 
     # P new K/V rows at the runtime position (head layout: per KV head rows pos .. pos+P-1; cell layout: cells
@@ -140,6 +225,8 @@ def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, 
     rows = ax.dsl.from_numpy(np.array([1, P] if q.KVL == "head" else [P], dtype=np.uint32))
     src0 = ax.dsl.from_numpy(np.zeros(shape=(2 if q.KVL == "head" else 1,), dtype=np.uint32))
     p = ax.dsl.cast(ax.dsl.load(pos), dtype=ax.uint32)
+    if POS_OFF:
+        p = ax.dsl.add(p, ax.dsl.from_numpy(np.array([POS_OFF], dtype=np.uint32)), output_dtype=ax.uint32)
     if q.KVL == "cell" and SCATTER:
         one = ax.dsl.from_numpy(np.array([1], dtype=np.uint32))
         k16 = ax.dsl.cast(k.reshape(P, HKV * D), dtype=ax.fp16)
@@ -147,11 +234,11 @@ def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, 
         for t in range(P):
             ax.dsl.dynamic_st(k16[t : t + 1, :], src0, p[t : t + 1], one, dim=(0,), output_shape=kc.shape, r=kc)
             ax.dsl.dynamic_st(v16[t : t + 1, :], src0, p[t : t + 1], one, dim=(0,), output_shape=vc.shape, r=vc)
-    elif q.KVL == "cell":
-        ax.dsl.dynamic_st(ax.dsl.cast(k.reshape(P, HKV * D), dtype=ax.fp16), src0, p, rows, dim=(0,),
-                          output_shape=kc.shape, r=kc)
-        ax.dsl.dynamic_st(ax.dsl.cast(v.reshape(P, HKV * D), dtype=ax.fp16), src0, p, rows, dim=(0,),
-                          output_shape=vc.shape, r=vc)
+    elif q.KVL == "cell":  # select_scatter / index_select: any cache size (dynamic_st / dynamic_ld stop at 64 MB)
+        idx = ax.dsl.cast(ax.dsl.add(p, ax.dsl.from_numpy(np.arange(P, dtype=np.uint32)), output_dtype=ax.uint32),
+                          dtype=ax.int32)
+        ax.dsl.select_scatter(ax.dsl.cast(k.reshape(P, HKV * D), dtype=ax.fp16), idx, dim=0, r=kc)
+        ax.dsl.select_scatter(ax.dsl.cast(v.reshape(P, HKV * D), dtype=ax.fp16), idx, dim=0, r=vc)
     for hk in range(HKV if q.KVL == "head" else 0):
         dst = ax.dsl.concat(ax.dsl.from_numpy(np.array([hk], dtype=np.uint32)), p, dim=0)
         kt = ax.dsl.create_tensor((P, 1, D), ax.bf16, name=f"k_rows{hk}")
@@ -191,13 +278,16 @@ def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, 
                 off = ax.dsl.concat(head, t0, dim=0)
                 kj = ax.dsl.dynamic_ld(kc, off, kv_block_shape, dim=(0, 1), output_shape=(1, BC, D)).reshape(BC, D)
                 vj = ax.dsl.dynamic_ld(vc, off, kv_block_shape, dim=(0, 1), output_shape=(1, BC, D)).reshape(BC, D)
-            else:  # BC cells x both heads, then this head's columns
-                kb = ax.dsl.dynamic_ld(kc, t0, kv_block_shape, dim=(0,), output_shape=(BC, HKV * D))
-                vb = ax.dsl.dynamic_ld(vc, t0, kv_block_shape, dim=(0,), output_shape=(BC, HKV * D))
-                kj = ax.dsl.cast(kb[:, hk * D : (hk + 1) * D], dtype=ax.bf16)
-                vj = ax.dsl.cast(vb[:, hk * D : (hk + 1) * D], dtype=ax.bf16)
-            mj = ax.dsl.dynamic_ld(mask, ax.dsl.cast(index, dtype=ax.uint32), mask_block_shape, dim=(0,),
-                                   output_shape=(1, P, BC)).reshape(P, BC)
+            else:  # block `index`, this head's columns
+                nb = kc.shape[0] // BC
+                kj = ax.dsl.cast(ax.dsl.index_select(kc.reshape(nb, BC, HKV, D)[:, :, hk : hk + 1, :], index, dim=0)
+                                 .reshape(BC, D), dtype=ax.bf16)
+                vj = ax.dsl.cast(ax.dsl.index_select(vc.reshape(nb, BC, HKV, D)[:, :, hk : hk + 1, :], index, dim=0)
+                                 .reshape(BC, D), dtype=ax.bf16)
+            m3 = mask if len(mask.shape) == 3 else mask.reshape(kc.shape[0] // BC, P, BC)  # a half's rows: a view
+            mj = (ax.dsl.index_select(m3, index, dim=0).reshape(P, BC) if q.KVL == "cell" else
+                  ax.dsl.dynamic_ld(mask, ax.dsl.cast(index, dtype=ax.uint32), mask_block_shape, dim=(0,),
+                                    output_shape=(1, P, BC)).reshape(P, BC))
             m_s = ax.dsl.create_tensor(shape=(R, 1 + BC + 1), dtype=ax.bf16)
             ax.dsl.move(r=m_s[:, :1], x=mi)
             ax.dsl.move(r=m_s[:, -1:], x=zero_col)
@@ -228,7 +318,19 @@ def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, 
         for g in range(G):
             ax.dsl.move(x=o[g * P : (g + 1) * P, :].reshape(P, 1, D), r=attn[:, hk * G + g : hk * G + g + 1, :])
 
-    gated = (sigmoid_mul(attn, gate, activation_output_dtype=ax.fp32, output_dtype=ax.bf16) if q.GATE else attn
+    og = HQ  # heads per output-gate pass: attn, gate bf16 and the fp32 activation within a job's OCM
+    while q.GATE and P * og * D * (2 + 2 + 4 + 2) > q.ROWS_OCM and og % 2 == 0:
+        og //= 2
+    if q.GATE and og < HQ:
+        gsplit = ax.dsl.create_tensor((P, HQ, D), ax.bf16, name="attn_gated")
+        for h0 in range(0, HQ, og):
+            ax.dsl.move(r=gsplit[:, h0 : h0 + og, :], x=sigmoid_mul(attn[:, h0 : h0 + og, :], gate[:, h0 : h0 + og, :],
+                                                                    activation_output_dtype=ax.fp32,
+                                                                    output_dtype=ax.bf16))
+        attn, gate, gsplit_on = gsplit, None, True
+    else:
+        gsplit_on = False
+    gated = (sigmoid_mul(attn, gate, activation_output_dtype=ax.fp32, output_dtype=ax.bf16) if q.GATE and not gsplit_on else attn
              ).reshape(1, P, HQ * D)
     x1 = ax.dsl.add(xt, q.proj(gated, w_o, "attn_o"), output_dtype=ax.bf16)
     q.mlp_residual(x1, ln2, w_gate, w_up, w_down, out)
@@ -238,7 +340,7 @@ def attn_layer_prefill(x, ln1, w_q, w_k, w_v, q_norm, k_norm, cos, sin, kc, vc, 
 GDN_ORDER = q.GDN_ORDER
 ATTN_ORDER = q.ATTN_ORDER
 WFMT = os.environ.get("WFMT", "bf16")
-if WFMT == "mx8":
+if WFMT in ("mx8", "nv4"):  # nv4: the MX wrappers, their weights NVFP4 (q35_mx_build.NV4, the packed kernels' twins)
     import q35_mx_build as mb  # patches q.proj to the MX linear (scales looked up per weight)
 
     def gdn_layer_prefill_mx(x, ln1, w_qkv, s_qkv, w_z, s_z, w_b, s_b, w_a, s_a, conv_w, a_log, dt_bias, norm_w, w_out,

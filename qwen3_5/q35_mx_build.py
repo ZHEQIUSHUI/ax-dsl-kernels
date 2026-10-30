@@ -26,6 +26,7 @@ import axnn.dsl as ax
 from axnn.dsl.kernels.utils import rmsnorm
 from axnn.dsl.kernels.utils.linear import linear
 from axnn.frontend import graph_utils
+from axnn.opset.datatype import DType
 import board_io
 import q35_step as q
 import q35_chat_build as cb
@@ -46,6 +47,11 @@ _builder.KernelBuilder._compiled_axmodel_io_dtype = staticmethod(
 BF16_DIR = OUT = None  # set from the command line in main()
 BUILD = os.path.abspath(os.environ.get("DUMP", "out_q35_mx"))
 GROUP = 32
+# WFMT=nv4: the projections in NVFP4 instead (E2M1 pairs, an E4M3 scale per NVG input channels, an FP32 tensor scale2:
+# t_<name> beside s_<name>, a runtime input so one kernel serves every layer)
+NV4 = os.environ.get("WFMT") == "nv4"
+NVG = 16
+E2M1 = torch.tensor([0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0])
 VC = cb.VC
 
 GDN_W = ["w_qkv", "w_z", "w_b", "w_a", "w_out", "w_gate", "w_up", "w_down"]
@@ -74,19 +80,99 @@ def oc_tile_fp8(cols):
     return max(16, min(256, (512 * 1024) // cols))  # fp8 一行 1 字节，tile 仍约 512 KB 封顶 256 行
 
 
+# MX projection tiles. Default: OC tiles of about 512 KB of weights over the whole K, which leaves wide-K projections
+# with few output rows per tile (9B MLP down: 58 rows over K 12288, 27B: 50 over 17408) and prefill far from the matmul
+# peak. PRJ_ROWS=<rows>: every MX projection in tiles of that many output rows over the whole K (the backend splits K
+# inside a tile and accumulates there). 9B prefill 128 with PRJ_ROWS=256: gdn 1.74 -> 1.20 ms, attn 1.90 -> 1.42 ms per
+# call on the board. Input-channel tiles accumulated through MatMul NMC (linear's ic_tile_size) are not used: on the board
+# their results change from run to run
+# PRJ_KSPLIT=<channels> (with PRJ_ROWS): a projection of a larger K (MLP down) as whole-K linears over K slices of that
+# many channels, the slices' bf16 results summed in fp32 by explicit adds and cast once (when that sum fits 2 MB: the
+# multi-core kernels' column blocks). 9B prefill 128 with 4096: gdn 1.051 -> 0.929M cycles, attn 1.147 -> 0.939M,
+# cos 0.999989 against the single-core kernel (whole K: 0.999977)
+PRJ_ROWS = int(os.environ.get("PRJ_ROWS", 0))
+PRJ_KSPLIT = int(os.environ.get("PRJ_KSPLIT", 0))
+# PRJ_IC=<channels> (with PRJ_ROWS; prefill, more than one row): each output tile of an MX / NVFP4 projection over input
+# tiles of that many channels, summed in fp32 and cast to the output once (instead of PRJ_KSPLIT; the tile loop
+# pipelines the weight loads). PRJ_ACC: f32: every tile's product in fp32 (an fp32 sum throughout; MXFP8 about as fast
+# as bf16 products, FP4 weights much slower), part: every tile's product rounded to bf16 once, the tiles summed in
+# fp32 (as PRJ_KSPLIT's slices, with more of them), auto (default): f32 for MXFP8 weights, part for FP4 ones;
+# f32only / partonly: auto for the MXFP8 / the FP4 weights only, the others as without PRJ_IC.
+# Simulator, one core, 128 rows: 9B MLP down MXFP4 13.4 -> 17.4, 27B down 10.5 -> 16.7 TFLOPS. Off by default
+PRJ_IC = int(os.environ.get("PRJ_IC", 0))
+PRJ_NMC_OC = int(os.environ.get("PRJ_NMC_OC", 0))
+PRJ_NMC_IC = int(os.environ.get("PRJ_NMC_IC", 768))
+PRJ_ACC = os.environ.get("PRJ_ACC", "auto")
+
+
+def oc_tile_fp4(cols):
+    return max(16, min(1024, (256 * 1024) // (cols // 2)))  # fp4 tiles around 256 KB, as the experts'
+
+
 def proj_mx(x, w, name, output_dtype=ax.bf16):
-    s = SCALES.get(id(w))
-    tile = oc_tile_fp8(w.shape[1]) if s is not None else q.oc_tile(w.shape[1])
-    return linear(x, w, s, name, output_dtype=output_dtype, oc_tile_size=tile)
+    s, s2 = SCALES.get(id(w)), SCALES2.get(id(w))
+    nv = dict(weight_scale2=s2) if s2 is not None else {}  # NVFP4: its tensor scale2
+    gs = NVG if s2 is not None else GROUP
+    tile = oc_tile_fp4(w.shape[1]) if s2 is not None else oc_tile_fp8(w.shape[1]) if s is not None else q.oc_tile(w.shape[1])
+    if PRJ_NMC_OC and s is not None and x.shape[-2] > 1:
+        # PRJ_NMC_OC / PRJ_NMC_IC (prefill): sglang's tiling, output tiles of PRJ_NMC_OC rows over input tiles of PRJ_NMC_IC
+        # channels accumulated in place (NMC add-assign, the first tile initializing)
+        return linear(x, w, s, name, output_dtype=output_dtype, oc_tile_size=min(PRJ_NMC_OC, w.shape[0]),
+                      ic_tile_size=min(PRJ_NMC_IC, w.shape[1]), ic_accumulation="nmc",
+                      prezero_ic_accumulator=os.environ.get("PRJ_NMC_PREZERO") == "1", **nv)
+    if PRJ_ROWS and s is not None:
+        tile = min(PRJ_ROWS, w.shape[0])
+        if PRJ_IC and x.shape[-2] > 1 and w.shape[1] > PRJ_IC:
+            fp4 = DType(w.dtype).typename in ("MXFP4", "NVFP4", "MXFP4_X2", "NVFP4_X2")
+            if not (PRJ_ACC == "f32only" and fp4) and not (PRJ_ACC == "partonly" and not fp4):
+                return proj_ic(x, w, s, nv, gs, tile, name, output_dtype)
+        if PRJ_KSPLIT and w.shape[1] > PRJ_KSPLIT and x.shape[-2] * w.shape[0] * 4 <= (2 << 20):  # fp32 sum within 2 MB
+            acc = None
+            for k0 in range(0, w.shape[1], PRJ_KSPLIT):
+                ks = slice(k0, min(k0 + PRJ_KSPLIT, w.shape[1]))
+                part = linear(x[..., ks], slice_w_mx(w, cols=ks), s[:, ks.start // gs : ks.stop // gs],
+                              f"{name}_k{k0}", output_dtype=ax.bf16, oc_tile_size=tile, **nv)
+                acc = ax.dsl.cast(part, dtype=ax.fp32) if acc is None else ax.dsl.add(acc, part, output_dtype=ax.fp32)
+            return ax.dsl.cast(acc, dtype=output_dtype)
+    return linear(x, w, s, name, output_dtype=output_dtype, oc_tile_size=tile, **nv)
+
+
+def proj_ic(x, w, s, nv, gs, tile, name, output_dtype):
+    """proj_mx with PRJ_IC: per output tile of `tile` rows the input tiles of PRJ_IC channels, summed in fp32 and cast
+    once (PRJ_ACC f32: fp32 products, linear's teng accumulation; part: bf16 products, one linear per tile)"""
+    acc_mode = PRJ_ACC
+    if acc_mode in ("auto", "f32only", "partonly"):
+        fp4 = DType(w.dtype).typename in ("MXFP4", "NVFP4", "MXFP4_X2", "NVFP4_X2")
+        acc_mode = "part" if fp4 else "f32"
+    if acc_mode == "f32":
+        y = linear(x, w, s, name, output_dtype=ax.fp32, oc_tile_size=tile, ic_tile_size=PRJ_IC, ic_accumulation="teng",
+                   **nv)
+        return ax.dsl.cast(y, dtype=output_dtype)
+    assert acc_mode == "part", f"PRJ_ACC {PRJ_ACC}"
+    K = w.shape[1]
+    out = ax.dsl.create_tensor((*x.shape[:-1], w.shape[0]), output_dtype, name=f"{name}_output")
+    for o0 in range(0, w.shape[0], tile):
+        os_ = slice(o0, min(o0 + tile, w.shape[0]))
+        acc = None
+        for i0 in range(0, K, PRJ_IC):
+            ks = slice(i0, min(i0 + PRJ_IC, K))
+            p = linear(x[..., ks], w[os_, ks], s[os_, ks.start // gs : ks.stop // gs], f"{name}_o{o0}_i{i0}",
+                       output_dtype=ax.bf16, oc_tile_size=tile, **nv)
+            acc = ax.dsl.cast(p, dtype=ax.fp32) if acc is None else ax.dsl.add(acc, p, output_dtype=ax.fp32)
+        ax.dsl.cast(acc, dtype=output_dtype, r=out[..., os_])
+    return out
 
 
 def slice_w_mx(w, rows=slice(None), cols=slice(None)):
-    """a block of an MX weight with its scales (one per GROUP input channels): cols in whole groups"""
+    """a block of an MX / NVFP4 weight with its scales (one per GROUP / NVG input channels): cols in whole groups"""
     ws = w[rows, cols]
-    s = SCALES.get(id(w))
+    s, s2 = SCALES.get(id(w)), SCALES2.get(id(w))
     if s is not None:
-        g = slice(None) if cols == slice(None) else slice(cols.start // GROUP, cols.stop // GROUP)
+        gs = NVG if s2 is not None else GROUP
+        g = slice(None) if cols == slice(None) else slice(cols.start // gs, cols.stop // gs)
         SCALES[id(ws)] = s[rows, g]
+    if s2 is not None:
+        SCALES2[id(ws)] = s2
     return ws
 
 
@@ -127,14 +213,80 @@ def scale_name(w):
     return "s_" + w[2:]  # w_qkv -> s_qkv
 
 
+def quant_nvfp4(w):
+    """[N, K] -> (E2M1 pairs [N, K / 2] as float4_e2m1fn_x2, low nibble first; E4M3 scales [N, K / NVG]; FP32 scale2
+    [1]): scale2 = amax / (6 * 448), each block's scale its amax / 6 / scale2 in E4M3, elements to the nearest E2M1"""
+    n, k = w.shape
+    s2 = (w.float().abs().max() / (6.0 * 448.0)).clamp_min(2.0**-126)
+    g = w.float().reshape(n, k // NVG, NVG)
+    sc = (g.abs().amax(-1, keepdim=True) / 6.0 / s2).to(torch.float8_e4m3fn)
+    d = sc.float() * s2
+    x = torch.where(d > 0, g / d, torch.zeros_like(g)).reshape(n, k)
+    code = ((x.abs().unsqueeze(-1) - E2M1).abs().argmin(-1) | ((x < 0).long() << 3)).to(torch.uint8)
+    pk = (code[:, 0::2] | (code[:, 1::2] << 4)).contiguous()
+    return pk.view(torch.float4_e2m1fn_x2), sc.reshape(n, k // NVG).contiguous(), s2.reshape(1).float()
+
+
+def dequant_nvfp4(pk, sc, s2):
+    code = pk.view(torch.uint8)
+    code = torch.stack([code & 15, code >> 4], -1).reshape(code.shape[0], -1).long()
+    v = E2M1[code & 7] * torch.where(code >= 8, -1.0, 1.0)
+    return (v.reshape(v.shape[0], -1, NVG) * (sc.float() * s2).unsqueeze(-1)).reshape(v.shape[0], -1)
+
+
 def mx_args(a, names):
-    """bf16 layer args -> MX args (adds s_*), plus the dequantized weights for the bf16 reference run."""
+    """bf16 layer args -> MX args (adds s_*; NVFP4 also t_*: scale2), plus the dequantized weights for the bf16
+    reference run."""
     m, deq = dict(a), dict(a)
     for n in names:
+        if NV4:
+            w4, s, s2 = quant_nvfp4(a[n])
+            m[n], m[scale_name(n)], m["t_" + n[2:]] = w4, s, s2
+            deq[n] = dequant_nvfp4(w4, s, s2).bfloat16()
+            continue
         w8, s = quant_mxfp8(a[n])
         m[n], m[scale_name(n)] = w8, s
         deq[n] = dequant(w8, s).bfloat16()
     return m, deq
+
+
+SCALES2 = {}  # id(NVFP4 weight) -> its scale2 (q35 kernels' t_<name> inputs)
+
+
+def nv_twin(fn, only=None):
+    """NVFP4 version of an MX kernel wrapper fn(..., w_<n>, s_<n>, ...): the same inputs plus t_<n> after each s_<n>
+    (only: of those weights w_<n>, the others stay MX), their weights' scale2 registered, then fn itself (its SCALES
+    registration and body); same name and outputs"""
+    import importlib
+    import inspect
+    names = list(fn.__code__.co_varnames[: fn.__code__.co_argcount])
+    ins = []
+    for n in names:
+        ins.append(n)
+        if n.startswith("s_") and "w_" + n[2:] in names and (only is None or "w_" + n[2:] in only):
+            ins.append("t_" + n[2:])
+    ret = [ln.strip() for ln in inspect.getsource(fn).splitlines() if ln.strip().startswith("return ")][-1]
+    key = f"{fn.__module__}.{fn.__name__}" + ("" if only is None else "_" + "_".join(sorted(only)))
+    TWINS[key] = fn
+    src = (f"import q35_mx_build as M\n\n\ndef {fn.__name__}({', '.join(ins)}):\n    M.reg_scale2(locals())\n"
+           f"    M.TWINS[{key!r}]({', '.join(names)})\n    {ret}\n")
+    mod = f"nvtwin_{fn.__module__}_{fn.__name__}" + ("" if only is None else "_mix")
+    os.makedirs(BUILD, exist_ok=True)
+    open(f"{BUILD}/{mod}.py", "w").write(src)
+    if BUILD not in sys.path:
+        sys.path.insert(0, BUILD)
+    importlib.invalidate_caches()  # the module was written after the path's directory listing was cached
+    return getattr(importlib.import_module(mod), fn.__name__)
+
+
+TWINS = {}
+
+
+def reg_scale2(a):
+    SCALES2.clear()
+    for n, v in a.items():
+        if n.startswith("t_") and "w_" + n[2:] in a:
+            SCALES2[id(a["w_" + n[2:]])] = v
 
 
 def order(fn):
