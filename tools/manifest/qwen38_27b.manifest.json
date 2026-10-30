@@ -6561,6 +6561,1542 @@
      "kind": "attn"
     }
    ]
+  },
+  "vit.embed256": {
+   "file": "qwen35_vit_embed256_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "px",
+     "bytes": 393216,
+     "dtype": 9,
+     "shape": [
+      256,
+      768
+     ]
+    },
+    {
+     "name": "w_patch",
+     "bytes": 1769472,
+     "dtype": 9,
+     "shape": [
+      1152,
+      768
+     ]
+    },
+    {
+     "name": "b_patch",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "pos",
+     "bytes": 589824,
+     "dtype": 9,
+     "shape": [
+      256,
+      1152
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 589824,
+     "dtype": 9,
+     "shape": [
+      256,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.pre256": {
+   "file": "qwen35_vit_pre256_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 589824,
+     "dtype": 9,
+     "shape": [
+      256,
+      1152
+     ]
+    },
+    {
+     "name": "ln1_w",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln1_b",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "w_qkv",
+     "bytes": 7962624,
+     "dtype": 9,
+     "shape": [
+      3456,
+      1152
+     ]
+    },
+    {
+     "name": "b_qkv",
+     "bytes": 6912,
+     "dtype": 9,
+     "shape": [
+      3456
+     ]
+    },
+    {
+     "name": "cos",
+     "bytes": 18432,
+     "dtype": 9,
+     "shape": [
+      256,
+      36
+     ]
+    },
+    {
+     "name": "sin",
+     "bytes": 18432,
+     "dtype": 9,
+     "shape": [
+      256,
+      36
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "q_out",
+     "bytes": 589824,
+     "dtype": 9,
+     "shape": [
+      256,
+      16,
+      72
+     ]
+    },
+    {
+     "name": "k_out",
+     "bytes": 589824,
+     "dtype": 9,
+     "shape": [
+      256,
+      1152
+     ]
+    },
+    {
+     "name": "v_out",
+     "bytes": 589824,
+     "dtype": 9,
+     "shape": [
+      256,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.attn256": {
+   "file": "qwen35_vit_attn256_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "qs",
+     "bytes": 589824,
+     "dtype": 9,
+     "shape": [
+      256,
+      16,
+      72
+     ]
+    },
+    {
+     "name": "kc",
+     "bytes": 589824,
+     "dtype": 9,
+     "shape": [
+      256,
+      1152
+     ]
+    },
+    {
+     "name": "vc",
+     "bytes": 589824,
+     "dtype": 9,
+     "shape": [
+      256,
+      1152
+     ]
+    },
+    {
+     "name": "nblk",
+     "bytes": 4,
+     "dtype": 6,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "kmask",
+     "bytes": 131072,
+     "dtype": 9,
+     "shape": [
+      2,
+      256,
+      128
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 589824,
+     "dtype": 9,
+     "shape": [
+      256,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.post256": {
+   "file": "qwen35_vit_post256_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 589824,
+     "dtype": 9,
+     "shape": [
+      256,
+      1152
+     ]
+    },
+    {
+     "name": "attn",
+     "bytes": 589824,
+     "dtype": 9,
+     "shape": [
+      256,
+      1152
+     ]
+    },
+    {
+     "name": "w_o",
+     "bytes": 2654208,
+     "dtype": 9,
+     "shape": [
+      1152,
+      1152
+     ]
+    },
+    {
+     "name": "b_o",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln2_w",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln2_b",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "w_up",
+     "bytes": 9916416,
+     "dtype": 9,
+     "shape": [
+      4304,
+      1152
+     ]
+    },
+    {
+     "name": "b_up",
+     "bytes": 8608,
+     "dtype": 9,
+     "shape": [
+      4304
+     ]
+    },
+    {
+     "name": "w_down",
+     "bytes": 9916416,
+     "dtype": 9,
+     "shape": [
+      1152,
+      4304
+     ]
+    },
+    {
+     "name": "b_down",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 589824,
+     "dtype": 9,
+     "shape": [
+      256,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.merge256": {
+   "file": "qwen35_vit_merge256_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 589824,
+     "dtype": 9,
+     "shape": [
+      256,
+      1152
+     ]
+    },
+    {
+     "name": "ln_w",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln_b",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "w0",
+     "bytes": 42467328,
+     "dtype": 9,
+     "shape": [
+      4608,
+      4608
+     ]
+    },
+    {
+     "name": "b0",
+     "bytes": 9216,
+     "dtype": 9,
+     "shape": [
+      4608
+     ]
+    },
+    {
+     "name": "w2",
+     "bytes": 47185920,
+     "dtype": 9,
+     "shape": [
+      5120,
+      4608
+     ]
+    },
+    {
+     "name": "b2",
+     "bytes": 10240,
+     "dtype": 9,
+     "shape": [
+      5120
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 1310720,
+     "dtype": 3,
+     "shape": [
+      64,
+      5120
+     ]
+    }
+   ]
+  },
+  "vit.embed1024": {
+   "file": "qwen35_vit_embed1024_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "px",
+     "bytes": 1572864,
+     "dtype": 9,
+     "shape": [
+      1024,
+      768
+     ]
+    },
+    {
+     "name": "w_patch",
+     "bytes": 1769472,
+     "dtype": 9,
+     "shape": [
+      1152,
+      768
+     ]
+    },
+    {
+     "name": "b_patch",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "pos",
+     "bytes": 2359296,
+     "dtype": 9,
+     "shape": [
+      1024,
+      1152
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 2359296,
+     "dtype": 9,
+     "shape": [
+      1024,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.pre1024": {
+   "file": "qwen35_vit_pre1024_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 2359296,
+     "dtype": 9,
+     "shape": [
+      1024,
+      1152
+     ]
+    },
+    {
+     "name": "ln1_w",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln1_b",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "w_qkv",
+     "bytes": 7962624,
+     "dtype": 9,
+     "shape": [
+      3456,
+      1152
+     ]
+    },
+    {
+     "name": "b_qkv",
+     "bytes": 6912,
+     "dtype": 9,
+     "shape": [
+      3456
+     ]
+    },
+    {
+     "name": "cos",
+     "bytes": 73728,
+     "dtype": 9,
+     "shape": [
+      1024,
+      36
+     ]
+    },
+    {
+     "name": "sin",
+     "bytes": 73728,
+     "dtype": 9,
+     "shape": [
+      1024,
+      36
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "q_out",
+     "bytes": 2359296,
+     "dtype": 9,
+     "shape": [
+      1024,
+      16,
+      72
+     ]
+    },
+    {
+     "name": "k_out",
+     "bytes": 2359296,
+     "dtype": 9,
+     "shape": [
+      1024,
+      1152
+     ]
+    },
+    {
+     "name": "v_out",
+     "bytes": 2359296,
+     "dtype": 9,
+     "shape": [
+      1024,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.attn1024": {
+   "file": "qwen35_vit_attn1024_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "qs",
+     "bytes": 2359296,
+     "dtype": 9,
+     "shape": [
+      1024,
+      16,
+      72
+     ]
+    },
+    {
+     "name": "kc",
+     "bytes": 2359296,
+     "dtype": 9,
+     "shape": [
+      1024,
+      1152
+     ]
+    },
+    {
+     "name": "vc",
+     "bytes": 2359296,
+     "dtype": 9,
+     "shape": [
+      1024,
+      1152
+     ]
+    },
+    {
+     "name": "nblk",
+     "bytes": 4,
+     "dtype": 6,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "kmask",
+     "bytes": 1048576,
+     "dtype": 9,
+     "shape": [
+      8,
+      512,
+      128
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 2359296,
+     "dtype": 9,
+     "shape": [
+      1024,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.post1024": {
+   "file": "qwen35_vit_post1024_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 2359296,
+     "dtype": 9,
+     "shape": [
+      1024,
+      1152
+     ]
+    },
+    {
+     "name": "attn",
+     "bytes": 2359296,
+     "dtype": 9,
+     "shape": [
+      1024,
+      1152
+     ]
+    },
+    {
+     "name": "w_o",
+     "bytes": 2654208,
+     "dtype": 9,
+     "shape": [
+      1152,
+      1152
+     ]
+    },
+    {
+     "name": "b_o",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln2_w",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln2_b",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "w_up",
+     "bytes": 9916416,
+     "dtype": 9,
+     "shape": [
+      4304,
+      1152
+     ]
+    },
+    {
+     "name": "b_up",
+     "bytes": 8608,
+     "dtype": 9,
+     "shape": [
+      4304
+     ]
+    },
+    {
+     "name": "w_down",
+     "bytes": 9916416,
+     "dtype": 9,
+     "shape": [
+      1152,
+      4304
+     ]
+    },
+    {
+     "name": "b_down",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 2359296,
+     "dtype": 9,
+     "shape": [
+      1024,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.merge1024": {
+   "file": "qwen35_vit_merge1024_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 2359296,
+     "dtype": 9,
+     "shape": [
+      1024,
+      1152
+     ]
+    },
+    {
+     "name": "ln_w",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln_b",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "w0",
+     "bytes": 42467328,
+     "dtype": 9,
+     "shape": [
+      4608,
+      4608
+     ]
+    },
+    {
+     "name": "b0",
+     "bytes": 9216,
+     "dtype": 9,
+     "shape": [
+      4608
+     ]
+    },
+    {
+     "name": "w2",
+     "bytes": 47185920,
+     "dtype": 9,
+     "shape": [
+      5120,
+      4608
+     ]
+    },
+    {
+     "name": "b2",
+     "bytes": 10240,
+     "dtype": 9,
+     "shape": [
+      5120
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 5242880,
+     "dtype": 3,
+     "shape": [
+      256,
+      5120
+     ]
+    }
+   ]
+  },
+  "vit.embed2048": {
+   "file": "qwen35_vit_embed2048_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "px",
+     "bytes": 3145728,
+     "dtype": 9,
+     "shape": [
+      2048,
+      768
+     ]
+    },
+    {
+     "name": "w_patch",
+     "bytes": 1769472,
+     "dtype": 9,
+     "shape": [
+      1152,
+      768
+     ]
+    },
+    {
+     "name": "b_patch",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "pos",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      2048,
+      1152
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      2048,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.pre2048": {
+   "file": "qwen35_vit_pre2048_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      2048,
+      1152
+     ]
+    },
+    {
+     "name": "ln1_w",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln1_b",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "w_qkv",
+     "bytes": 7962624,
+     "dtype": 9,
+     "shape": [
+      3456,
+      1152
+     ]
+    },
+    {
+     "name": "b_qkv",
+     "bytes": 6912,
+     "dtype": 9,
+     "shape": [
+      3456
+     ]
+    },
+    {
+     "name": "cos",
+     "bytes": 147456,
+     "dtype": 9,
+     "shape": [
+      2048,
+      36
+     ]
+    },
+    {
+     "name": "sin",
+     "bytes": 147456,
+     "dtype": 9,
+     "shape": [
+      2048,
+      36
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "q_out",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      2048,
+      16,
+      72
+     ]
+    },
+    {
+     "name": "k_out",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      2048,
+      1152
+     ]
+    },
+    {
+     "name": "v_out",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      2048,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.attn2048": {
+   "file": "qwen35_vit_attn2048_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "qs",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      2048,
+      16,
+      72
+     ]
+    },
+    {
+     "name": "kc",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      2048,
+      1152
+     ]
+    },
+    {
+     "name": "vc",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      2048,
+      1152
+     ]
+    },
+    {
+     "name": "nblk",
+     "bytes": 4,
+     "dtype": 6,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "kmask",
+     "bytes": 2097152,
+     "dtype": 9,
+     "shape": [
+      16,
+      512,
+      128
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      2048,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.post2048": {
+   "file": "qwen35_vit_post2048_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      2048,
+      1152
+     ]
+    },
+    {
+     "name": "attn",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      2048,
+      1152
+     ]
+    },
+    {
+     "name": "w_o",
+     "bytes": 2654208,
+     "dtype": 9,
+     "shape": [
+      1152,
+      1152
+     ]
+    },
+    {
+     "name": "b_o",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln2_w",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln2_b",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "w_up",
+     "bytes": 9916416,
+     "dtype": 9,
+     "shape": [
+      4304,
+      1152
+     ]
+    },
+    {
+     "name": "b_up",
+     "bytes": 8608,
+     "dtype": 9,
+     "shape": [
+      4304
+     ]
+    },
+    {
+     "name": "w_down",
+     "bytes": 9916416,
+     "dtype": 9,
+     "shape": [
+      1152,
+      4304
+     ]
+    },
+    {
+     "name": "b_down",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      2048,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.merge2048": {
+   "file": "qwen35_vit_merge2048_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      2048,
+      1152
+     ]
+    },
+    {
+     "name": "ln_w",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln_b",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "w0",
+     "bytes": 42467328,
+     "dtype": 9,
+     "shape": [
+      4608,
+      4608
+     ]
+    },
+    {
+     "name": "b0",
+     "bytes": 9216,
+     "dtype": 9,
+     "shape": [
+      4608
+     ]
+    },
+    {
+     "name": "w2",
+     "bytes": 47185920,
+     "dtype": 9,
+     "shape": [
+      5120,
+      4608
+     ]
+    },
+    {
+     "name": "b2",
+     "bytes": 10240,
+     "dtype": 9,
+     "shape": [
+      5120
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 10485760,
+     "dtype": 3,
+     "shape": [
+      512,
+      5120
+     ]
+    }
+   ]
+  },
+  "vit.embed3072": {
+   "file": "qwen35_vit_embed3072_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "px",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      3072,
+      768
+     ]
+    },
+    {
+     "name": "w_patch",
+     "bytes": 1769472,
+     "dtype": 9,
+     "shape": [
+      1152,
+      768
+     ]
+    },
+    {
+     "name": "b_patch",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "pos",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      1152
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.pre3072": {
+   "file": "qwen35_vit_pre3072_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      1152
+     ]
+    },
+    {
+     "name": "ln1_w",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln1_b",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "w_qkv",
+     "bytes": 7962624,
+     "dtype": 9,
+     "shape": [
+      3456,
+      1152
+     ]
+    },
+    {
+     "name": "b_qkv",
+     "bytes": 6912,
+     "dtype": 9,
+     "shape": [
+      3456
+     ]
+    },
+    {
+     "name": "cos",
+     "bytes": 221184,
+     "dtype": 9,
+     "shape": [
+      3072,
+      36
+     ]
+    },
+    {
+     "name": "sin",
+     "bytes": 221184,
+     "dtype": 9,
+     "shape": [
+      3072,
+      36
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "q_out",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      16,
+      72
+     ]
+    },
+    {
+     "name": "k_out",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      1152
+     ]
+    },
+    {
+     "name": "v_out",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.attn3072": {
+   "file": "qwen35_vit_attn3072_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "qs",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      16,
+      72
+     ]
+    },
+    {
+     "name": "kc",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      1152
+     ]
+    },
+    {
+     "name": "vc",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      1152
+     ]
+    },
+    {
+     "name": "nblk",
+     "bytes": 4,
+     "dtype": 6,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "kmask",
+     "bytes": 3145728,
+     "dtype": 9,
+     "shape": [
+      24,
+      512,
+      128
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.post3072": {
+   "file": "qwen35_vit_post3072_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      1152
+     ]
+    },
+    {
+     "name": "attn",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      1152
+     ]
+    },
+    {
+     "name": "w_o",
+     "bytes": 2654208,
+     "dtype": 9,
+     "shape": [
+      1152,
+      1152
+     ]
+    },
+    {
+     "name": "b_o",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln2_w",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln2_b",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "w_up",
+     "bytes": 9916416,
+     "dtype": 9,
+     "shape": [
+      4304,
+      1152
+     ]
+    },
+    {
+     "name": "b_up",
+     "bytes": 8608,
+     "dtype": 9,
+     "shape": [
+      4304
+     ]
+    },
+    {
+     "name": "w_down",
+     "bytes": 9916416,
+     "dtype": 9,
+     "shape": [
+      1152,
+      4304
+     ]
+    },
+    {
+     "name": "b_down",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      1152
+     ]
+    }
+   ]
+  },
+  "vit.merge3072": {
+   "file": "qwen35_vit_merge3072_h1152_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      1152
+     ]
+    },
+    {
+     "name": "ln_w",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln_b",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "w0",
+     "bytes": 42467328,
+     "dtype": 9,
+     "shape": [
+      4608,
+      4608
+     ]
+    },
+    {
+     "name": "b0",
+     "bytes": 9216,
+     "dtype": 9,
+     "shape": [
+      4608
+     ]
+    },
+    {
+     "name": "w2",
+     "bytes": 47185920,
+     "dtype": 9,
+     "shape": [
+      5120,
+      4608
+     ]
+    },
+    {
+     "name": "b2",
+     "bytes": 10240,
+     "dtype": 9,
+     "shape": [
+      5120
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 15728640,
+     "dtype": 3,
+     "shape": [
+      768,
+      5120
+     ]
+    }
+   ]
   }
  }
 }

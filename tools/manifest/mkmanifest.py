@@ -2,9 +2,12 @@
 """manifest.json of a model's kernel directory: the contract between ax-dsl-kernels and ggml-axera.
 
 mkmanifest.py <model: qwen35_dense|qwen35_moe> <io.json> <layout dir> > manifest.json
+mkmanifest.py qwen3 <io.json> <layout dir> <context> [lm_head kernel] [audio=<encoder width>] [tts=1] > manifest.json
 
 - params: per layer kind (gdn / attn), each layer parameter the kernels take: its GGUF tensor (within blk.<i>.), the
   conversion from it and its kernel form (bytes, dtype, shape). Taken from the layer kernels' IO.
+- params "out" (whole-model group kernels with the output head, members LM.*): the final norm and the output
+  projection (output.weight, or the tied token_embd.weight).
 - kernels: by role, the npu4 kernel of the delivered path: file, IO table and, for packed kernels, the packs and
   their members (parameter, layer, pack, offset, bytes, column blocks).
 Only the kernels listed here are loaded; a missing file is an error at load.
@@ -25,19 +28,12 @@ GGUF_MOE = {  # MoE layers: the dense MLP is the shared expert; the router and t
     "w_gate": "ffn_gate_shexp.weight", "w_up": "ffn_up_shexp.weight", "w_down": "ffn_down_shexp.weight",
     "w_router": "ffn_gate_inp.weight", "w_shg": "ffn_gate_inp_shexp.weight",
 }
+GGUF_QWEN3 = {"ln2": "ffn_norm.weight"}  # Qwen3: the MLP's input norm
 # kernel IO that is not a parameter: what the runtime binds
 RUNTIME = {"x", "out", "pos", "nblk", "mask", "cos", "sin", "cs", "pn", "state_in", "conv_in", "state_out",
            "conv_out", "kc", "vc", "h2_out", "logits_out", "rv", "cix", "topk_v", "topk_i"}
 
 ROLES = {
-    "qwen35_dense": {  # Qwen3.8-27B, MXFP4 layer weights
-        "layer.gdn": "qwen35_gdn_mx4_npu1",  # IO only: the parameters of a GDN layer
-        "layer.attn": "qwen35_attn_mx4_kvc_c16384_npu1",  # IO only: the parameters of an attention layer
-        "decode.group": "qwen35_group16_gggagggagggaggga_mx4_kvc_c16384_npu4",
-        "lm_head": "mul_mat_mx4_n248320_k5120_npu4",
-        **{f"prefill{p}.gdn": f"qwen35_gdn_prefill{p}_mx4_pv_pk_npu4" for p in (128, 64, 16, 4)},
-        **{f"prefill{p}.attn": f"qwen35_attn_prefill{p}_mx4_pk_kvc_c16384_npu4" for p in (128, 64, 16, 4)},
-    },
     "qwen35_moe": {  # Qwen3.5-35B-A3B, MXFP8 layer weights, MXFP4 routed experts
         "layer.gdn": "qwen35moe_gdn_mx8_npu4",
         "layer.attn": "qwen35moe_attn_mx8_kvc_c16384_npu4",
@@ -54,6 +50,112 @@ ROLES = {
         **{f"moe.combine_t{t}": f"qwen35moe_combine8_t{t}_r32768_npu4" for t in (512, 1024, 2048)},
     },
 }
+
+
+def qwen35_dense_roles(io):
+    """Qwen3.5 dense models (9B, Qwen3.8-27B), MXFP4 layer weights: the decode group (the whole model with the output
+    head when the directory has it, else the most layers), the four prefill chunk sizes, the MXFP4 output head"""
+    groups = [f[:-8] for f in io if re.fullmatch(r"qwen35_group\d+_[ga]+_mx4(_lm4)?_kvc_c16384_npu4\.axmodel", f)]
+    if not groups:
+        sys.exit("no qwen35 decode group")
+    g = sorted(groups, key=lambda g: ("_lm4_" not in g, -int(re.search(r"group(\d+)_", g).group(1))))[0]
+    H = elements(next(e[3] for e in io[g + ".axmodel"]["in"] if e[0] == "x"))
+    return {
+        "layer.gdn": "qwen35_gdn_mx4_npu1",  # IO only: the parameters of a GDN layer
+        "layer.attn": "qwen35_attn_mx4_kvc_c16384_npu1",  # IO only: the parameters of an attention layer
+        "decode.group": g,
+        "lm_head": f"mul_mat_mx4_n248320_k{H}_npu4",
+        **{f"prefill{p}.gdn": f"qwen35_gdn_prefill{p}_mx4_pv_pk_npu4" for p in (128, 64, 16, 4)},
+        **{f"prefill{p}.attn": f"qwen35_attn_prefill{p}_mx4_pk_kvc_c16384_npu4" for p in (128, 64, 16, 4)},
+    }
+
+
+def qwen3_roles(io, ctx, lm):
+    """Qwen3 text decoders (Embedding, ASR text model, TTS talker), MXFP8: the whole-model decode group (the one with
+    the output head when the directory has it), the four prefill chunk sizes, the output head GEMV if given"""
+    groups = sorted(f[:-8] for f in io if re.fullmatch(rf"qwen3_group\d+_a+_mx8(_lm8)?_kvc_c{ctx}_npu4\.axmodel", f))
+    if not groups:
+        sys.exit(f"no qwen3 decode group of context {ctx}")
+    r = {
+        "layer.attn": f"qwen3_attn_mx8_kvc_c{ctx}_npu1",  # IO only: the parameters of an attention layer
+        "decode.group": sorted(groups, key=lambda g: "_lm8_" not in g)[0],
+        **{f"prefill{p}.attn": f"qwen3_attn_prefill{p}_mx8_pk_kvc_c{ctx}_npu4" for p in (128, 64, 16, 4)},
+    }
+    if lm:
+        r["lm_head"] = lm
+    return r
+
+
+def audio_roles(H):
+    """the Qwen3-ASR audio encoder (q3a_fe.py, q3a_layer.py, q3a_proj.py) of width H: per call of n chunks of 100 mel
+    frames (n = 1 / 2 / 4 / 8) the front-end's three convolutions and conv_out, the layer and projector kernels of 64
+    and 128 rows"""
+    r = {}
+    for n in (1, 2, 4, 8):
+        r[f"audio.fe1.n{n}"] = f"qwen3a_fe_o480_k16_r{3200 * n}_npu4"
+        r[f"audio.fe2.n{n}"] = f"qwen3a_fe2_o480_n{n}_npu4"
+        r[f"audio.fe3.n{n}"] = f"qwen3a_fe_o480_k4320_r{208 * n}_npu4"
+        r[f"audio.conv_out.n{n}"] = f"mm_bf16_m{13 * n}_n{H}_k7680_npu4"
+    for nf in (64, 128):
+        r[f"audio.layer{nf}"] = f"qwen3a_layer{nf}_h{H}_npu4"
+        r[f"audio.proj{nf}"] = f"qwen3a_proj{nf}_h{H}_npu4"
+    return r
+
+
+def tts_roles(io):
+    """the Qwen3-TTS generation graphs: the code predictor's frame kernels (q3tts_cp_frame.py, by top-k), and every
+    4-core conv1d / GEMM kernel of the directory by its shape (the codec decoder's, the speaker encoder's)"""
+    r = {}
+    for f in io:
+        b = f[:-8]
+        m = re.fullmatch(r"qwen3tts_cp_frame\d+_mx8_h\d+_k(\d+)_c\d+_npu4", b)
+        if m:
+            r[f"cp.frame.k{m.group(1)}"] = b
+        elif re.fullmatch(r"(conv1d_bf16|mm_bf16)_.*_npu4", b):
+            r["gen." + b[:-5]] = b
+    return r
+
+
+# the code predictor's parameters in the frame kernels' packs: layer members L<j>.<p> (tensors a.gen.code.blk.<j>.*),
+# LP.<p> the input projection and the final norm
+CP_GGUF = {"ln1": "ln1.weight", "ln2": "ln2.weight", "q_norm": "attn_q_norm.weight", "k_norm": "attn_k_norm.weight",
+           "q": "attn_q.weight", "k": "attn_k.weight", "v": "attn_v.weight", "o": "attn_out.weight",
+           "gate": "ffn_gate.weight", "up": "ffn_up.weight", "down": "ffn_down.weight"}
+CP_OUT = {"LP.w_pin": "a.gen.code.proj_in.weight", "LP.b_pin": "a.gen.code.proj_in.bias",
+          "LP.norm": "a.gen.code.output_norm.weight"}
+
+
+def cp_params(man):
+    for role, k in man["kernels"].items():
+        if not role.startswith("cp."):
+            continue
+        for m in k["members"]:
+            p = m["param"]
+            if p.startswith("LP."):
+                kind, g = "cp_out", CP_OUT[p]
+            else:
+                kind, g = "cp", "a.gen.code.blk.{L}." + CP_GGUF[p[2:] if p[:2] in ("w_", "s_") else p]
+            conv = ("mxfp8" if p[:2] == "w_" else "mxfp8_scales") if p[:2] in ("w_", "s_") and kind == "cp" else \
+                   "bf16" if m["pack"] == "pb" else "tensor"
+            d = {"gguf": g, "convert": conv, "bytes": m["bytes"], "dtype": 0, "shape": [m["bytes"]]}
+            old = man["params"].setdefault(kind, {}).setdefault(p, d)
+            assert old == d, (role, p, old, d)
+            m["kind"] = kind
+
+
+# the vision encoder (9B / 27B / 35B-A3B: hidden 1152), q35_vit.py CORES=4: the patch counts whose five kernels are
+# all in the directory's IO tables
+VIT_KINDS = ("embed", "pre", "attn", "post", "merge")
+VIT_N = (256, 512, 1024, 1536, 2048, 2560, 3072)
+
+
+def vit_roles(io):
+    r = {}
+    for n in VIT_N:
+        names = {k: f"qwen35_vit_{k}{n}_h1152_npu4" for k in VIT_KINDS}
+        if all(f + ".axmodel" in io for f in names.values()):
+            r.update({f"vit.{k}{n}": f for k, f in names.items()})
+    return r
 
 
 def io_entries(io):
@@ -79,7 +181,7 @@ def params(model, kernel):
             src, conv = w, None  # scales of w_<x>: their format follows the elements'
         else:
             src, conv = n, None
-        g = (GGUF_MOE.get(src) if model == "qwen35_moe" else None) or GGUF.get(src)
+        g = {"qwen35_moe": GGUF_MOE, "qwen3": GGUF_QWEN3}.get(model, {}).get(src) or GGUF.get(src)
         if g is None:
             sys.exit(f"{n}: no GGUF tensor")
         if n == "a_log":
@@ -126,8 +228,15 @@ def layout(path):
 def main():
     model, io_path, lay_dir = sys.argv[1:4]
     io = json.load(open(io_path))
-    man = {"format": 1, "model": model, "context": CONTEXT, "cores": 4, "params": {}, "kernels": {}}
-    for role, base in ROLES[model].items():
+    ctx = int(sys.argv[4]) if model == "qwen3" else CONTEXT
+    opt = {a.split("=")[0]: a.split("=")[1] for a in sys.argv[5:] if "=" in a}
+    pos = [a for a in sys.argv[5:] if "=" not in a]
+    roles = ({**qwen3_roles(io, ctx, pos[0] if pos else None), **(audio_roles(int(opt["audio"])) if "audio" in opt else {}),
+              **(tts_roles(io) if opt.get("tts") == "1" else {})}
+             if model == "qwen3" else
+             qwen35_dense_roles(io) if model == "qwen35_dense" else ROLES[model])
+    man = {"format": 1, "model": model, "context": ctx, "cores": 4, "params": {}, "kernels": {}}
+    for role, base in {**roles, **vit_roles(io)}.items():
         f = base + ".axmodel"
         if f not in io:
             sys.exit(f"{role}: {f} not in {io_path}")
@@ -166,6 +275,23 @@ def main():
                 assert e["bytes"] == 2 * elements(e["shape"]), n
                 bk[n] = {"gguf": p["gguf"], "convert": "bf16", "bytes": e["bytes"], "dtype": e["dtype"], "shape": e["shape"]}
         man["params"][kind + "_bf16"] = bk
+    cp_params(man)
+    # the output head's members of a whole-model group (LM.norm, LM.w_lm, LM.s_lm): parameters of kind "out"
+    for role, k in man["kernels"].items():
+        lmm = {m["param"]: m for m in k.get("members", []) if m["param"].startswith("LM.")}
+        if not lmm:
+            continue
+        H = elements(next(e["shape"] for e in k["in"] if e["name"] == "x"))
+        V = elements(next(e["shape"] for e in k["out"] if e["name"] == "logits"))
+        fmt = {V * H: "mxfp8", V * H // 2: "mxfp4"}[lmm["LM.w_lm"]["bytes"]]
+        assert lmm["LM.norm"]["bytes"] == 4 * H and lmm["LM.s_lm"]["bytes"] == V * H // 32
+        out = man["params"].setdefault("out", {})
+        out["LM.norm"] = {"gguf": "output_norm.weight", "convert": "tensor", "bytes": 4 * H, "dtype": 3, "shape": [H]}
+        for n, c, b in (("LM.w_lm", fmt, lmm["LM.w_lm"]["bytes"]), ("LM.s_lm", fmt + "_scales", V * H // 32)):
+            out[n] = {"gguf": "output.weight|token_embd.weight", "convert": c, "bytes": b, "dtype": 11 if n == "LM.w_lm" else 1,
+                      "shape": [b]}
+        for m in lmm.values():
+            m["kind"] = "out"
     # the parameter kind of each member and each parameter input: the layer kind of the kernel (group members: their
     # layer's), its _bf16 variant where the bytes are those of the bf16 copy
     def kind_of(role, layer):
@@ -186,6 +312,8 @@ def main():
         sys.exit(f"{role}: {name} ({nbytes} bytes) matches no parameter of {k}")
     for role, k in man["kernels"].items():
         for m in k.get("members", []):
+            if m.get("kind") in ("out", "cp", "cp_out"):
+                continue
             m["kind"] = resolve(role, m.get("layer", 0), m["param"], m["bytes"])
             if m["kind"] is None:
                 sys.exit(f"{role}: member {m['name']} is not a layer parameter")
@@ -195,7 +323,7 @@ def main():
             if kd:
                 e["param"], e["kind"] = base, kd
     # every packed member is a known parameter of its layer kind
-    known = set(man["params"]["gdn"]) | set(man["params"]["attn"])
+    known = set().union(*(set(man["params"].get(k, {})) for k in ("gdn", "attn", "out", "cp", "cp_out")))
     for role, k in man["kernels"].items():
         for m in k.get("members", []):
             if m["param"] not in known:
