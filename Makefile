@@ -8,28 +8,27 @@ FLAGS  = -O2 -Wall -I$(BSP)/include
 LIBS   = -L$(BSP)/lib -lax_engine -lax_interpreter -lax_sys -lpthread -ldl -Wl,--allow-shlib-undefined
 OUT   ?= build
 
-PROGS = $(OUT)/q35_board $(OUT)/q35_chat $(OUT)/par_test $(OUT)/run_alias $(OUT)/kv_inplace $(OUT)/inplace_test \
+PROGS = $(OUT)/axrun $(OUT)/iojson $(OUT)/par_test $(OUT)/run_alias $(OUT)/kv_inplace $(OUT)/inplace_test \
         $(OUT)/mc_stress $(OUT)/mc_alt
 
 all: $(PROGS)
 
-$(OUT)/q35_board: qwen3_5/board/q35_board.cc
-$(OUT)/q35_chat:  qwen3_5/board/q35_chat.cc
-$(OUT)/par_test:  tools/par_test.cc
-$(OUT)/run_alias: tools/run_alias.cc
-$(OUT)/kv_inplace: tools/kv_inplace.cc
-$(OUT)/inplace_test: tools/inplace_test.cc
-$(OUT)/mc_stress: tools/mc_stress.cc
-$(OUT)/mc_alt:    tools/mc_alt.cc
+$(OUT)/axrun:        tools/board/axrun.cc
+$(OUT)/iojson:       tools/board/iojson.c
+$(OUT)/par_test:     tools/board/par_test.cc
+$(OUT)/run_alias:    tools/board/run_alias.cc
+$(OUT)/kv_inplace:   tools/board/kv_inplace.cc
+$(OUT)/inplace_test: tools/board/inplace_test.cc
+$(OUT)/mc_stress:    tools/board/mc_stress.cc
+$(OUT)/mc_alt:       tools/board/mc_alt.cc
 
 $(OUT)/par_test: STD = -std=c++20
 $(PROGS): STD ?= -std=c++17
 
-$(PROGS):
+$(OUT)/iojson: tools/board/iojson.c
+	@mkdir -p $(OUT)
+	$(CXX) $(FLAGS) -x c++ -std=c++17 $< $(LIBS) -o $@
+
+$(filter-out $(OUT)/iojson,$(PROGS)):
 	@mkdir -p $(OUT)
 	$(CXX) $(FLAGS) $(STD) $< $(LIBS) -o $@
-
-clean:
-	rm -rf $(OUT)
-
-.PHONY: all clean
