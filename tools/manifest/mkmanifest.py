@@ -169,6 +169,34 @@ def elements(shape):
     return e
 
 
+def qwen38_27b_roles(io):
+    """Qwen3.8-27B: the whole-model prefill kernel (16 blocks in a runtime loop, 256 cells per call), the 16-layer decode
+    group on its state layouts (value heads in HF order), the MXFP4 output head"""
+    return {
+        "layer.gdn": "qwen35_gdn_mx4_npu1",  # IO only: the parameters of a GDN layer
+        "layer.attn": "qwen35_attn_mx4_kvc_c16384_npu1",  # IO only: the parameters of an attention layer
+        "decode.group": "qwen38_27b_group16_gggagggagggaggga_mx4_kvc_c16384_npu4",
+        "prefill": "qwen38_27b_prefill256_mx4_kvc_c16384_npu4",
+        "lm_head": "mul_mat_mx4_n248320_k5120_npu4",
+    }
+
+
+def vperm(ins, n):
+    """the value-head reorder of a delta-net parameter (GGUF tiled -> HF grouped) for the decode group of qwen38_27b:
+    rows of the v part of qkv / conv (after q and k), rows of z / b / a, the 48 values of a_log / dt_bias, columns of out"""
+    VH, KH = 48, 16
+    base = n[2:] if n.startswith(("w_", "s_")) else n
+    if base in ("qkv", "conv_w"):
+        rows = ins[n][2][0]
+        v = ins["w_z"][2][0]  # value rows: those of z
+        return f"rows:{rows - v}:{VH}:{KH}"
+    if base in ("z", "b", "a", "a_log", "dt_bias"):
+        return f"rows:0:{VH}:{KH}"
+    if base == "out":
+        return f"cols:{VH}:{KH}"
+    return None
+
+
 def params(model, kernel):
     """the parameters of a layer kernel: GGUF tensor, conversion, kernel form"""
     ins = {n: (b, t, s) for n, b, t, s in kernel["in"]}
@@ -196,6 +224,9 @@ def params(model, kernel):
         else:
             conv = "tensor"  # as it is (bf16 / f32), a bf16 copy of a quantized / f16 tensor
         out[n] = {"gguf": g, "convert": conv, "bytes": b, "dtype": t, "shape": s}
+        vp = vperm(ins, n) if model == "qwen38_27b" and "w_qkv" in ins else None
+        if vp:
+            out[n]["vperm"] = vp
     return out
 
 
@@ -234,7 +265,8 @@ def main():
     roles = ({**qwen3_roles(io, ctx, pos[0] if pos else None), **(audio_roles(int(opt["audio"])) if "audio" in opt else {}),
               **(tts_roles(io) if opt.get("tts") == "1" else {})}
              if model == "qwen3" else
-             qwen35_dense_roles(io) if model == "qwen35_dense" else ROLES[model])
+             qwen35_dense_roles(io) if model == "qwen35_dense" else qwen38_27b_roles(io) if model == "qwen38_27b" else
+             ROLES[model])
     man = {"format": 1, "model": model, "context": ctx, "cores": 4, "params": {}, "kernels": {}}
     for role, base in {**roles, **vit_roles(io)}.items():
         f = base + ".axmodel"
