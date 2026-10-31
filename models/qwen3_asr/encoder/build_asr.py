@@ -1,6 +1,6 @@
 """Build the fused Qwen3-ASR audio-tower kernels (random weights, real shapes).
 
-    python build_asr.py                 # both models, n = 1,2,4,8, compile all
+    python build_asr.py                 # both models, one n = 8 kernel each
     python build_asr.py --smoke         # one variant, L=1, CRUN compile
     python build_asr.py --one --model hf/... --n 1 --cache DIR
 
@@ -27,11 +27,11 @@ MODELS = {
     "0.6b": os.path.join(HERE, "hf", "Qwen3-ASR-0.6B"),
     "1.7b": os.path.join(HERE, "hf", "Qwen3-ASR-1.7B"),
 }
-NS = [1, 2, 4, 8]
+NS = [8]
 
 
-def variant_name(tag, H, n):
-    return f"qwen3a_fused_{tag}_n{n}_h{H}"
+def variant_name(tag, H):
+    return f"qwen3a_fused_{tag}_h{H}"
 
 
 def expected_inputs(cfg, n, layers=None):
@@ -40,6 +40,7 @@ def expected_inputs(cfg, n, layers=None):
     P = 64 if n <= 4 else 128
     dims = [
         ("mel", (n * 100, 128), "bfloat16"),
+        ("kmask", (P,), "bfloat16"),
         ("w1", (480, 16), "bfloat16"), ("b1", (480,), "bfloat16"),
         ("w2", (480, 4320), "bfloat16"), ("b2", (480,), "bfloat16"),
         ("w3", (480, 4320), "bfloat16"), ("b3", (480,), "bfloat16"),
@@ -83,7 +84,7 @@ def compile_variant(model_dir, tag, n, layers, log_path):
     with open(cfg_path) as fh:
         cfg = json.load(fh)["thinker_config"]["audio_config"]
     H = cfg["d_model"]
-    name = variant_name(tag, H, n)
+    name = variant_name(tag, H)
     cache_dir = os.path.join(CACHE, name)
     if os.path.isdir(cache_dir):
         shutil.rmtree(cache_dir)
@@ -155,7 +156,7 @@ def main():
     ap.add_argument("--cache", default=None)
     ap.add_argument("--layers", type=int, default=None)
     ap.add_argument("--tags", default="0.6b,1.7b")
-    ap.add_argument("--ns", default="1,2,4,8")
+    ap.add_argument("--ns", default="8")
     ap.add_argument("--skip-existing", action="store_true")
     args = ap.parse_args()
 
@@ -165,8 +166,10 @@ def main():
 
     tags = args.tags.split(",")
     ns = [int(x) for x in args.ns.split(",")]
+    if any(n != 8 for n in ns):
+        raise SystemExit("production builds are n=8 only; use --one for diagnostics")
     if args.smoke:
-        tags, ns, args.layers = ["0.6b"], [1], 1
+        tags, ns, args.layers = ["0.6b"], [8], 1
     inputs_json = os.path.join(HERE, "inputs.json")
     variants = []
     if os.path.exists(inputs_json):
@@ -174,24 +177,32 @@ def main():
             variants = json.load(open(inputs_json)).get("variants", [])
         except Exception:
             variants = []
-    existing = {v["name"]: v for v in variants}
+    old = {v["name"]: v for v in variants}
+    rebuilt_models = {os.path.basename(MODELS[tag]) for tag in tags}
+    # Keep variants of models this invocation is not rebuilding.
+    variants = [v for v in old.values() if v.get("model") not in rebuilt_models]
     for tag in tags:
         model_dir = MODELS[tag]
+        model_name = os.path.basename(model_dir)
         for n in ns:
             from asr_ref import audio_config
             cfg = audio_config(model_dir)
             H = cfg.d_model
-            name = variant_name(tag, H, n)
+            name = variant_name(tag, H)
             pre = os.path.join(OUT, name + "_npu4.axmodel")
-            if args.skip_existing and os.path.exists(pre) and name in existing:
+            prev = old.get(name)
+            if (args.skip_existing and os.path.exists(pre) and prev is not None
+                    and prev.get("n_chunks") == n):
                 print(f"[build] keep {pre}", flush=True)
-                existing[name]["axmodel"] = os.path.relpath(pre, HERE)
+                prev = dict(prev)
+                prev["axmodel"] = os.path.relpath(pre, HERE)
+                variants.append(prev)
                 continue
             log = os.path.join(HERE, "output", f"build_{tag}_n{n}.log")
             os.makedirs(os.path.dirname(log), exist_ok=True)
             dst, name = compile_variant(model_dir, tag, n, args.layers, log)
             ins, outs = expected_inputs(cfg, n, args.layers)
-            existing[name] = ({
+            variants.append({
                 "name": name,
                 "model": os.path.basename(model_dir),
                 "n_chunks": n,
@@ -199,7 +210,7 @@ def main():
                 "inputs": [{"name": a, "shape": list(b), "dtype": c} for a, b, c in ins],
                 "outputs": [{"name": a, "shape": list(b), "dtype": c} for a, b, c in outs],
             })
-    variants = sorted(existing.values(), key=lambda v: (v["model"], v["n_chunks"]))
+    variants = sorted(variants, key=lambda v: (v["model"], v["n_chunks"]))
     # Keep the exact kernel order in every variant; validate against the compiled ABI.
     for v in variants:
         ai, ao = axmodel_io(os.path.join(HERE, v["axmodel"]))

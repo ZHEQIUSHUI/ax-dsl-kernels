@@ -1,15 +1,20 @@
-"""Qwen3-ASR audio tower as ONE AX8860 kernel per (model, chunk-count) shape.
+"""Qwen3-ASR audio tower as ONE AX8860 kernel per model (n = 8 chunks).
 
-Input : log-mel [n*100, 128] BF16 (time-major)
-Output: projector rows [P, output_dim] FP32; the first 13*n rows are valid
-        (P = 64 for n <= 4, 128 for n = 8, the rows the current layer kernels use).
+Input : log-mel [n*100, 128] BF16 (time-major), kmask [P] BF16
+Output: projector rows [P, output_dim] FP32; the first 13*nch rows are valid
+        for a call with nch real chunks (nch <= n = 8, P = 128).
 
 Inside: on-chip im2col for all three stride-2 3x3 convolutions, GELU, conv_out,
 sinusoidal position add, a runtime range over the encoder layers with every
-weight bank [L, ...], the one-window (n <= 8) attention mask, final LayerNorm
-and the projector.  Four cores: each owns a 1/4 band of conv3's 16 frequency
-rows for the front-end (no cross-core front-end traffic; the tiny conv3 map is
-exchanged through SHARED_OCM) and 1/4 of the padded rows for the layer stack.
+weight bank [L, ...], the runtime key mask, final LayerNorm and the projector.
+Four cores: each owns a 1/4 band of conv3's 16 frequency rows for the front-end
+(no cross-core front-end traffic; the tiny conv3 map is exchanged through
+SHARED_OCM) and 1/4 of the padded rows for the layer stack.
+
+The host zero-pads the mel to n=8 chunks and passes kmask = 0 for rows
+[0, 13*nch) and -3e38 for rows [13*nch, P).  Only keys are masked; queries of
+padding rows are don't-care.  This matches the official tower, whose attention
+never sees rows beyond the real chunks of the call.
 """
 from __future__ import annotations
 
@@ -141,11 +146,16 @@ def _conv_out_index(n, P, NQ, core):
     return idx
 
 
-def _pe_mask(n, P, H):
+def _pe(P, H):
     pe = sinusoids(1500, H)[np.arange(P) % 13].astype(np.float32)
+    return _np_bf16(pe)
+
+
+def key_mask(P, valid_rows):
+    """Host-side kmask for a call with valid_rows = 13 * real chunks."""
     mask = np.zeros((P,), np.float32)
-    mask[13 * n :] = -3e38
-    return _np_bf16(pe), _np_bf16(mask)
+    mask[valid_rows:] = -3e38
+    return torch.from_numpy(mask).to(torch.bfloat16).contiguous()
 
 
 def make_fused(H, F, O, NH, L, n, layers=None):
@@ -161,10 +171,10 @@ def make_fused(H, F, O, NH, L, n, layers=None):
     idx2 = [_front_indices_core(n, c)[1] for c in range(CORES)]
     idx3 = [_front_indices_core(n, c)[2] for c in range(CORES)]
     idxo = [_conv_out_index(n, P, NQ, c) for c in range(CORES)]
-    pe_all, mask_all = _pe_mask(n, P, H)
+    pe_all = _pe(P, H)
 
     def fused(
-        mel,
+        mel, kmask,
         w1, b1, w2, b2, w3, b3, conv_out_w,
         ln1w, ln1b, qkvw, qkvb, ow, ob, ln2w, ln2b, upw, upb, downw, downb,
         postw, postb, p1w, p1b, p2w, p2b,
@@ -242,7 +252,7 @@ def make_fused(H, F, O, NH, L, n, layers=None):
         zero = ax.dsl.zeros((1,), ax.int32)
         one = ax.dsl.full((1,), ax.int32, 1)
         stop = ax.dsl.full((1,), ax.int32, Lc)
-        mask = ax.dsl.from_numpy(mask_all).reshape(1, P)
+        mask = ax.dsl.cast(ax.dsl.load(kmask).reshape(1, P), dtype=ax.fp32)
         scale = ax.dsl.full((1,), ax.fp32, HD**-0.5)
 
         def body(layer, hidden):
@@ -320,7 +330,7 @@ def make_fused(H, F, O, NH, L, n, layers=None):
 
 
 ABI = [
-    "mel",
+    "mel", "kmask",
     "w1", "b1", "w2", "b2", "w3", "b3", "conv_out_w",
     "ln1w", "ln1b", "qkvw", "qkvb", "ow", "ob", "ln2w", "ln2b", "upw", "upb", "downw", "downb",
     "postw", "postb", "p1w", "p1b", "p2w", "p2b",
@@ -406,10 +416,13 @@ def random_weights(cfg, layers=None, seed=0):
     return w
 
 
-def run_forward(kernel, w, mel, n, out_dim, cores=CORES, dtype=torch.float32):
+def run_forward(kernel, w, mel, n, out_dim, cores=CORES, dtype=torch.float32, kmask=None):
     P = padded_rows(n)
+    if kmask is None:
+        kmask = key_mask(P, 13 * n)
     out = torch.zeros((P, out_dim), dtype=dtype)
-    args = {"mel": mel.to(torch.bfloat16).contiguous(), "out": out, **w}
+    args = {"mel": mel.to(torch.bfloat16).contiguous(),
+            "kmask": kmask.to(torch.bfloat16).contiguous(), "out": out, **w}
     kernel[cores](*[args[name] for name in ABI])
     return out
 

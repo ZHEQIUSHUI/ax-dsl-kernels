@@ -87,10 +87,10 @@ def qwen3_roles(io, ctx, lm):
 
 
 def audio_roles(H):
-    """the Qwen3-ASR audio encoder of width H (0.6B: 896, 1.7B: 1024) in one kernel per call of n chunks of 100 mel
-    frames (n = 1 / 2 / 4 / 8): front-end, conv_out, positions, all layers, projector (models/qwen3_asr/encoder)"""
-    size = {896: "0.6b", 1024: "1.7b"}[H]
-    return {f"audio.enc.n{n}": f"qwen3a_fused_{size}_n{n}_h{H}_npu4" for n in (1, 2, 4, 8)}
+    """the Qwen3-ASR audio encoder of width H (0.6B: 896, 1.7B: 1024) in one kernel (models/qwen3_asr/encoder): a call of
+    up to 8 chunks of 100 mel frames (padding chunks hidden by the runtime key mask), front-end, conv_out, positions,
+    all layers, projector"""
+    return {"audio.enc": f"qwen3a_fused_{ {896: '0.6b', 1024: '1.7b'}[H] }_h{H}_npu4"}
 
 
 def tts_roles(io):
