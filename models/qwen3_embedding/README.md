@@ -1,10 +1,18 @@
 # Qwen3-Embedding-0.6B
 
-Frozen: the kernels of the delivered directory (`kernels.md5`, per manifest). The sources are those of the commits that built them (`src/<commit>/`, the scripts and the modules they import); toolchain: npu-codebase 7913a0599 (ai-dev1) / the 4090's of 2026-10-23. Builds take random weights of the config's shapes (QW_RANDOM=1); the backend binds the GGUF's weights at load.
+ONE kernel: the whole model per page of 256 tokens (`qwen3_embedding_0.6b_prefill256_mx8_c4096_npu4`, role
+`prefill`): 28 layers in a runtime loop over weight banks `[7, ...]` per phase (MXFP8, from the GGUF at load), paged
+bf16 KV cache (context 4096), the valid rows at runtime, an RMS norm of unit weight at the end (ggml-axera applies the
+model's final norm before the pooling). The ggml-axera adapter is `models/qwen3` (shared by the Qwen3 dense text models).
 
-| kernels | commit | entry | how they were built |
-|---|---|---|---|
-| decode group: 28 layers + final norm (the hidden state), c16384 | `4acb7f6` | `src/4acb7f6/q35_group.py` | ai-dev1 lineC/jobs/jkeep.txt `kq06_grp_16384` (KEEP_SHM=1 DEC_SPLIT=1 LMAX=16384 G=28 LMHEAD=1); byte-identical rebuild not run |
-| attention prefill P = 128 / 64 / 16 / 4, c16384 | `64f9071` | `src/64f9071/q35_layer_pk.py` | ai-dev1 lineC/jobs/j70.txt `q06_p<P>_16384` (ONLY=attn PCHUNK=<P> LMAX=16384); **rebuilt byte-identical (P=4) 2026-10-30** |
+| kernel | source | build |
+|---|---|---|
+| `qwen3_embedding_0.6b_prefill256_mx8_c4096_npu4` | `text/qwen3_kernel.py` (on sgl-kernel-axera: `flash_attn_with_kvcache`, `mlp_kernel`, the bank machinery) | `text/compile_variant.sh embedding_0.6b` (npu-codebase cad0db3d6 + sgl-kernel-axera, `sgl_env.sh`), then `board_io.py` (E8M0 IO as u8); `text/collect_inputs.py` writes the IO |
 
-Manifests (the contract with ggml-axera): `qwen3_embedding_0.6b.manifest.json`.
+Checks: `text/check_qwen3.py` (the kernel in PYRUN against transformers' layers with the same MXFP8 weights, paged
+history). Board (.184, SDK V0.5.1, 2026-10-31), against the former 52 kernels: embeddings cos 0.9991-0.9997; 6 short
+inputs 72 -> 62 ms, 2 long ones (884 tokens) 170 -> 69 ms.
+
+The former kernels' sources (`src/<commit>/`) are no longer in the manifest.
+
+Manifest (the contract with ggml-axera): `qwen3_embedding_0.6b.manifest.json`.
