@@ -7038,20 +7038,20 @@
     }
    ]
   },
-  "audio.fe1.n1": {
-   "file": "qwen3a_fe_o480_k16_r3200_npu4.axmodel",
+  "audio.enc.n1": {
+   "file": "qwen3a_fused_0.6b_n1_h896_npu4.axmodel",
    "in": [
     {
-     "name": "x",
-     "bytes": 102400,
+     "name": "mel",
+     "bytes": 25600,
      "dtype": 9,
      "shape": [
-      3200,
-      16
+      100,
+      128
      ]
     },
     {
-     "name": "w",
+     "name": "w1",
      "bytes": 15360,
      "dtype": 9,
      "shape": [
@@ -7060,40 +7060,15 @@
      ]
     },
     {
-     "name": "b",
-     "bytes": 1920,
-     "dtype": 3,
+     "name": "b1",
+     "bytes": 960,
+     "dtype": 9,
      "shape": [
       480
      ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 3072000,
-     "dtype": 9,
-     "shape": [
-      480,
-      3200
-     ]
-    }
-   ]
-  },
-  "audio.fe2.n1": {
-   "file": "qwen3a_fe2_o480_n1_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 3072000,
-     "dtype": 9,
-     "shape": [
-      480,
-      3200
-     ]
     },
     {
-     "name": "w",
+     "name": "w2",
      "bytes": 4147200,
      "dtype": 9,
      "shape": [
@@ -7102,40 +7077,15 @@
      ]
     },
     {
-     "name": "b",
-     "bytes": 1920,
-     "dtype": 3,
+     "name": "b2",
+     "bytes": 960,
+     "dtype": 9,
      "shape": [
       480
      ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 768000,
-     "dtype": 9,
-     "shape": [
-      480,
-      800
-     ]
-    }
-   ]
-  },
-  "audio.fe3.n1": {
-   "file": "qwen3a_fe_o480_k4320_r208_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 1797120,
-     "dtype": 9,
-     "shape": [
-      208,
-      4320
-     ]
     },
     {
-     "name": "w",
+     "name": "w3",
      "bytes": 4147200,
      "dtype": 9,
      "shape": [
@@ -7144,646 +7094,136 @@
      ]
     },
     {
-     "name": "b",
-     "bytes": 1920,
-     "dtype": 3,
+     "name": "b3",
+     "bytes": 960,
+     "dtype": 9,
      "shape": [
       480
      ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 199680,
-     "dtype": 9,
-     "shape": [
-      480,
-      208
-     ]
-    }
-   ]
-  },
-  "audio.conv_out.n1": {
-   "file": "mm_bf16_m13_n896_k7680_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 199680,
-     "dtype": 9,
-     "shape": [
-      13,
-      7680
-     ]
     },
     {
-     "name": "w",
+     "name": "conv_out_w",
      "bytes": 13762560,
      "dtype": 9,
      "shape": [
       896,
       7680
      ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 46592,
-     "dtype": 3,
-     "shape": [
-      13,
-      896
-     ]
-    }
-   ]
-  },
-  "audio.fe1.n2": {
-   "file": "qwen3a_fe_o480_k16_r6400_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 204800,
-     "dtype": 9,
-     "shape": [
-      6400,
-      16
-     ]
     },
     {
-     "name": "w",
-     "bytes": 15360,
+     "name": "ln1w",
+     "bytes": 32256,
      "dtype": 9,
      "shape": [
-      480,
-      16
-     ]
-    },
-    {
-     "name": "b",
-     "bytes": 1920,
-     "dtype": 3,
-     "shape": [
-      480
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 6144000,
-     "dtype": 9,
-     "shape": [
-      480,
-      6400
-     ]
-    }
-   ]
-  },
-  "audio.fe2.n2": {
-   "file": "qwen3a_fe2_o480_n2_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 6144000,
-     "dtype": 9,
-     "shape": [
-      480,
-      6400
-     ]
-    },
-    {
-     "name": "w",
-     "bytes": 4147200,
-     "dtype": 9,
-     "shape": [
-      480,
-      4320
-     ]
-    },
-    {
-     "name": "b",
-     "bytes": 1920,
-     "dtype": 3,
-     "shape": [
-      480
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 1536000,
-     "dtype": 9,
-     "shape": [
-      480,
-      1600
-     ]
-    }
-   ]
-  },
-  "audio.fe3.n2": {
-   "file": "qwen3a_fe_o480_k4320_r416_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 3594240,
-     "dtype": 9,
-     "shape": [
-      416,
-      4320
-     ]
-    },
-    {
-     "name": "w",
-     "bytes": 4147200,
-     "dtype": 9,
-     "shape": [
-      480,
-      4320
-     ]
-    },
-    {
-     "name": "b",
-     "bytes": 1920,
-     "dtype": 3,
-     "shape": [
-      480
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 399360,
-     "dtype": 9,
-     "shape": [
-      480,
-      416
-     ]
-    }
-   ]
-  },
-  "audio.conv_out.n2": {
-   "file": "mm_bf16_m26_n896_k7680_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 399360,
-     "dtype": 9,
-     "shape": [
-      26,
-      7680
-     ]
-    },
-    {
-     "name": "w",
-     "bytes": 13762560,
-     "dtype": 9,
-     "shape": [
-      896,
-      7680
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 93184,
-     "dtype": 3,
-     "shape": [
-      26,
-      896
-     ]
-    }
-   ]
-  },
-  "audio.fe1.n4": {
-   "file": "qwen3a_fe_o480_k16_r12800_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 409600,
-     "dtype": 9,
-     "shape": [
-      12800,
-      16
-     ]
-    },
-    {
-     "name": "w",
-     "bytes": 15360,
-     "dtype": 9,
-     "shape": [
-      480,
-      16
-     ]
-    },
-    {
-     "name": "b",
-     "bytes": 1920,
-     "dtype": 3,
-     "shape": [
-      480
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 12288000,
-     "dtype": 9,
-     "shape": [
-      480,
-      12800
-     ]
-    }
-   ]
-  },
-  "audio.fe2.n4": {
-   "file": "qwen3a_fe2_o480_n4_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 12288000,
-     "dtype": 9,
-     "shape": [
-      480,
-      12800
-     ]
-    },
-    {
-     "name": "w",
-     "bytes": 4147200,
-     "dtype": 9,
-     "shape": [
-      480,
-      4320
-     ]
-    },
-    {
-     "name": "b",
-     "bytes": 1920,
-     "dtype": 3,
-     "shape": [
-      480
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 3072000,
-     "dtype": 9,
-     "shape": [
-      480,
-      3200
-     ]
-    }
-   ]
-  },
-  "audio.fe3.n4": {
-   "file": "qwen3a_fe_o480_k4320_r832_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 7188480,
-     "dtype": 9,
-     "shape": [
-      832,
-      4320
-     ]
-    },
-    {
-     "name": "w",
-     "bytes": 4147200,
-     "dtype": 9,
-     "shape": [
-      480,
-      4320
-     ]
-    },
-    {
-     "name": "b",
-     "bytes": 1920,
-     "dtype": 3,
-     "shape": [
-      480
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 798720,
-     "dtype": 9,
-     "shape": [
-      480,
-      832
-     ]
-    }
-   ]
-  },
-  "audio.conv_out.n4": {
-   "file": "mm_bf16_m52_n896_k7680_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 798720,
-     "dtype": 9,
-     "shape": [
-      52,
-      7680
-     ]
-    },
-    {
-     "name": "w",
-     "bytes": 13762560,
-     "dtype": 9,
-     "shape": [
-      896,
-      7680
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 186368,
-     "dtype": 3,
-     "shape": [
-      52,
-      896
-     ]
-    }
-   ]
-  },
-  "audio.fe1.n8": {
-   "file": "qwen3a_fe_o480_k16_r25600_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 819200,
-     "dtype": 9,
-     "shape": [
-      25600,
-      16
-     ]
-    },
-    {
-     "name": "w",
-     "bytes": 15360,
-     "dtype": 9,
-     "shape": [
-      480,
-      16
-     ]
-    },
-    {
-     "name": "b",
-     "bytes": 1920,
-     "dtype": 3,
-     "shape": [
-      480
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 24576000,
-     "dtype": 9,
-     "shape": [
-      480,
-      25600
-     ]
-    }
-   ]
-  },
-  "audio.fe2.n8": {
-   "file": "qwen3a_fe2_o480_n8_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 24576000,
-     "dtype": 9,
-     "shape": [
-      480,
-      25600
-     ]
-    },
-    {
-     "name": "w",
-     "bytes": 4147200,
-     "dtype": 9,
-     "shape": [
-      480,
-      4320
-     ]
-    },
-    {
-     "name": "b",
-     "bytes": 1920,
-     "dtype": 3,
-     "shape": [
-      480
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 6144000,
-     "dtype": 9,
-     "shape": [
-      480,
-      6400
-     ]
-    }
-   ]
-  },
-  "audio.fe3.n8": {
-   "file": "qwen3a_fe_o480_k4320_r1664_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 14376960,
-     "dtype": 9,
-     "shape": [
-      1664,
-      4320
-     ]
-    },
-    {
-     "name": "w",
-     "bytes": 4147200,
-     "dtype": 9,
-     "shape": [
-      480,
-      4320
-     ]
-    },
-    {
-     "name": "b",
-     "bytes": 1920,
-     "dtype": 3,
-     "shape": [
-      480
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 1597440,
-     "dtype": 9,
-     "shape": [
-      480,
-      1664
-     ]
-    }
-   ]
-  },
-  "audio.conv_out.n8": {
-   "file": "mm_bf16_m104_n896_k7680_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 1597440,
-     "dtype": 9,
-     "shape": [
-      104,
-      7680
-     ]
-    },
-    {
-     "name": "w",
-     "bytes": 13762560,
-     "dtype": 9,
-     "shape": [
-      896,
-      7680
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 372736,
-     "dtype": 3,
-     "shape": [
-      104,
-      896
-     ]
-    }
-   ]
-  },
-  "audio.layer64": {
-   "file": "qwen3a_layer64_h896_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 114688,
-     "dtype": 9,
-     "shape": [
-      64,
+      18,
       896
      ]
     },
     {
-     "name": "ln1_w",
-     "bytes": 1792,
+     "name": "ln1b",
+     "bytes": 32256,
      "dtype": 9,
      "shape": [
+      18,
       896
      ]
     },
     {
-     "name": "ln1_b",
-     "bytes": 1792,
+     "name": "qkvw",
+     "bytes": 86704128,
      "dtype": 9,
      "shape": [
-      896
-     ]
-    },
-    {
-     "name": "w_qkv",
-     "bytes": 4816896,
-     "dtype": 9,
-     "shape": [
+      18,
       2688,
       896
      ]
     },
     {
-     "name": "b_qkv",
-     "bytes": 5376,
+     "name": "qkvb",
+     "bytes": 96768,
      "dtype": 9,
      "shape": [
+      18,
       2688
      ]
     },
     {
-     "name": "w_o",
-     "bytes": 1605632,
+     "name": "ow",
+     "bytes": 28901376,
      "dtype": 9,
      "shape": [
+      18,
       896,
       896
      ]
     },
     {
-     "name": "b_o",
-     "bytes": 1792,
+     "name": "ob",
+     "bytes": 32256,
      "dtype": 9,
      "shape": [
+      18,
       896
      ]
     },
     {
-     "name": "ln2_w",
-     "bytes": 1792,
+     "name": "ln2w",
+     "bytes": 32256,
      "dtype": 9,
      "shape": [
+      18,
       896
      ]
     },
     {
-     "name": "ln2_b",
-     "bytes": 1792,
+     "name": "ln2b",
+     "bytes": 32256,
      "dtype": 9,
      "shape": [
+      18,
       896
      ]
     },
     {
-     "name": "w_up",
-     "bytes": 6422528,
+     "name": "upw",
+     "bytes": 115605504,
      "dtype": 9,
      "shape": [
+      18,
       3584,
       896
      ]
     },
     {
-     "name": "b_up",
-     "bytes": 7168,
+     "name": "upb",
+     "bytes": 129024,
      "dtype": 9,
      "shape": [
+      18,
       3584
      ]
     },
     {
-     "name": "w_down",
-     "bytes": 6422528,
+     "name": "downw",
+     "bytes": 115605504,
      "dtype": 9,
      "shape": [
+      18,
       896,
       3584
      ]
     },
     {
-     "name": "b_down",
+     "name": "downb",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "postw",
      "bytes": 1792,
      "dtype": 9,
      "shape": [
@@ -7791,41 +7231,7 @@
      ]
     },
     {
-     "name": "kmask",
-     "bytes": 128,
-     "dtype": 9,
-     "shape": [
-      1,
-      64
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 114688,
-     "dtype": 9,
-     "shape": [
-      64,
-      896
-     ]
-    }
-   ]
-  },
-  "audio.proj64": {
-   "file": "qwen3a_proj64_h896_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 114688,
-     "dtype": 9,
-     "shape": [
-      64,
-      896
-     ]
-    },
-    {
-     "name": "ln_w",
+     "name": "postb",
      "bytes": 1792,
      "dtype": 9,
      "shape": [
@@ -7833,15 +7239,7 @@
      ]
     },
     {
-     "name": "ln_b",
-     "bytes": 1792,
-     "dtype": 9,
-     "shape": [
-      896
-     ]
-    },
-    {
-     "name": "w1",
+     "name": "p1w",
      "bytes": 1605632,
      "dtype": 9,
      "shape": [
@@ -7850,7 +7248,7 @@
      ]
     },
     {
-     "name": "b1",
+     "name": "p1b",
      "bytes": 1792,
      "dtype": 9,
      "shape": [
@@ -7858,7 +7256,7 @@
      ]
     },
     {
-     "name": "w2",
+     "name": "p2w",
      "bytes": 1835008,
      "dtype": 9,
      "shape": [
@@ -7867,7 +7265,7 @@
      ]
     },
     {
-     "name": "b2",
+     "name": "p2b",
      "bytes": 2048,
      "dtype": 9,
      "shape": [
@@ -7887,112 +7285,192 @@
     }
    ]
   },
-  "audio.layer128": {
-   "file": "qwen3a_layer128_h896_npu4.axmodel",
+  "audio.enc.n2": {
+   "file": "qwen3a_fused_0.6b_n2_h896_npu4.axmodel",
    "in": [
     {
-     "name": "x",
-     "bytes": 229376,
+     "name": "mel",
+     "bytes": 51200,
      "dtype": 9,
      "shape": [
-      128,
+      200,
+      128
+     ]
+    },
+    {
+     "name": "w1",
+     "bytes": 15360,
+     "dtype": 9,
+     "shape": [
+      480,
+      16
+     ]
+    },
+    {
+     "name": "b1",
+     "bytes": 960,
+     "dtype": 9,
+     "shape": [
+      480
+     ]
+    },
+    {
+     "name": "w2",
+     "bytes": 4147200,
+     "dtype": 9,
+     "shape": [
+      480,
+      4320
+     ]
+    },
+    {
+     "name": "b2",
+     "bytes": 960,
+     "dtype": 9,
+     "shape": [
+      480
+     ]
+    },
+    {
+     "name": "w3",
+     "bytes": 4147200,
+     "dtype": 9,
+     "shape": [
+      480,
+      4320
+     ]
+    },
+    {
+     "name": "b3",
+     "bytes": 960,
+     "dtype": 9,
+     "shape": [
+      480
+     ]
+    },
+    {
+     "name": "conv_out_w",
+     "bytes": 13762560,
+     "dtype": 9,
+     "shape": [
+      896,
+      7680
+     ]
+    },
+    {
+     "name": "ln1w",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
       896
      ]
     },
     {
-     "name": "ln1_w",
-     "bytes": 1792,
+     "name": "ln1b",
+     "bytes": 32256,
      "dtype": 9,
      "shape": [
+      18,
       896
      ]
     },
     {
-     "name": "ln1_b",
-     "bytes": 1792,
+     "name": "qkvw",
+     "bytes": 86704128,
      "dtype": 9,
      "shape": [
-      896
-     ]
-    },
-    {
-     "name": "w_qkv",
-     "bytes": 4816896,
-     "dtype": 9,
-     "shape": [
+      18,
       2688,
       896
      ]
     },
     {
-     "name": "b_qkv",
-     "bytes": 5376,
+     "name": "qkvb",
+     "bytes": 96768,
      "dtype": 9,
      "shape": [
+      18,
       2688
      ]
     },
     {
-     "name": "w_o",
-     "bytes": 1605632,
+     "name": "ow",
+     "bytes": 28901376,
      "dtype": 9,
      "shape": [
+      18,
       896,
       896
      ]
     },
     {
-     "name": "b_o",
-     "bytes": 1792,
+     "name": "ob",
+     "bytes": 32256,
      "dtype": 9,
      "shape": [
+      18,
       896
      ]
     },
     {
-     "name": "ln2_w",
-     "bytes": 1792,
+     "name": "ln2w",
+     "bytes": 32256,
      "dtype": 9,
      "shape": [
+      18,
       896
      ]
     },
     {
-     "name": "ln2_b",
-     "bytes": 1792,
+     "name": "ln2b",
+     "bytes": 32256,
      "dtype": 9,
      "shape": [
+      18,
       896
      ]
     },
     {
-     "name": "w_up",
-     "bytes": 6422528,
+     "name": "upw",
+     "bytes": 115605504,
      "dtype": 9,
      "shape": [
+      18,
       3584,
       896
      ]
     },
     {
-     "name": "b_up",
-     "bytes": 7168,
+     "name": "upb",
+     "bytes": 129024,
      "dtype": 9,
      "shape": [
+      18,
       3584
      ]
     },
     {
-     "name": "w_down",
-     "bytes": 6422528,
+     "name": "downw",
+     "bytes": 115605504,
      "dtype": 9,
      "shape": [
+      18,
       896,
       3584
      ]
     },
     {
-     "name": "b_down",
+     "name": "downb",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "postw",
      "bytes": 1792,
      "dtype": 9,
      "shape": [
@@ -8000,41 +7478,7 @@
      ]
     },
     {
-     "name": "kmask",
-     "bytes": 256,
-     "dtype": 9,
-     "shape": [
-      1,
-      128
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 229376,
-     "dtype": 9,
-     "shape": [
-      128,
-      896
-     ]
-    }
-   ]
-  },
-  "audio.proj128": {
-   "file": "qwen3a_proj128_h896_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 229376,
-     "dtype": 9,
-     "shape": [
-      128,
-      896
-     ]
-    },
-    {
-     "name": "ln_w",
+     "name": "postb",
      "bytes": 1792,
      "dtype": 9,
      "shape": [
@@ -8042,15 +7486,7 @@
      ]
     },
     {
-     "name": "ln_b",
-     "bytes": 1792,
-     "dtype": 9,
-     "shape": [
-      896
-     ]
-    },
-    {
-     "name": "w1",
+     "name": "p1w",
      "bytes": 1605632,
      "dtype": 9,
      "shape": [
@@ -8059,7 +7495,7 @@
      ]
     },
     {
-     "name": "b1",
+     "name": "p1b",
      "bytes": 1792,
      "dtype": 9,
      "shape": [
@@ -8067,7 +7503,7 @@
      ]
     },
     {
-     "name": "w2",
+     "name": "p2w",
      "bytes": 1835008,
      "dtype": 9,
      "shape": [
@@ -8076,7 +7512,501 @@
      ]
     },
     {
+     "name": "p2b",
+     "bytes": 2048,
+     "dtype": 9,
+     "shape": [
+      1024
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 262144,
+     "dtype": 3,
+     "shape": [
+      64,
+      1024
+     ]
+    }
+   ]
+  },
+  "audio.enc.n4": {
+   "file": "qwen3a_fused_0.6b_n4_h896_npu4.axmodel",
+   "in": [
+    {
+     "name": "mel",
+     "bytes": 102400,
+     "dtype": 9,
+     "shape": [
+      400,
+      128
+     ]
+    },
+    {
+     "name": "w1",
+     "bytes": 15360,
+     "dtype": 9,
+     "shape": [
+      480,
+      16
+     ]
+    },
+    {
+     "name": "b1",
+     "bytes": 960,
+     "dtype": 9,
+     "shape": [
+      480
+     ]
+    },
+    {
+     "name": "w2",
+     "bytes": 4147200,
+     "dtype": 9,
+     "shape": [
+      480,
+      4320
+     ]
+    },
+    {
      "name": "b2",
+     "bytes": 960,
+     "dtype": 9,
+     "shape": [
+      480
+     ]
+    },
+    {
+     "name": "w3",
+     "bytes": 4147200,
+     "dtype": 9,
+     "shape": [
+      480,
+      4320
+     ]
+    },
+    {
+     "name": "b3",
+     "bytes": 960,
+     "dtype": 9,
+     "shape": [
+      480
+     ]
+    },
+    {
+     "name": "conv_out_w",
+     "bytes": 13762560,
+     "dtype": 9,
+     "shape": [
+      896,
+      7680
+     ]
+    },
+    {
+     "name": "ln1w",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "ln1b",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "qkvw",
+     "bytes": 86704128,
+     "dtype": 9,
+     "shape": [
+      18,
+      2688,
+      896
+     ]
+    },
+    {
+     "name": "qkvb",
+     "bytes": 96768,
+     "dtype": 9,
+     "shape": [
+      18,
+      2688
+     ]
+    },
+    {
+     "name": "ow",
+     "bytes": 28901376,
+     "dtype": 9,
+     "shape": [
+      18,
+      896,
+      896
+     ]
+    },
+    {
+     "name": "ob",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "ln2w",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "ln2b",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "upw",
+     "bytes": 115605504,
+     "dtype": 9,
+     "shape": [
+      18,
+      3584,
+      896
+     ]
+    },
+    {
+     "name": "upb",
+     "bytes": 129024,
+     "dtype": 9,
+     "shape": [
+      18,
+      3584
+     ]
+    },
+    {
+     "name": "downw",
+     "bytes": 115605504,
+     "dtype": 9,
+     "shape": [
+      18,
+      896,
+      3584
+     ]
+    },
+    {
+     "name": "downb",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "postw",
+     "bytes": 1792,
+     "dtype": 9,
+     "shape": [
+      896
+     ]
+    },
+    {
+     "name": "postb",
+     "bytes": 1792,
+     "dtype": 9,
+     "shape": [
+      896
+     ]
+    },
+    {
+     "name": "p1w",
+     "bytes": 1605632,
+     "dtype": 9,
+     "shape": [
+      896,
+      896
+     ]
+    },
+    {
+     "name": "p1b",
+     "bytes": 1792,
+     "dtype": 9,
+     "shape": [
+      896
+     ]
+    },
+    {
+     "name": "p2w",
+     "bytes": 1835008,
+     "dtype": 9,
+     "shape": [
+      1024,
+      896
+     ]
+    },
+    {
+     "name": "p2b",
+     "bytes": 2048,
+     "dtype": 9,
+     "shape": [
+      1024
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 262144,
+     "dtype": 3,
+     "shape": [
+      64,
+      1024
+     ]
+    }
+   ]
+  },
+  "audio.enc.n8": {
+   "file": "qwen3a_fused_0.6b_n8_h896_npu4.axmodel",
+   "in": [
+    {
+     "name": "mel",
+     "bytes": 204800,
+     "dtype": 9,
+     "shape": [
+      800,
+      128
+     ]
+    },
+    {
+     "name": "w1",
+     "bytes": 15360,
+     "dtype": 9,
+     "shape": [
+      480,
+      16
+     ]
+    },
+    {
+     "name": "b1",
+     "bytes": 960,
+     "dtype": 9,
+     "shape": [
+      480
+     ]
+    },
+    {
+     "name": "w2",
+     "bytes": 4147200,
+     "dtype": 9,
+     "shape": [
+      480,
+      4320
+     ]
+    },
+    {
+     "name": "b2",
+     "bytes": 960,
+     "dtype": 9,
+     "shape": [
+      480
+     ]
+    },
+    {
+     "name": "w3",
+     "bytes": 4147200,
+     "dtype": 9,
+     "shape": [
+      480,
+      4320
+     ]
+    },
+    {
+     "name": "b3",
+     "bytes": 960,
+     "dtype": 9,
+     "shape": [
+      480
+     ]
+    },
+    {
+     "name": "conv_out_w",
+     "bytes": 13762560,
+     "dtype": 9,
+     "shape": [
+      896,
+      7680
+     ]
+    },
+    {
+     "name": "ln1w",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "ln1b",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "qkvw",
+     "bytes": 86704128,
+     "dtype": 9,
+     "shape": [
+      18,
+      2688,
+      896
+     ]
+    },
+    {
+     "name": "qkvb",
+     "bytes": 96768,
+     "dtype": 9,
+     "shape": [
+      18,
+      2688
+     ]
+    },
+    {
+     "name": "ow",
+     "bytes": 28901376,
+     "dtype": 9,
+     "shape": [
+      18,
+      896,
+      896
+     ]
+    },
+    {
+     "name": "ob",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "ln2w",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "ln2b",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "upw",
+     "bytes": 115605504,
+     "dtype": 9,
+     "shape": [
+      18,
+      3584,
+      896
+     ]
+    },
+    {
+     "name": "upb",
+     "bytes": 129024,
+     "dtype": 9,
+     "shape": [
+      18,
+      3584
+     ]
+    },
+    {
+     "name": "downw",
+     "bytes": 115605504,
+     "dtype": 9,
+     "shape": [
+      18,
+      896,
+      3584
+     ]
+    },
+    {
+     "name": "downb",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "postw",
+     "bytes": 1792,
+     "dtype": 9,
+     "shape": [
+      896
+     ]
+    },
+    {
+     "name": "postb",
+     "bytes": 1792,
+     "dtype": 9,
+     "shape": [
+      896
+     ]
+    },
+    {
+     "name": "p1w",
+     "bytes": 1605632,
+     "dtype": 9,
+     "shape": [
+      896,
+      896
+     ]
+    },
+    {
+     "name": "p1b",
+     "bytes": 1792,
+     "dtype": 9,
+     "shape": [
+      896
+     ]
+    },
+    {
+     "name": "p2w",
+     "bytes": 1835008,
+     "dtype": 9,
+     "shape": [
+      1024,
+      896
+     ]
+    },
+    {
+     "name": "p2b",
      "bytes": 2048,
      "dtype": 9,
      "shape": [

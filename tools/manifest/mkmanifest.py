@@ -87,19 +87,10 @@ def qwen3_roles(io, ctx, lm):
 
 
 def audio_roles(H):
-    """the Qwen3-ASR audio encoder (q3a_fe.py, q3a_layer.py, q3a_proj.py) of width H: per call of n chunks of 100 mel
-    frames (n = 1 / 2 / 4 / 8) the front-end's three convolutions and conv_out, the layer and projector kernels of 64
-    and 128 rows"""
-    r = {}
-    for n in (1, 2, 4, 8):
-        r[f"audio.fe1.n{n}"] = f"qwen3a_fe_o480_k16_r{3200 * n}_npu4"
-        r[f"audio.fe2.n{n}"] = f"qwen3a_fe2_o480_n{n}_npu4"
-        r[f"audio.fe3.n{n}"] = f"qwen3a_fe_o480_k4320_r{208 * n}_npu4"
-        r[f"audio.conv_out.n{n}"] = f"mm_bf16_m{13 * n}_n{H}_k7680_npu4"
-    for nf in (64, 128):
-        r[f"audio.layer{nf}"] = f"qwen3a_layer{nf}_h{H}_npu4"
-        r[f"audio.proj{nf}"] = f"qwen3a_proj{nf}_h{H}_npu4"
-    return r
+    """the Qwen3-ASR audio encoder of width H (0.6B: 896, 1.7B: 1024) in one kernel per call of n chunks of 100 mel
+    frames (n = 1 / 2 / 4 / 8): front-end, conv_out, positions, all layers, projector (models/qwen3_asr/encoder)"""
+    size = {896: "0.6b", 1024: "1.7b"}[H]
+    return {f"audio.enc.n{n}": f"qwen3a_fused_{size}_n{n}_h{H}_npu4" for n in (1, 2, 4, 8)}
 
 
 def tts_roles(io):
