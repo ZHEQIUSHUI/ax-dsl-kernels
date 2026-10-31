@@ -213,8 +213,1622 @@
   }
  },
  "kernels": {
-  "decode.group": {
-   "file": "qwen3_group28_aaaaaaaaaaaaaaaaaaaaaaaaaaaa_mx8_lm8_kvc_c4096_npu4.axmodel",
+  "audio.enc": {
+   "file": "qwen3a_fused_0.6b_h896_npu4.axmodel",
+   "in": [
+    {
+     "name": "mel",
+     "bytes": 204800,
+     "dtype": 9,
+     "shape": [
+      800,
+      128
+     ]
+    },
+    {
+     "name": "kmask",
+     "bytes": 256,
+     "dtype": 9,
+     "shape": [
+      128
+     ]
+    },
+    {
+     "name": "w1",
+     "bytes": 15360,
+     "dtype": 9,
+     "shape": [
+      480,
+      16
+     ]
+    },
+    {
+     "name": "b1",
+     "bytes": 960,
+     "dtype": 9,
+     "shape": [
+      480
+     ]
+    },
+    {
+     "name": "w2",
+     "bytes": 4147200,
+     "dtype": 9,
+     "shape": [
+      480,
+      4320
+     ]
+    },
+    {
+     "name": "b2",
+     "bytes": 960,
+     "dtype": 9,
+     "shape": [
+      480
+     ]
+    },
+    {
+     "name": "w3",
+     "bytes": 4147200,
+     "dtype": 9,
+     "shape": [
+      480,
+      4320
+     ]
+    },
+    {
+     "name": "b3",
+     "bytes": 960,
+     "dtype": 9,
+     "shape": [
+      480
+     ]
+    },
+    {
+     "name": "conv_out_w",
+     "bytes": 13762560,
+     "dtype": 9,
+     "shape": [
+      896,
+      7680
+     ]
+    },
+    {
+     "name": "ln1w",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "ln1b",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "qkvw",
+     "bytes": 86704128,
+     "dtype": 9,
+     "shape": [
+      18,
+      2688,
+      896
+     ]
+    },
+    {
+     "name": "qkvb",
+     "bytes": 96768,
+     "dtype": 9,
+     "shape": [
+      18,
+      2688
+     ]
+    },
+    {
+     "name": "ow",
+     "bytes": 28901376,
+     "dtype": 9,
+     "shape": [
+      18,
+      896,
+      896
+     ]
+    },
+    {
+     "name": "ob",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "ln2w",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "ln2b",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "upw",
+     "bytes": 115605504,
+     "dtype": 9,
+     "shape": [
+      18,
+      3584,
+      896
+     ]
+    },
+    {
+     "name": "upb",
+     "bytes": 129024,
+     "dtype": 9,
+     "shape": [
+      18,
+      3584
+     ]
+    },
+    {
+     "name": "downw",
+     "bytes": 115605504,
+     "dtype": 9,
+     "shape": [
+      18,
+      896,
+      3584
+     ]
+    },
+    {
+     "name": "downb",
+     "bytes": 32256,
+     "dtype": 9,
+     "shape": [
+      18,
+      896
+     ]
+    },
+    {
+     "name": "postw",
+     "bytes": 1792,
+     "dtype": 9,
+     "shape": [
+      896
+     ]
+    },
+    {
+     "name": "postb",
+     "bytes": 1792,
+     "dtype": 9,
+     "shape": [
+      896
+     ]
+    },
+    {
+     "name": "p1w",
+     "bytes": 1605632,
+     "dtype": 9,
+     "shape": [
+      896,
+      896
+     ]
+    },
+    {
+     "name": "p1b",
+     "bytes": 1792,
+     "dtype": 9,
+     "shape": [
+      896
+     ]
+    },
+    {
+     "name": "p2w",
+     "bytes": 1835008,
+     "dtype": 9,
+     "shape": [
+      1024,
+      896
+     ]
+    },
+    {
+     "name": "p2b",
+     "bytes": 2048,
+     "dtype": 9,
+     "shape": [
+      1024
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 524288,
+     "dtype": 3,
+     "shape": [
+      128,
+      1024
+     ]
+    }
+   ]
+  },
+  "prefill": {
+   "file": "qwen3_asr_0.6b_prefill256_mx8_c4096_npu4.axmodel",
+   "in": [
+    {
+     "name": "x",
+     "bytes": 524288,
+     "dtype": 9,
+     "shape": [
+      256,
+      1024
+     ]
+    },
+    {
+     "name": "position_ids",
+     "bytes": 3072,
+     "dtype": 6,
+     "shape": [
+      3,
+      256
+     ]
+    },
+    {
+     "name": "indptr",
+     "bytes": 8,
+     "dtype": 6,
+     "shape": [
+      2
+     ]
+    },
+    {
+     "name": "indices",
+     "bytes": 64,
+     "dtype": 6,
+     "shape": [
+      16
+     ]
+    },
+    {
+     "name": "last_page_len",
+     "bytes": 4,
+     "dtype": 6,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "cache_location",
+     "bytes": 8,
+     "dtype": 6,
+     "shape": [
+      2
+     ]
+    },
+    {
+     "name": "final_norm",
+     "bytes": 2048,
+     "dtype": 9,
+     "shape": [
+      1024
+     ]
+    },
+    {
+     "name": "valid_tokens",
+     "bytes": 4,
+     "dtype": 6,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "b0_attn_cos",
+     "bytes": 1048576,
+     "dtype": 3,
+     "shape": [
+      1,
+      4096,
+      64
+     ]
+    },
+    {
+     "name": "b0_attn_sin",
+     "bytes": 1048576,
+     "dtype": 3,
+     "shape": [
+      1,
+      4096,
+      64
+     ]
+    },
+    {
+     "name": "b0_attn_w_k",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "b0_attn_w_norm_attn",
+     "bytes": 14336,
+     "dtype": 9,
+     "shape": [
+      7,
+      1024
+     ]
+    },
+    {
+     "name": "b0_attn_w_norm_k",
+     "bytes": 1792,
+     "dtype": 9,
+     "shape": [
+      7,
+      128
+     ]
+    },
+    {
+     "name": "b0_attn_w_norm_q",
+     "bytes": 3584,
+     "dtype": 3,
+     "shape": [
+      7,
+      128
+     ]
+    },
+    {
+     "name": "b0_attn_w_o",
+     "bytes": 14680064,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      2048
+     ]
+    },
+    {
+     "name": "b0_attn_w_q",
+     "bytes": 14680064,
+     "dtype": 11,
+     "shape": [
+      7,
+      2048,
+      1024
+     ]
+    },
+    {
+     "name": "b0_attn_w_scale2_k",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b0_attn_w_scale2_o",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b0_attn_w_scale2_q",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b0_attn_w_scale2_v",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b0_attn_w_scale_k",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "b0_attn_w_scale_o",
+     "bytes": 458752,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      64
+     ]
+    },
+    {
+     "name": "b0_attn_w_scale_q",
+     "bytes": 458752,
+     "dtype": 1,
+     "shape": [
+      7,
+      2048,
+      32
+     ]
+    },
+    {
+     "name": "b0_attn_w_scale_v",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "b0_attn_w_v",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "b0_attn_w_zeropoint_k",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b0_attn_w_zeropoint_o",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b0_attn_w_zeropoint_q",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b0_attn_w_zeropoint_v",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b0_kv",
+     "bytes": 469762048,
+     "dtype": 9,
+     "shape": [
+      28,
+      16,
+      2,
+      256,
+      8,
+      128
+     ]
+    },
+    {
+     "name": "b0_mlp_input_permutation",
+     "bytes": 224,
+     "dtype": 6,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b0_mlp_w1",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "b0_mlp_w2",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "b0_mlp_w3",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      3072
+     ]
+    },
+    {
+     "name": "b0_mlp_w_norm",
+     "bytes": 14336,
+     "dtype": 9,
+     "shape": [
+      7,
+      1024
+     ]
+    },
+    {
+     "name": "b0_mlp_w_scale1",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
+     ]
+    },
+    {
+     "name": "b0_mlp_w_scale2",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
+     ]
+    },
+    {
+     "name": "b0_mlp_w_scale2_1",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b0_mlp_w_scale2_2",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b0_mlp_w_scale2_3",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b0_mlp_w_scale3",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      96
+     ]
+    },
+    {
+     "name": "b0_mlp_w_zp_scale1",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b0_mlp_w_zp_scale2",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b0_mlp_w_zp_scale3",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b1_attn_w_k",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "b1_attn_w_norm_attn",
+     "bytes": 14336,
+     "dtype": 9,
+     "shape": [
+      7,
+      1024
+     ]
+    },
+    {
+     "name": "b1_attn_w_norm_k",
+     "bytes": 1792,
+     "dtype": 9,
+     "shape": [
+      7,
+      128
+     ]
+    },
+    {
+     "name": "b1_attn_w_norm_q",
+     "bytes": 3584,
+     "dtype": 3,
+     "shape": [
+      7,
+      128
+     ]
+    },
+    {
+     "name": "b1_attn_w_o",
+     "bytes": 14680064,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      2048
+     ]
+    },
+    {
+     "name": "b1_attn_w_q",
+     "bytes": 14680064,
+     "dtype": 11,
+     "shape": [
+      7,
+      2048,
+      1024
+     ]
+    },
+    {
+     "name": "b1_attn_w_scale2_k",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b1_attn_w_scale2_o",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b1_attn_w_scale2_q",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b1_attn_w_scale2_v",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b1_attn_w_scale_k",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "b1_attn_w_scale_o",
+     "bytes": 458752,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      64
+     ]
+    },
+    {
+     "name": "b1_attn_w_scale_q",
+     "bytes": 458752,
+     "dtype": 1,
+     "shape": [
+      7,
+      2048,
+      32
+     ]
+    },
+    {
+     "name": "b1_attn_w_scale_v",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "b1_attn_w_v",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "b1_attn_w_zeropoint_k",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b1_attn_w_zeropoint_o",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b1_attn_w_zeropoint_q",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b1_attn_w_zeropoint_v",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b1_mlp_input_permutation",
+     "bytes": 224,
+     "dtype": 6,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b1_mlp_w1",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "b1_mlp_w2",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "b1_mlp_w3",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      3072
+     ]
+    },
+    {
+     "name": "b1_mlp_w_norm",
+     "bytes": 14336,
+     "dtype": 9,
+     "shape": [
+      7,
+      1024
+     ]
+    },
+    {
+     "name": "b1_mlp_w_scale1",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
+     ]
+    },
+    {
+     "name": "b1_mlp_w_scale2",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
+     ]
+    },
+    {
+     "name": "b1_mlp_w_scale2_1",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b1_mlp_w_scale2_2",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b1_mlp_w_scale2_3",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b1_mlp_w_scale3",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      96
+     ]
+    },
+    {
+     "name": "b1_mlp_w_zp_scale1",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b1_mlp_w_zp_scale2",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b1_mlp_w_zp_scale3",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b2_attn_w_k",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "b2_attn_w_norm_attn",
+     "bytes": 14336,
+     "dtype": 9,
+     "shape": [
+      7,
+      1024
+     ]
+    },
+    {
+     "name": "b2_attn_w_norm_k",
+     "bytes": 1792,
+     "dtype": 9,
+     "shape": [
+      7,
+      128
+     ]
+    },
+    {
+     "name": "b2_attn_w_norm_q",
+     "bytes": 3584,
+     "dtype": 3,
+     "shape": [
+      7,
+      128
+     ]
+    },
+    {
+     "name": "b2_attn_w_o",
+     "bytes": 14680064,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      2048
+     ]
+    },
+    {
+     "name": "b2_attn_w_q",
+     "bytes": 14680064,
+     "dtype": 11,
+     "shape": [
+      7,
+      2048,
+      1024
+     ]
+    },
+    {
+     "name": "b2_attn_w_scale2_k",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b2_attn_w_scale2_o",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b2_attn_w_scale2_q",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b2_attn_w_scale2_v",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b2_attn_w_scale_k",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "b2_attn_w_scale_o",
+     "bytes": 458752,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      64
+     ]
+    },
+    {
+     "name": "b2_attn_w_scale_q",
+     "bytes": 458752,
+     "dtype": 1,
+     "shape": [
+      7,
+      2048,
+      32
+     ]
+    },
+    {
+     "name": "b2_attn_w_scale_v",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "b2_attn_w_v",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "b2_attn_w_zeropoint_k",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b2_attn_w_zeropoint_o",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b2_attn_w_zeropoint_q",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b2_attn_w_zeropoint_v",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b2_mlp_input_permutation",
+     "bytes": 224,
+     "dtype": 6,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b2_mlp_w1",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "b2_mlp_w2",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "b2_mlp_w3",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      3072
+     ]
+    },
+    {
+     "name": "b2_mlp_w_norm",
+     "bytes": 14336,
+     "dtype": 9,
+     "shape": [
+      7,
+      1024
+     ]
+    },
+    {
+     "name": "b2_mlp_w_scale1",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
+     ]
+    },
+    {
+     "name": "b2_mlp_w_scale2",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
+     ]
+    },
+    {
+     "name": "b2_mlp_w_scale2_1",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b2_mlp_w_scale2_2",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b2_mlp_w_scale2_3",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b2_mlp_w_scale3",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      96
+     ]
+    },
+    {
+     "name": "b2_mlp_w_zp_scale1",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b2_mlp_w_zp_scale2",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b2_mlp_w_zp_scale3",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b3_attn_w_k",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "b3_attn_w_norm_attn",
+     "bytes": 14336,
+     "dtype": 9,
+     "shape": [
+      7,
+      1024
+     ]
+    },
+    {
+     "name": "b3_attn_w_norm_k",
+     "bytes": 1792,
+     "dtype": 9,
+     "shape": [
+      7,
+      128
+     ]
+    },
+    {
+     "name": "b3_attn_w_norm_q",
+     "bytes": 3584,
+     "dtype": 3,
+     "shape": [
+      7,
+      128
+     ]
+    },
+    {
+     "name": "b3_attn_w_o",
+     "bytes": 14680064,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      2048
+     ]
+    },
+    {
+     "name": "b3_attn_w_q",
+     "bytes": 14680064,
+     "dtype": 11,
+     "shape": [
+      7,
+      2048,
+      1024
+     ]
+    },
+    {
+     "name": "b3_attn_w_scale2_k",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b3_attn_w_scale2_o",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b3_attn_w_scale2_q",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b3_attn_w_scale2_v",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b3_attn_w_scale_k",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "b3_attn_w_scale_o",
+     "bytes": 458752,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      64
+     ]
+    },
+    {
+     "name": "b3_attn_w_scale_q",
+     "bytes": 458752,
+     "dtype": 1,
+     "shape": [
+      7,
+      2048,
+      32
+     ]
+    },
+    {
+     "name": "b3_attn_w_scale_v",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "b3_attn_w_v",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "b3_attn_w_zeropoint_k",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b3_attn_w_zeropoint_o",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b3_attn_w_zeropoint_q",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b3_attn_w_zeropoint_v",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b3_mlp_input_permutation",
+     "bytes": 224,
+     "dtype": 6,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b3_mlp_w1",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "b3_mlp_w2",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "b3_mlp_w3",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      3072
+     ]
+    },
+    {
+     "name": "b3_mlp_w_norm",
+     "bytes": 14336,
+     "dtype": 9,
+     "shape": [
+      7,
+      1024
+     ]
+    },
+    {
+     "name": "b3_mlp_w_scale1",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
+     ]
+    },
+    {
+     "name": "b3_mlp_w_scale2",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
+     ]
+    },
+    {
+     "name": "b3_mlp_w_scale2_1",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b3_mlp_w_scale2_2",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b3_mlp_w_scale2_3",
+     "bytes": 224,
+     "dtype": 3,
+     "shape": [
+      7,
+      8
+     ]
+    },
+    {
+     "name": "b3_mlp_w_scale3",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      96
+     ]
+    },
+    {
+     "name": "b3_mlp_w_zp_scale1",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b3_mlp_w_zp_scale2",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    },
+    {
+     "name": "b3_mlp_w_zp_scale3",
+     "bytes": 224,
+     "dtype": 9,
+     "shape": [
+      7,
+      16
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "output",
+     "bytes": 524288,
+     "dtype": 9,
+     "shape": [
+      256,
+      1024
+     ]
+    }
+   ]
+  },
+  "decode": {
+   "file": "qwen3_group28_attn_mx8_lm8_paged_c4096_npu4_asr_0.6b.axmodel",
    "in": [
     {
      "name": "x",
@@ -244,18 +1858,10 @@
     },
     {
      "name": "pf",
-     "bytes": 262144,
+     "bytes": 258048,
      "dtype": 3,
      "shape": [
-      65536
-     ]
-    },
-    {
-     "name": "pb",
-     "bytes": 2,
-     "dtype": 9,
-     "shape": [
-      1
+      64512
      ]
     },
     {
@@ -269,10 +1875,10 @@
     },
     {
      "name": "pn",
-     "bytes": 8,
+     "bytes": 12,
      "dtype": 6,
      "shape": [
-      2
+      3
      ]
     },
     {
@@ -282,6 +1888,37 @@
      "shape": [
       16,
       256
+     ]
+    },
+    {
+     "name": "kv",
+     "bytes": 469762048,
+     "dtype": 9,
+     "shape": [
+      28,
+      16,
+      2,
+      256,
+      8,
+      128
+     ]
+    },
+    {
+     "name": "fnorm",
+     "bytes": 2048,
+     "dtype": 9,
+     "shape": [
+      1024
+     ]
+    },
+    {
+     "name": "hbuf",
+     "bytes": 2048,
+     "dtype": 9,
+     "shape": [
+      1,
+      1,
+      1024
      ]
     }
    ],
@@ -293,510 +1930,6 @@
      "shape": [
       1,
       1,
-      1024
-     ]
-    },
-    {
-     "name": "kc0",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc0",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc1",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc1",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc2",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc2",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc3",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc3",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc4",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc4",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc5",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc5",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc6",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc6",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc7",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc7",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc8",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc8",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc9",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc9",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc10",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc10",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc11",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc11",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc12",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc12",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc13",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc13",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc14",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc14",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc15",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc15",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc16",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc16",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc17",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc17",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc18",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc18",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc19",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc19",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc20",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc20",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc21",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc21",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc22",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc22",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc23",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc23",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc24",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc24",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc25",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc25",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc26",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc26",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "kc27",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc27",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
       1024
      ]
     },
@@ -813,8 +1946,7 @@
    "packs": {
     "pw": 595984384,
     "ps": 18624512,
-    "pf": 262144,
-    "pb": 2
+    "pf": 258048
    },
    "members": [
     {
@@ -5914,14 +7046,6 @@
      "kind": "attn"
     },
     {
-     "name": "LM.norm",
-     "pack": "pf",
-     "offset": 258048,
-     "bytes": 4096,
-     "param": "LM.norm",
-     "kind": "out"
-    },
-    {
      "name": "LM.w_lm",
      "pack": "pw",
      "offset": 440401920,
@@ -5936,1360 +7060,6 @@
      "bytes": 4861952,
      "param": "LM.s_lm",
      "kind": "out"
-    }
-   ]
-  },
-  "prefill128.attn": {
-   "file": "qwen3_attn_prefill128_mx8_pk_kvc_c4096_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 262144,
-     "dtype": 9,
-     "shape": [
-      1,
-      128,
-      1024
-     ]
-    },
-    {
-     "name": "pw",
-     "bytes": 15728640,
-     "dtype": 11,
-     "shape": [
-      15728640
-     ]
-    },
-    {
-     "name": "ps",
-     "bytes": 491520,
-     "dtype": 1,
-     "shape": [
-      491520
-     ]
-    },
-    {
-     "name": "pf",
-     "bytes": 9216,
-     "dtype": 3,
-     "shape": [
-      2304
-     ]
-    },
-    {
-     "name": "cos",
-     "bytes": 16384,
-     "dtype": 9,
-     "shape": [
-      128,
-      64
-     ]
-    },
-    {
-     "name": "sin",
-     "bytes": 16384,
-     "dtype": 9,
-     "shape": [
-      128,
-      64
-     ]
-    },
-    {
-     "name": "pos",
-     "bytes": 4,
-     "dtype": 6,
-     "shape": [
-      1
-     ]
-    },
-    {
-     "name": "nblk",
-     "bytes": 4,
-     "dtype": 6,
-     "shape": [
-      1
-     ]
-    },
-    {
-     "name": "mask",
-     "bytes": 1048576,
-     "dtype": 9,
-     "shape": [
-      16,
-      128,
-      256
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 262144,
-     "dtype": 9,
-     "shape": [
-      1,
-      128,
-      1024
-     ]
-    },
-    {
-     "name": "kc",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    }
-   ],
-   "packs": {
-    "pw": 15728640,
-    "ps": 491520,
-    "pf": 9216
-   },
-   "members": [
-    {
-     "name": "ln1",
-     "pack": "pf",
-     "offset": 0,
-     "bytes": 4096,
-     "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "w_q",
-     "pack": "pw",
-     "offset": 0,
-     "bytes": 2097152,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "s_q",
-     "pack": "ps",
-     "offset": 0,
-     "bytes": 65536,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "w_k",
-     "pack": "pw",
-     "offset": 2097152,
-     "bytes": 1048576,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "s_k",
-     "pack": "ps",
-     "offset": 65536,
-     "bytes": 32768,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "w_v",
-     "pack": "pw",
-     "offset": 3145728,
-     "bytes": 1048576,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "s_v",
-     "pack": "ps",
-     "offset": 98304,
-     "bytes": 32768,
-     "param": "s_v",
-     "kind": "attn"
-    },
-    {
-     "name": "q_norm",
-     "pack": "pf",
-     "offset": 4096,
-     "bytes": 512,
-     "param": "q_norm",
-     "kind": "attn"
-    },
-    {
-     "name": "k_norm",
-     "pack": "pf",
-     "offset": 4608,
-     "bytes": 512,
-     "param": "k_norm",
-     "kind": "attn"
-    },
-    {
-     "name": "w_o",
-     "pack": "pw",
-     "offset": 4194304,
-     "bytes": 2097152,
-     "param": "w_o",
-     "kind": "attn"
-    },
-    {
-     "name": "s_o",
-     "pack": "ps",
-     "offset": 131072,
-     "bytes": 65536,
-     "param": "s_o",
-     "kind": "attn"
-    },
-    {
-     "name": "ln2",
-     "pack": "pf",
-     "offset": 5120,
-     "bytes": 4096,
-     "param": "ln2",
-     "kind": "attn"
-    },
-    {
-     "name": "w_gate",
-     "pack": "pw",
-     "offset": 6291456,
-     "bytes": 3145728,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "s_gate",
-     "pack": "ps",
-     "offset": 196608,
-     "bytes": 98304,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "w_up",
-     "pack": "pw",
-     "offset": 9437184,
-     "bytes": 3145728,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "s_up",
-     "pack": "ps",
-     "offset": 294912,
-     "bytes": 98304,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
-     "name": "w_down",
-     "pack": "pw",
-     "offset": 12582912,
-     "bytes": 3145728,
-     "param": "w_down",
-     "kind": "attn"
-    },
-    {
-     "name": "s_down",
-     "pack": "ps",
-     "offset": 393216,
-     "bytes": 98304,
-     "param": "s_down",
-     "kind": "attn"
-    }
-   ]
-  },
-  "prefill64.attn": {
-   "file": "qwen3_attn_prefill64_mx8_pk_kvc_c4096_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 131072,
-     "dtype": 9,
-     "shape": [
-      1,
-      64,
-      1024
-     ]
-    },
-    {
-     "name": "pw",
-     "bytes": 15728640,
-     "dtype": 11,
-     "shape": [
-      15728640
-     ]
-    },
-    {
-     "name": "ps",
-     "bytes": 491520,
-     "dtype": 1,
-     "shape": [
-      491520
-     ]
-    },
-    {
-     "name": "pf",
-     "bytes": 9216,
-     "dtype": 3,
-     "shape": [
-      2304
-     ]
-    },
-    {
-     "name": "cos",
-     "bytes": 8192,
-     "dtype": 9,
-     "shape": [
-      64,
-      64
-     ]
-    },
-    {
-     "name": "sin",
-     "bytes": 8192,
-     "dtype": 9,
-     "shape": [
-      64,
-      64
-     ]
-    },
-    {
-     "name": "pos",
-     "bytes": 4,
-     "dtype": 6,
-     "shape": [
-      1
-     ]
-    },
-    {
-     "name": "nblk",
-     "bytes": 4,
-     "dtype": 6,
-     "shape": [
-      1
-     ]
-    },
-    {
-     "name": "mask",
-     "bytes": 524288,
-     "dtype": 9,
-     "shape": [
-      16,
-      64,
-      256
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 131072,
-     "dtype": 9,
-     "shape": [
-      1,
-      64,
-      1024
-     ]
-    },
-    {
-     "name": "kc",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    }
-   ],
-   "packs": {
-    "pw": 15728640,
-    "ps": 491520,
-    "pf": 9216
-   },
-   "members": [
-    {
-     "name": "ln1",
-     "pack": "pf",
-     "offset": 0,
-     "bytes": 4096,
-     "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "w_q",
-     "pack": "pw",
-     "offset": 0,
-     "bytes": 2097152,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "s_q",
-     "pack": "ps",
-     "offset": 0,
-     "bytes": 65536,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "w_k",
-     "pack": "pw",
-     "offset": 2097152,
-     "bytes": 1048576,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "s_k",
-     "pack": "ps",
-     "offset": 65536,
-     "bytes": 32768,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "w_v",
-     "pack": "pw",
-     "offset": 3145728,
-     "bytes": 1048576,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "s_v",
-     "pack": "ps",
-     "offset": 98304,
-     "bytes": 32768,
-     "param": "s_v",
-     "kind": "attn"
-    },
-    {
-     "name": "q_norm",
-     "pack": "pf",
-     "offset": 4096,
-     "bytes": 512,
-     "param": "q_norm",
-     "kind": "attn"
-    },
-    {
-     "name": "k_norm",
-     "pack": "pf",
-     "offset": 4608,
-     "bytes": 512,
-     "param": "k_norm",
-     "kind": "attn"
-    },
-    {
-     "name": "w_o",
-     "pack": "pw",
-     "offset": 4194304,
-     "bytes": 2097152,
-     "param": "w_o",
-     "kind": "attn"
-    },
-    {
-     "name": "s_o",
-     "pack": "ps",
-     "offset": 131072,
-     "bytes": 65536,
-     "param": "s_o",
-     "kind": "attn"
-    },
-    {
-     "name": "ln2",
-     "pack": "pf",
-     "offset": 5120,
-     "bytes": 4096,
-     "param": "ln2",
-     "kind": "attn"
-    },
-    {
-     "name": "w_gate",
-     "pack": "pw",
-     "offset": 6291456,
-     "bytes": 3145728,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "s_gate",
-     "pack": "ps",
-     "offset": 196608,
-     "bytes": 98304,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "w_up",
-     "pack": "pw",
-     "offset": 9437184,
-     "bytes": 3145728,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "s_up",
-     "pack": "ps",
-     "offset": 294912,
-     "bytes": 98304,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
-     "name": "w_down",
-     "pack": "pw",
-     "offset": 12582912,
-     "bytes": 3145728,
-     "param": "w_down",
-     "kind": "attn"
-    },
-    {
-     "name": "s_down",
-     "pack": "ps",
-     "offset": 393216,
-     "bytes": 98304,
-     "param": "s_down",
-     "kind": "attn"
-    }
-   ]
-  },
-  "prefill16.attn": {
-   "file": "qwen3_attn_prefill16_mx8_pk_kvc_c4096_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 32768,
-     "dtype": 9,
-     "shape": [
-      1,
-      16,
-      1024
-     ]
-    },
-    {
-     "name": "pw",
-     "bytes": 15728640,
-     "dtype": 11,
-     "shape": [
-      15728640
-     ]
-    },
-    {
-     "name": "ps",
-     "bytes": 491520,
-     "dtype": 1,
-     "shape": [
-      491520
-     ]
-    },
-    {
-     "name": "pf",
-     "bytes": 9216,
-     "dtype": 3,
-     "shape": [
-      2304
-     ]
-    },
-    {
-     "name": "cos",
-     "bytes": 2048,
-     "dtype": 9,
-     "shape": [
-      16,
-      64
-     ]
-    },
-    {
-     "name": "sin",
-     "bytes": 2048,
-     "dtype": 9,
-     "shape": [
-      16,
-      64
-     ]
-    },
-    {
-     "name": "pos",
-     "bytes": 4,
-     "dtype": 6,
-     "shape": [
-      1
-     ]
-    },
-    {
-     "name": "nblk",
-     "bytes": 4,
-     "dtype": 6,
-     "shape": [
-      1
-     ]
-    },
-    {
-     "name": "mask",
-     "bytes": 131072,
-     "dtype": 9,
-     "shape": [
-      16,
-      16,
-      256
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 32768,
-     "dtype": 9,
-     "shape": [
-      1,
-      16,
-      1024
-     ]
-    },
-    {
-     "name": "kc",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    }
-   ],
-   "packs": {
-    "pw": 15728640,
-    "ps": 491520,
-    "pf": 9216
-   },
-   "members": [
-    {
-     "name": "ln1",
-     "pack": "pf",
-     "offset": 0,
-     "bytes": 4096,
-     "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "w_q",
-     "pack": "pw",
-     "offset": 0,
-     "bytes": 2097152,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "s_q",
-     "pack": "ps",
-     "offset": 0,
-     "bytes": 65536,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "w_k",
-     "pack": "pw",
-     "offset": 2097152,
-     "bytes": 1048576,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "s_k",
-     "pack": "ps",
-     "offset": 65536,
-     "bytes": 32768,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "w_v",
-     "pack": "pw",
-     "offset": 3145728,
-     "bytes": 1048576,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "s_v",
-     "pack": "ps",
-     "offset": 98304,
-     "bytes": 32768,
-     "param": "s_v",
-     "kind": "attn"
-    },
-    {
-     "name": "q_norm",
-     "pack": "pf",
-     "offset": 4096,
-     "bytes": 512,
-     "param": "q_norm",
-     "kind": "attn"
-    },
-    {
-     "name": "k_norm",
-     "pack": "pf",
-     "offset": 4608,
-     "bytes": 512,
-     "param": "k_norm",
-     "kind": "attn"
-    },
-    {
-     "name": "w_o",
-     "pack": "pw",
-     "offset": 4194304,
-     "bytes": 2097152,
-     "param": "w_o",
-     "kind": "attn"
-    },
-    {
-     "name": "s_o",
-     "pack": "ps",
-     "offset": 131072,
-     "bytes": 65536,
-     "param": "s_o",
-     "kind": "attn"
-    },
-    {
-     "name": "ln2",
-     "pack": "pf",
-     "offset": 5120,
-     "bytes": 4096,
-     "param": "ln2",
-     "kind": "attn"
-    },
-    {
-     "name": "w_gate",
-     "pack": "pw",
-     "offset": 6291456,
-     "bytes": 3145728,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "s_gate",
-     "pack": "ps",
-     "offset": 196608,
-     "bytes": 98304,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "w_up",
-     "pack": "pw",
-     "offset": 9437184,
-     "bytes": 3145728,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "s_up",
-     "pack": "ps",
-     "offset": 294912,
-     "bytes": 98304,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
-     "name": "w_down",
-     "pack": "pw",
-     "offset": 12582912,
-     "bytes": 3145728,
-     "param": "w_down",
-     "kind": "attn"
-    },
-    {
-     "name": "s_down",
-     "pack": "ps",
-     "offset": 393216,
-     "bytes": 98304,
-     "param": "s_down",
-     "kind": "attn"
-    }
-   ]
-  },
-  "prefill4.attn": {
-   "file": "qwen3_attn_prefill4_mx8_pk_kvc_c4096_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 8192,
-     "dtype": 9,
-     "shape": [
-      1,
-      4,
-      1024
-     ]
-    },
-    {
-     "name": "pw",
-     "bytes": 15728640,
-     "dtype": 11,
-     "shape": [
-      15728640
-     ]
-    },
-    {
-     "name": "ps",
-     "bytes": 491520,
-     "dtype": 1,
-     "shape": [
-      491520
-     ]
-    },
-    {
-     "name": "pf",
-     "bytes": 9216,
-     "dtype": 3,
-     "shape": [
-      2304
-     ]
-    },
-    {
-     "name": "cos",
-     "bytes": 512,
-     "dtype": 9,
-     "shape": [
-      4,
-      64
-     ]
-    },
-    {
-     "name": "sin",
-     "bytes": 512,
-     "dtype": 9,
-     "shape": [
-      4,
-      64
-     ]
-    },
-    {
-     "name": "pos",
-     "bytes": 4,
-     "dtype": 6,
-     "shape": [
-      1
-     ]
-    },
-    {
-     "name": "nblk",
-     "bytes": 4,
-     "dtype": 6,
-     "shape": [
-      1
-     ]
-    },
-    {
-     "name": "mask",
-     "bytes": 32768,
-     "dtype": 9,
-     "shape": [
-      16,
-      4,
-      256
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 8192,
-     "dtype": 9,
-     "shape": [
-      1,
-      4,
-      1024
-     ]
-    },
-    {
-     "name": "kc",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    },
-    {
-     "name": "vc",
-     "bytes": 8388608,
-     "dtype": 0,
-     "shape": [
-      4096,
-      1024
-     ]
-    }
-   ],
-   "packs": {
-    "pw": 15728640,
-    "ps": 491520,
-    "pf": 9216
-   },
-   "members": [
-    {
-     "name": "ln1",
-     "pack": "pf",
-     "offset": 0,
-     "bytes": 4096,
-     "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "w_q",
-     "pack": "pw",
-     "offset": 0,
-     "bytes": 2097152,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "s_q",
-     "pack": "ps",
-     "offset": 0,
-     "bytes": 65536,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "w_k",
-     "pack": "pw",
-     "offset": 2097152,
-     "bytes": 1048576,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "s_k",
-     "pack": "ps",
-     "offset": 65536,
-     "bytes": 32768,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "w_v",
-     "pack": "pw",
-     "offset": 3145728,
-     "bytes": 1048576,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "s_v",
-     "pack": "ps",
-     "offset": 98304,
-     "bytes": 32768,
-     "param": "s_v",
-     "kind": "attn"
-    },
-    {
-     "name": "q_norm",
-     "pack": "pf",
-     "offset": 4096,
-     "bytes": 512,
-     "param": "q_norm",
-     "kind": "attn"
-    },
-    {
-     "name": "k_norm",
-     "pack": "pf",
-     "offset": 4608,
-     "bytes": 512,
-     "param": "k_norm",
-     "kind": "attn"
-    },
-    {
-     "name": "w_o",
-     "pack": "pw",
-     "offset": 4194304,
-     "bytes": 2097152,
-     "param": "w_o",
-     "kind": "attn"
-    },
-    {
-     "name": "s_o",
-     "pack": "ps",
-     "offset": 131072,
-     "bytes": 65536,
-     "param": "s_o",
-     "kind": "attn"
-    },
-    {
-     "name": "ln2",
-     "pack": "pf",
-     "offset": 5120,
-     "bytes": 4096,
-     "param": "ln2",
-     "kind": "attn"
-    },
-    {
-     "name": "w_gate",
-     "pack": "pw",
-     "offset": 6291456,
-     "bytes": 3145728,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "s_gate",
-     "pack": "ps",
-     "offset": 196608,
-     "bytes": 98304,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "w_up",
-     "pack": "pw",
-     "offset": 9437184,
-     "bytes": 3145728,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "s_up",
-     "pack": "ps",
-     "offset": 294912,
-     "bytes": 98304,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
-     "name": "w_down",
-     "pack": "pw",
-     "offset": 12582912,
-     "bytes": 3145728,
-     "param": "w_down",
-     "kind": "attn"
-    },
-    {
-     "name": "s_down",
-     "pack": "ps",
-     "offset": 393216,
-     "bytes": 98304,
-     "param": "s_down",
-     "kind": "attn"
-    }
-   ]
-  },
-  "lm_head": {
-   "file": "mul_mat_mx8_n151936_k1024_npu4.axmodel",
-   "in": [
-    {
-     "name": "x",
-     "bytes": 2048,
-     "dtype": 9,
-     "shape": [
-      1,
-      1024
-     ]
-    },
-    {
-     "name": "w",
-     "bytes": 155582464,
-     "dtype": 11,
-     "shape": [
-      151936,
-      1024
-     ]
-    },
-    {
-     "name": "s",
-     "bytes": 4861952,
-     "dtype": 1,
-     "shape": [
-      151936,
-      32
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 607744,
-     "dtype": 3,
-     "shape": [
-      1,
-      151936
-     ]
-    }
-   ]
-  },
-  "audio.enc": {
-   "file": "qwen3a_fused_0.6b_h896_npu4.axmodel",
-   "in": [
-    {
-     "name": "mel",
-     "bytes": 204800,
-     "dtype": 9,
-     "shape": [
-      800,
-      128
-     ]
-    },
-    {
-     "name": "kmask",
-     "bytes": 256,
-     "dtype": 9,
-     "shape": [
-      128
-     ]
-    },
-    {
-     "name": "w1",
-     "bytes": 15360,
-     "dtype": 9,
-     "shape": [
-      480,
-      16
-     ]
-    },
-    {
-     "name": "b1",
-     "bytes": 960,
-     "dtype": 9,
-     "shape": [
-      480
-     ]
-    },
-    {
-     "name": "w2",
-     "bytes": 4147200,
-     "dtype": 9,
-     "shape": [
-      480,
-      4320
-     ]
-    },
-    {
-     "name": "b2",
-     "bytes": 960,
-     "dtype": 9,
-     "shape": [
-      480
-     ]
-    },
-    {
-     "name": "w3",
-     "bytes": 4147200,
-     "dtype": 9,
-     "shape": [
-      480,
-      4320
-     ]
-    },
-    {
-     "name": "b3",
-     "bytes": 960,
-     "dtype": 9,
-     "shape": [
-      480
-     ]
-    },
-    {
-     "name": "conv_out_w",
-     "bytes": 13762560,
-     "dtype": 9,
-     "shape": [
-      896,
-      7680
-     ]
-    },
-    {
-     "name": "ln1w",
-     "bytes": 32256,
-     "dtype": 9,
-     "shape": [
-      18,
-      896
-     ]
-    },
-    {
-     "name": "ln1b",
-     "bytes": 32256,
-     "dtype": 9,
-     "shape": [
-      18,
-      896
-     ]
-    },
-    {
-     "name": "qkvw",
-     "bytes": 86704128,
-     "dtype": 9,
-     "shape": [
-      18,
-      2688,
-      896
-     ]
-    },
-    {
-     "name": "qkvb",
-     "bytes": 96768,
-     "dtype": 9,
-     "shape": [
-      18,
-      2688
-     ]
-    },
-    {
-     "name": "ow",
-     "bytes": 28901376,
-     "dtype": 9,
-     "shape": [
-      18,
-      896,
-      896
-     ]
-    },
-    {
-     "name": "ob",
-     "bytes": 32256,
-     "dtype": 9,
-     "shape": [
-      18,
-      896
-     ]
-    },
-    {
-     "name": "ln2w",
-     "bytes": 32256,
-     "dtype": 9,
-     "shape": [
-      18,
-      896
-     ]
-    },
-    {
-     "name": "ln2b",
-     "bytes": 32256,
-     "dtype": 9,
-     "shape": [
-      18,
-      896
-     ]
-    },
-    {
-     "name": "upw",
-     "bytes": 115605504,
-     "dtype": 9,
-     "shape": [
-      18,
-      3584,
-      896
-     ]
-    },
-    {
-     "name": "upb",
-     "bytes": 129024,
-     "dtype": 9,
-     "shape": [
-      18,
-      3584
-     ]
-    },
-    {
-     "name": "downw",
-     "bytes": 115605504,
-     "dtype": 9,
-     "shape": [
-      18,
-      896,
-      3584
-     ]
-    },
-    {
-     "name": "downb",
-     "bytes": 32256,
-     "dtype": 9,
-     "shape": [
-      18,
-      896
-     ]
-    },
-    {
-     "name": "postw",
-     "bytes": 1792,
-     "dtype": 9,
-     "shape": [
-      896
-     ]
-    },
-    {
-     "name": "postb",
-     "bytes": 1792,
-     "dtype": 9,
-     "shape": [
-      896
-     ]
-    },
-    {
-     "name": "p1w",
-     "bytes": 1605632,
-     "dtype": 9,
-     "shape": [
-      896,
-      896
-     ]
-    },
-    {
-     "name": "p1b",
-     "bytes": 1792,
-     "dtype": 9,
-     "shape": [
-      896
-     ]
-    },
-    {
-     "name": "p2w",
-     "bytes": 1835008,
-     "dtype": 9,
-     "shape": [
-      1024,
-      896
-     ]
-    },
-    {
-     "name": "p2b",
-     "bytes": 2048,
-     "dtype": 9,
-     "shape": [
-      1024
-     ]
-    }
-   ],
-   "out": [
-    {
-     "name": "out",
-     "bytes": 524288,
-     "dtype": 3,
-     "shape": [
-      128,
-      1024
-     ]
     }
    ]
   }
