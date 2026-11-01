@@ -245,10 +245,10 @@ def attention_split_qa(c, qa, kv, nblk, mask, attn, kcur, vcur, tag=""):
             sj = ax.dsl.matmul(qa[hk * G_ : (hk + 1) * G_, :], kb[:, hk * D : (hk + 1) * D], transposed=True,
                                output_dtype=ax.bf16)
             ax.dsl.add(sj, mj, output_dtype=ax.bf16, r=m_s[hk * G_ : (hk + 1) * G_, 1 : 1 + BC])
-        # The trailing zero sentinel makes an all-masked page contribute exp(0 - 0) = 0 to
-        # the visible block.  Without it, a page with no history would use -3e38 as the
-        # softmax max and its masked lanes would become exp(0) = 1.
-        m_next = ax.dsl.max(m_s, dim=-1, keepdim=True)
+        # Exclude the trailing zero sentinel from the block maximum, as the
+        # reference paged kernels do.  An all-negative block would otherwise get
+        # m_next == 0, underflow every lane, and turn the final reduction into 0/0.
+        m_next = ax.dsl.max(m_s[:, : 1 + BC], dim=-1, keepdim=True)
         m_s = ax.dsl.sub(m_s, m_next, r=m_s)
         pj = ax.dsl.exp(m_s[:, 1 : 1 + BC])
         p32 = ax.dsl.exp(m_s[:, 1 : 1 + BC], output_dtype=ax.fp32)
@@ -357,7 +357,13 @@ def group_body(x, packs, cs, pn, mask, kv, fnorm, hbuf, out, logits=None):
     if c == 0:
         ax.dsl.store(xt, r=hbuf.reshape(1, 1, H))
         xr = ax.dsl.load(hbuf).reshape(1, 1, H)
-        hn = rmsnorm(xr, ax.dsl.load(fnorm).reshape(1, 1, H), eps=EPS)
+        # TTS's real final norm is packed with the head: the E2 host still supplies a unit fnorm, so reading the
+        # runtime input would leave out and logits unweighted.
+        if m_lm is not None and "fnorm" in m_lm:
+            fw = ax.dsl.cast(ax.dsl.load(m_lm["fnorm"]).reshape(1, 1, H), dtype=ax.bf16)
+        else:
+            fw = ax.dsl.load(fnorm).reshape(1, 1, H)
+        hn = rmsnorm(xr, fw, eps=EPS)
         ax.dsl.move(r=hrow[0:1], x=hn.reshape(1, 1, H))
     axd.pub(hrow)
     axd.sub(hrow)
@@ -422,6 +428,8 @@ def build_layout(W, layers, *, lmhead):
         wq, sq = K.quant_mxfp4(emb.float()) if LMFMT == "mx4" else mb.quant_mxfp8(emb)
         wq = wq.view(torch.float4_e2m1fn_x2) if LMFMT == "mx4" else wq
         lm = dict(w_lm=wq, s_lm=sq.view(torch.float8_e8m0fnu))
+        if q.MODEL_KIND == "tts":
+            lm["fnorm"] = W("norm.weight").float()
         if "p4" not in K.PACKS and LMFMT == "mx4":
             K.PACKS = {"p4": torch.float4_e2m1fn_x2, **K.PACKS}
         if K.NVF and not K.MIX:
@@ -429,7 +437,8 @@ def build_layout(W, layers, *, lmhead):
     order = {"attn": L.order(AL)}
     items = [(f"L{j}.{n}", j, args[j][n]) for j in range(layers) for n in order["attn"]
              if torch.is_tensor(args[j].get(n)) and n != "x"]
-    items += [(f"LM.{n}", layers - 1, lm[n]) for n in ("w_lm", "s_lm")] if lmhead else []
+    items += ([(f"LM.{n}", layers - 1, lm[n]) for n in ("w_lm", "s_lm", "fnorm") if n in lm]
+              if lmhead else [])
     for S in [s for s in range(1, layers + 1) if layers % s == 0]:
         SPEC.clear()
         used = {p: 0 for p in K.PACKS}

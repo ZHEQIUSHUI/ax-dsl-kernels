@@ -1,14 +1,29 @@
 # Qwen3-TTS-0.6B / 1.7B
 
-Frozen: the kernels of the delivered directory (`kernels.md5`, per manifest). The sources are those of the commits that built them (`src/<commit>/`, the scripts and the modules they import); toolchain: npu-codebase 7913a0599 (ai-dev1) / the 4090's of 2026-10-23. Builds take random weights of the config's shapes (QW_RANDOM=1); the backend binds the GGUF's weights at load.
+Four kernels per model (the ggml-axera adapters `models/qwen3` for the talker, `models/qwen3_tts` for the code
+predictor and the codec decoder); weights are runtime inputs, converted from the GGUFs at load.
 
-| kernels | commit | entry | how they were built |
+| kernel | role | source | build |
 |---|---|---|---|
-| talker decode group: 28 layers, c4096 | `4acb7f6` | `src/4acb7f6/q35_group.py` | ai-dev1 lineC/jobs/jkeep.txt `kt06_grp` / `kt17_grp` |
-| talker attention prefill, output head | `64f9071` | `src/64f9071/q35_layer_pk.py`, `src/64f9071/q35_layer_mc.py` | ai-dev1 lineC/jobs/j70t.txt |
-| code predictor: one frame per call (top-k 1 / 50) | `4acb7f6` | `src/4acb7f6/q3tts_cp_frame.py` | ai-dev1 lineC/jobs/jkeep.txt `kcf06` `kcf17` `kcf06k1` `kcf17k1` |
-| codec decoder: conv1d_bf16_* (plain) | `64f9071` | `src/64f9071/conv1d_kernels.py` | shape lists in PROVENANCE.md (few files byte-verified) |
-| codec decoder: conv1d_bf16_*_b / _br (bias, residual epilogues) | `0805ce0` | `src/0805ce0/conv1d_kernels.py` | EPI=b / br; see PROVENANCE.md |
-| codec decoder GEMMs mm_bf16_* | `64f9071` | `src/64f9071/mm_kernels.py` | 46 shapes in PROVENANCE.md (2 byte-verified) |
+| `qwen3_tts_<size>_prefill256_mx8_c4096_npu4` | `prefill` | `text/qwen3_kernel.py`: the whole talker per page of 256 cells (28 layers in a runtime loop over MXFP8 weight banks, paged bf16 KV `[28,16,2,256,8,128]`), unit-weight final norm | `text/compile_variant.sh tts_<size>` (npu-codebase cad0db3d6, `sgl_env.sh`), then `decode/board_io.py` |
+| `qwen3_group28_attn_mx8_lm8_paged_c4096_npu4_tts_<size>` (+ `.layout`) | `decode` | `decode/q35_group.py`: all 28 talker layers + final norm + the codec head (3072 rows, MXFP8) for one token, on the prefill kernel's paged KV (KVX), weights in packs | `decode/build_group.py output --model tts_<size> --layers 28` (npu-codebase 7913a0599, `axdsl_env.sh`, `RUN_MODE=CRUN`), then `decode/board_io.py`; packs / members from the `.layout` |
+| `qwen3tts_cp_frame5_mx8_h<H>_krt_c16_npu4` (+ `.layout`) | `cp.frame` | `cp/cp_kernel.py`: one frame of the code predictor (5 layers x 15 positions, the 15 codebook heads, on-chip top-k sampling with a runtime `top_k` <= 50), MXFP8 packs | `RUN_MODE=CRUN cp/build_cp.py <out> --model <size> --top-k 50` (7913a0599, `axdsl_env.sh`); layer modules in `cp/` (from `src/4acb7f6`) |
+| `qwen3tts_codec_w72_npu4` | `gen.codec` | `codec/decoder_kernel.py`: the codec decoder (code2wav) for a window of 72 frames in one call: quantizer, pre-transformer, upsampling, the DAC decoder; the 0.6B and 1.7B files are the same | `codec/build_decoder.py` (7913a0599, `axdsl_env.sh`); weight banks packed by the adapter as `codec/pack_gguf.py` |
+
+The adapter runs a prompt's last token through the decode kernel (its logits); the prompt's other rows' codec-head
+logits (unused by the generation) on the CPU, so no separate output head kernel.
+
+Checks: `text/check_qwen3.py` (prefill + paged history vs transformers), `decode/check_group.py` (28 layers vs
+transformers), `cp/check_cp.py` (vs the former frame kernels: codes identical for top-k 1 and 50), `codec/check_decoder.py`
+(vs the reference decoder). `kernels.md5` per model.
+
+Board (.209, SDK V0.5.1, 2026-11-01), against the former 6 kernels per model: speech transcribed back exactly
+(greedy and sampled, zh / en); code predictor 9.1 -> 7.4 ms/frame (0.6B), 9.8 -> 7.8 ms (1.7B); talker with its head
+4.3 -> 3.7 ms (0.6B), 8.8 -> 8.0 ms (1.7B).
+
+The decode group's softmax reduces the 1 + 256 columns of a block only (no trailing sentinel): with it, an all very
+negative score block gave 0 / 0 (TTS-1.7B: +inf at the first decode call).
+
+The former kernels' sources (`src/<commit>/`, PROVENANCE.md) are no longer in the manifests.
 
 Manifests (the contract with ggml-axera): `qwen3_tts_0.6b.manifest.json`, `qwen3_tts_1.7b.manifest.json`.

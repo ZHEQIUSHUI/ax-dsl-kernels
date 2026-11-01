@@ -1,0 +1,411 @@
+{
+  "0.6b": {
+    "model": "0.6b",
+    "axmodel": "/data/junda/work/qsmall/ttscp/out_new/0.6b_k50_clean/qwen3tts_cp_frame5_mx8_h1024_krt_c16_npu4.axmodel",
+    "size_bytes": 2486201,
+    "hidden": 1024,
+    "layers": 5,
+    "positions": 16,
+    "vocab": 2048,
+    "top_k_max": 50,
+    "kernel_order": [
+      "e0",
+      "e1",
+      "pw",
+      "ps",
+      "pf",
+      "heads_lo",
+      "heads_hi",
+      "embd",
+      "cs16",
+      "pn16",
+      "mask16",
+      "rnd",
+      "top_k"
+    ],
+    "inputs": {
+      "e0": {
+        "shape": [
+          1,
+          1,
+          1024
+        ],
+        "dtype": "bfloat16"
+      },
+      "e1": {
+        "shape": [
+          1,
+          1,
+          1024
+        ],
+        "dtype": "bfloat16"
+      },
+      "pw": {
+        "shape": [
+          78643200
+        ],
+        "dtype": "float8_e4m3fn"
+      },
+      "ps": {
+        "shape": [
+          2457600
+        ],
+        "dtype": "float8_e8m0fnu"
+      },
+      "pf": {
+        "shape": [
+          12544
+        ],
+        "dtype": "float32"
+      },
+      "heads_lo": {
+        "shape": [
+          16384,
+          1024
+        ],
+        "dtype": "bfloat16"
+      },
+      "heads_hi": {
+        "shape": [
+          14336,
+          1024
+        ],
+        "dtype": "bfloat16"
+      },
+      "embd": {
+        "shape": [
+          30720,
+          1024
+        ],
+        "dtype": "bfloat16"
+      },
+      "cs16": {
+        "shape": [
+          32,
+          64
+        ],
+        "dtype": "bfloat16"
+      },
+      "pn16": {
+        "shape": [
+          32
+        ],
+        "dtype": "int32"
+      },
+      "mask16": {
+        "shape": [
+          16,
+          16
+        ],
+        "dtype": "bfloat16"
+      },
+      "rnd": {
+        "shape": [
+          1,
+          15
+        ],
+        "dtype": "float32"
+      },
+      "top_k": {
+        "shape": [
+          1
+        ],
+        "dtype": "int32"
+      }
+    },
+    "outputs": {
+      "codes": {
+        "shape": [
+          4,
+          16
+        ],
+        "dtype": "int32"
+      },
+      "lgs": {
+        "shape": [
+          15,
+          2048
+        ],
+        "dtype": "float32"
+      },
+      "kc0": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "vc0": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "kc1": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "vc1": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "kc2": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "vc2": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "kc3": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "vc3": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "kc4": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "vc4": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      }
+    }
+  },
+  "1.7b": {
+    "model": "1.7b",
+    "axmodel": "/data/junda/work/qsmall/ttscp/out_new/1.7b_k50_clean/qwen3tts_cp_frame5_mx8_h2048_krt_c16_npu4.axmodel",
+    "size_bytes": 2512199,
+    "hidden": 2048,
+    "layers": 5,
+    "positions": 16,
+    "vocab": 2048,
+    "top_k_max": 50,
+    "kernel_order": [
+      "e0",
+      "e1",
+      "pw",
+      "ps",
+      "pf",
+      "pb",
+      "heads_lo",
+      "heads_hi",
+      "embd",
+      "cs16",
+      "pn16",
+      "mask16",
+      "rnd",
+      "top_k"
+    ],
+    "inputs": {
+      "e0": {
+        "shape": [
+          1,
+          1,
+          2048
+        ],
+        "dtype": "bfloat16"
+      },
+      "e1": {
+        "shape": [
+          1,
+          1,
+          2048
+        ],
+        "dtype": "bfloat16"
+      },
+      "pw": {
+        "shape": [
+          78643200
+        ],
+        "dtype": "float8_e4m3fn"
+      },
+      "ps": {
+        "shape": [
+          2457600
+        ],
+        "dtype": "float8_e8m0fnu"
+      },
+      "pf": {
+        "shape": [
+          13568
+        ],
+        "dtype": "float32"
+      },
+      "pb": {
+        "shape": [
+          2097152
+        ],
+        "dtype": "bfloat16"
+      },
+      "heads_lo": {
+        "shape": [
+          16384,
+          1024
+        ],
+        "dtype": "bfloat16"
+      },
+      "heads_hi": {
+        "shape": [
+          14336,
+          1024
+        ],
+        "dtype": "bfloat16"
+      },
+      "embd": {
+        "shape": [
+          30720,
+          2048
+        ],
+        "dtype": "bfloat16"
+      },
+      "cs16": {
+        "shape": [
+          32,
+          64
+        ],
+        "dtype": "bfloat16"
+      },
+      "pn16": {
+        "shape": [
+          32
+        ],
+        "dtype": "int32"
+      },
+      "mask16": {
+        "shape": [
+          16,
+          16
+        ],
+        "dtype": "bfloat16"
+      },
+      "rnd": {
+        "shape": [
+          1,
+          15
+        ],
+        "dtype": "float32"
+      },
+      "top_k": {
+        "shape": [
+          1
+        ],
+        "dtype": "int32"
+      }
+    },
+    "outputs": {
+      "codes": {
+        "shape": [
+          4,
+          16
+        ],
+        "dtype": "int32"
+      },
+      "lgs": {
+        "shape": [
+          15,
+          2048
+        ],
+        "dtype": "float32"
+      },
+      "kc0": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "vc0": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "kc1": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "vc1": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "kc2": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "vc2": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "kc3": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "vc3": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "kc4": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      },
+      "vc4": {
+        "shape": [
+          16,
+          1024
+        ],
+        "dtype": "float16"
+      }
+    }
+  }
+}

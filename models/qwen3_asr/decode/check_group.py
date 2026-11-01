@@ -246,6 +246,12 @@ def main():
     ap.add_argument("--threads", type=int, default=8)
     ap.add_argument("--fresh-rows", type=int, default=4)
     ap.add_argument("--skip-fresh", action="store_true")
+    ap.add_argument("--e2-mode", action="store_true",
+                    help="build the former no-head group; pass unit fnorm and apply output_norm on the host")
+    ap.add_argument("--unit-fnorm", action="store_true",
+                    help="pass the old E2 host's unit fnorm (TTS should still use its packed output_norm)")
+    ap.add_argument("--save-outputs", action="store_true",
+                    help="write each decoded row and its logits next to result.json")
     ap.add_argument("--run-mode", default=os.environ.get("RUN_MODE", "PYRUN"), choices=("PYRUN", "CRUN"))
     args = ap.parse_args()
     if args.layers % 4:
@@ -253,7 +259,7 @@ def main():
     torch.set_num_threads(args.threads)
     root = MODEL_ROOTS[args.model]
     layer_count = args.layers
-    lmhead = args.model.startswith(("asr_", "tts_"))
+    lmhead = args.model.startswith(("asr_", "tts_")) and not args.e2_mode
     out_dir = Path(args.out or HERE / "out" / f"check_{args.model}_l{layer_count}")
     out_dir.mkdir(parents=True, exist_ok=True)
     ax.init(chip_num=1, core_num=L.CORES)
@@ -272,13 +278,13 @@ def main():
     ref_hidden, ref_keys, ref_values = run_hf_layers(hf_layers, hidden, pos_all, config, collect_kv=True)
     norm_name = {"asr_": "thinker.model.norm.weight", "tts_": "talker.model.norm.weight"}.get(
         args.model[:4], "model.norm.weight")
-    fnorm = shards.get(norm_name)
-    ref_norm = final_norm(ref_hidden, fnorm)
+    norm_weight = shards.get(norm_name)
+    fnorm = torch.ones_like(norm_weight) if (args.e2_mode or args.unit_fnorm) else norm_weight
+    ref_norm = final_norm(ref_hidden, norm_weight)
     ref_k = torch.stack(ref_keys, 0)      # [L, T, HKV, D]
     ref_v = torch.stack(ref_values, 0)
 
-    # reference lm head
-    # group kernel (the head's reference uses the same quantized -> dequantized weights)
+    # output-head reference uses the same quantized -> dequantized weights
     print(f"build group {args.run_mode}", flush=True)
     kernel, packs, lm, meta = Q.prepare_group(W, out_dir, layers=layer_count, lmhead=lmhead,
                                               run_mode=args.run_mode)
@@ -305,8 +311,9 @@ def main():
         kernel[4](*[case[n] for n in names])
         return out, (logits.clone() if lmhead else None)
 
-    result = {"model": args.model, "layers": layer_count, "prefix": args.prefix,
-              "positions": args.positions, "varied_mrope": args.varied_mrope, "run_mode": args.run_mode}
+    result = {"model": args.model, "layers": layer_count, "prefix": args.prefix, "e2_mode": args.e2_mode,
+              "positions": args.positions, "varied_mrope": args.varied_mrope, "run_mode": args.run_mode,
+              "unit_fnorm": args.unit_fnorm, "save_outputs": args.save_outputs}
 
     # AP: prefix page from the reference KV, then decode each target token (page boundary 256)
     kv = torch.zeros((layer_count, q.LMAX // q.BC, 2, q.BC, q.HKV, q.D), dtype=torch.bfloat16)
@@ -319,9 +326,17 @@ def main():
         o, lg = group_step(pos, hidden[pos], kv)
         outs.append(o.reshape(q.H))
         logs.append(lg)
+        if args.save_outputs:
+            o.reshape(q.H).contiguous().view(torch.uint16).numpy().tofile(out_dir / f"out_pos{pos}.bin")
+            if lmhead:
+                lg.reshape(-1).contiguous().numpy().tofile(out_dir / f"logits_pos{pos}.bin")
         sk = stats(o.reshape(-1), ref_norm[pos].reshape(-1))
         print_stats(f"output pos {pos}", sk)
         result[f"out_pos{pos}"] = sk
+        if args.e2_mode:
+            sk_e2 = stats(o.float().reshape(-1) * norm_weight.float(), ref_norm[pos].reshape(-1))
+            print_stats(f"output pos {pos} (E2 out * norm, f32)", sk_e2)
+            result[f"e2_normed_out_pos{pos}"] = sk_e2
         # the row the group wrote at pos: compare with the reference's K / V row
         page, row = divmod(pos, q.BC)
         for kind, idx, ref in (("K", 0, ref_k), ("V", 1, ref_v)):

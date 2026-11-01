@@ -8,7 +8,7 @@ contains its MXFP8 output head (lm8): the ASR 151936-row text head, or the TTS
 
 Usage:
     RUN_MODE=CRUN python build_group.py out --model asr_0.6b
-    RUN_MODE=PYRUN python build_group.py out --model asr_0.6b --layers 4
+    RUN_MODE=PYRUN python build_group.py out --model tts_0.6b --layers 4
 """
 from __future__ import annotations
 

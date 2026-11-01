@@ -68,7 +68,7 @@ the authority.
 | 6 | `pn` | int32 | `[3]` | `[cell, nblk, krow]` (see the KV contract) |
 | 7 | `mask` | bfloat16 | `[16,256]` | additive causal mask over flat cells |
 | 8 | `kv` | bfloat16 | `[L,16,2,256,8,128]` | the prefill kernel's whole paged KV pool (`L=28`) |
-| 9 | `fnorm` | bfloat16 | `[H]` | final RMSNorm weight (`output_norm.weight`) |
+| 9 | `fnorm` | bfloat16 | `[H]` | ASR final RMSNorm weight; TTS keeps it for ABI compatibility but uses packed `LM.fnorm` |
 | 10 | `hbuf` | bfloat16 | `[1,1,H]` | core-0 DDR scratch for materialising the last layer row; not a cross-core handoff |
 | 11 | `out` | bfloat16 | `[1,1,H]` | final RMSNorm row (identical to the prefill kernel's next-row output) |
 | 12 | `logits` | float32 | `[1,V]` | `out @ dequant(head)^T` in four row blocks; `V=151936` (ASR `lm_head`) or `3072` (TTS `codec_head`) |
@@ -99,7 +99,8 @@ offset.  Layer `N` is the unpermuted Qwen layer number.  ASR strips the
 | `w_gate` / `s_gate` | `blk.N.ffn_gate.weight` | MXFP8 values / E8M0 scales |
 | `w_up` / `s_up` | `blk.N.ffn_up.weight` | MXFP8 values / E8M0 scales |
 | `w_down` / `s_down` | `blk.N.ffn_down.weight` | MXFP8 values / E8M0 scales |
-| `fnorm` | `output_norm.weight` (ASR `thinker.model.norm.weight`, TTS `talker.model.norm.weight`) | plain runtime input |
+| `fnorm` | ASR `thinker.model.norm.weight` | plain runtime input |
+| `LM.fnorm` | TTS `talker.model.norm.weight` | fp32 in `pf`, E3 only |
 | `LM.w_lm` / `LM.s_lm` | `output.weight` (ASR `thinker.lm_head.weight`; TTS `talker.codec_head.weight`, 3072 rows) | MXFP8, all four products |
 
 Both heads use the former `lm8` group's format: MXFP8 values in `pw`, E8M0
@@ -280,6 +281,211 @@ so the full-depth loss is accumulated BF16 rounding of the reference's own
 error.  BF16-rounded RoPE was also measured at 4 layers and did not improve both
 boundary rows, so the current FP32 rope products were kept.
 
+## E4: TTS output_norm contract fix (board)
+
+The E3 kernel's final TTS RMSNorm took its weight from the runtime `fnorm`
+input, which the E2 host supplies as a unit vector (the E2 contract is: the
+kernel returns the unit-normalised row and the host applies `output_norm` in
+f32 afterwards).  The E3 `out` and `logits` therefore lacked the real
+`talker.model.norm.weight` scale.
+
+Board proof, identical HF-prefix cases (cells 0..15 filled, decode at 16/17/18)
+on 10.126.35.209: the old E3 kernel run with the host's unit `fnorm` reproduces
+the E2 raw row exactly, and is far from the E2 host-normalised row:
+
+| product | old E3 unit vs E2 raw | old E3 unit vs E2 * output_norm |
+|---|---|---:|
+| `tts_0.6b` pos 16/17/18 | 1.0000002 | 0.9591 / 0.9698 / 0.9781 |
+| `tts_1.7b` pos 16/17/18 | 1.0000001 / 1.0000002 | 0.8789 / 0.8825 / 0.8990 |
+
+The old 1.7B unit-`fnorm` logits are 0.9341 / 0.9602 / 0.9578 against the HF
+reference; the rebuilt kernel's are 0.99948 / 0.99963 / 0.99947.  The logits
+were wrong under the board harness's unit-`fnorm` contract; a host-side double
+norm of `out` alone would have left them wrong.  On the llama.cpp host the real
+`output_norm.weight` is already bound as `fnorm`, so E3 and E4 are bit-identical
+there and this contract fix is not the 1.7B non-stop cause.  The actual cause is
+the E5 softmax-sentinel bug below.
+
+Fix: `talker.model.norm.weight` is packed in the head pack as `LM.fnorm`, and
+the TTS final RMSNorm reads that member instead of the runtime `fnorm`.  The
+`fnorm` input stays in the ABI (the manifest and host IO are unchanged), but
+TTS no longer depends on its value.  ASR and the no-head E2 mode are untouched.
+The E3 manifest's `out` params must include `fnorm` -> the same tensor the E2
+host uses for output_norm (GGUF `output_norm.weight`, HF
+`talker.model.norm.weight`); the pack member is `LM.fnorm pf 258048 4096` for
+0.6B and `LM.fnorm pf 487424 8192` for 1.7B (the `pf` pack grows to 262144 /
+495616 bytes).
+
+Rebuilt 0.6B/1.7B kernels, board, still given the host's unit `fnorm`, against
+`E2 out * output_norm` in f32:
+
+| product | pos 16 | pos 17 | pos 18 |
+|---|---:|---:|---:|
+| `tts_0.6b` | 0.9999987 | 0.9999987 | 0.9999987 |
+| `tts_1.7b` | 0.9999987 | 0.9999989 | 0.9999989 |
+
+28-layer CRUN (real weights, 16-row history, unit `fnorm`), E3 against the E2
+group: 0.6B against the E2 group run in the same simulator
+(`E2 out * output_norm` f32) is 0.9999987 / 0.9999989 / 0.9999987.  1.7B
+against the board E2 row (`E2 out * output_norm` f32) is 0.9999987 /
+0.9995689 / 0.9995537 for pos 16/17/18, all above 0.999.  Against the HF
+reference: 1.7B `out` is 0.999667 / 0.999667 / 0.999603 and `logits` 0.999483 /
+0.999628 / 0.999472; 0.6B is 0.997974 / 0.998310 / 0.996076 and `logits`
+0.997753 / 0.998299 / 0.995960, identical to the E2 group's own HF gap
+(0.997981 / 0.998309 / 0.996086), i.e. the known BF16-chain gap, not an E3
+regression.
+
+ASR rebuilds are byte-identical to the pre-E4 artifacts (`883c40c5...` and
+`a5391422...`).  Board cases and scores are in `out/e4_board_tts_0.6b_v5`,
+`out/e4_board_tts_1.7b_v5`; CRUN results in
+`out/e4_crun_tts_{0.6b,1.7b}_l28_v5` and
+`out/e4_crun_e2_tts_0.6b_l28_v5`.
+
+## E5: TTS-1.7B softmax sentinel bug (root cause of non-stop)
+
+The 1.7B-only failure is the per-block softmax maximum in
+`q35_group.attention_split_qa`, not the E4 `fnorm` contract.  `m_s` has
+`1 + BC + 1 = 258` columns: the carried maximum, 256 block scores, and one
+trailing zero written only to give the reduction a source.  The E3/E4 group
+reduced all 258 columns; the reference paged kernels
+(`q35_layer_mc.attention_split*` and `paged_attention_common`) reduce only
+`m_s[:, :1+BC]`.  TTS-1.7B scores are large and some heads have all-negative
+blocks.  Including the zero clamps `m_next >= 0`, every
+`exp(score - m_next)` underflows to zero, and the final `0/0` is `+inf`.
+That poisons the remaining layers, `out`, and `logits`.  ASR and TTS-0.6B do
+not hit the underflow.
+
+Board evidence (10.126.35.209, TTS-1.7B, q3d data):
+
+* One-layer group (layer 0) with q3d `x`: 1..15 visible K rows finite
+  (2048/2048), 16 rows all `+inf` (0/2048 finite).  The first pre-fix
+  divergence is therefore call 0, layer 0, at the 16th visible row; after the
+  fix there is no divergence beyond BF16 noise (the replay is bit-identical).
+* Old E4 kernel, q6 call 0 replayed 50 times: 50/50 runs had all 2048 `out`
+  lanes non-finite (`out/e5_replay/old50_result.txt`).  The original q6 dump
+  has all 60 calls non-finite: 122880/122880 `out` and 184320/184320 `logits`.
+* Fixed one-layer kernel: K0 / K12 / K16 all 2048/2048 finite.
+
+Fix: `SOFTMAX_MAX_257 = MODEL_KIND == "tts" and H == 2048`; TTS-1.7B uses
+`max(m_s[:, :1+BC])`.  Every other product keeps the historical 258-column
+reduction, so its graph and artifact bytes are unchanged.
+
+60-call board replay (teacher-forced `x`/`cs`/`pn`/`mask`, KV resident and
+chained from `kv0`) against production E2 (`d1ade29a...`): all 60 outputs are
+bit-identical to BF16(`E2 out * fnorm`), every per-layer K and V row written at
+`pn[2]` is bit-identical, and all 60 `out` and `logits` are finite.  Minimum
+cosines: `out` 0.99999827, E2 replay vs q3d dump 0.99999988, K/V 0.99999988.
+The E2 replay is bit-identical to all 60 dumped outputs.  `axrun` does not write
+modified inputs back, so the replay uses `e5_chain_runner.cc`, which keeps the
+KV in CMM across calls.
+
+28-layer CRUN, prefix 16, positions 16/17/18:
+
+| metric | pos 16 | pos 17 | pos 18 |
+|---|---:|---:|---:|
+| E4 `out` vs HF | 0.9994391 | 0.9993486 | 0.9996146 |
+| E2 `out * fnorm` vs HF | 0.9994372 | 0.9993498 | 0.9996113 |
+| E4 `out` vs E2 `out * fnorm` | 0.99999899 | 0.99999911 | 0.99999899 |
+| E4 `K` row vs HF | 0.9999774 | 0.9999692 | 0.9999684 |
+| E4 `V` row vs HF | 0.9998041 | 0.9996521 | 0.9998177 |
+| E4 `logits` vs HF | 0.9993820 | 0.9992802 | 0.9994876 |
+
+E4 `out` is bit-identical to BF16(`E2 out * fnorm`) at all three positions; the
+K/V rows have the same scores in the E2 run.  Results are in
+`out/e5_crun_tts_1.7b_l28/` and `out/e5_crun_e2_tts_1.7b_l28/`.
+
+Rebuilt artifacts:
+
+| product | md5 | bytes |
+|---|---|---:|
+| `asr_0.6b` | `883c40c58650681dca4f36336ac8362f` | 6322978 |
+| `asr_1.7b` | `a5391422e030668df4b59157392c9a23` | 10030274 |
+| `tts_0.6b` | `2d773a790c48037b83c54e9c695161c1` | 5718430 |
+| `tts_1.7b` | `a4417bc478e1e146894324c3096edeba` | 8829342 |
+
+ASR and TTS-0.6B are byte-identical to E4, so their E4 board/CRUN results still
+apply.  The fixed TTS-1.7B is also on the board as
+`/data/qiushui/e5/tts17_e5.axmodel`.  Replay captures are in
+`out/e5_replay/chain/{e2_chain60,e4_chain60}` (board:
+`/data/qiushui/e5/chain/`), score in `out/e5_replay/chain/score.json`; the
+runner source is `e5_chain_runner.cc`.
+
+## E6: unconditional 257-column softmax reduction
+
+The E5 condition (`MODEL_KIND == "tts" and H == 2048`) is removed.  Every
+product built from `q35_group.attention_split_qa` now takes
+`max(m_s[:, :1+BC])`, excluding the zero sentinel column from the block
+maximum.  The old 258-column reduction is latent in any group: an
+all-very-negative score block gets `m_next = 0`, its probabilities underflow,
+and the normalizer becomes `0/0`.  ASR-0.6B, ASR-1.7B and TTS-0.6B were finite
+on these cases, but TTS-0.6B already triggered the bad reduction numerically:
+its corrected graph differs from the old finite graph while both retain the
+same pre-existing 0.6B BF16 gap.
+
+Rebuilt artifacts (`output/build_<product>/qwen3_group28_attn_mx8_lm8_paged_c4096_npu4.axmodel`):
+
+| product | md5 | bytes | previous md5 |
+|---|---|---:|---|
+| `asr_0.6b` | `d7ca229f479f2f99f8a61d37efe2577f` | 6322786 | `883c40c58650681dca4f36336ac8362f` |
+| `asr_1.7b` | `f09563d5ee80f620e60affe997da913d` | 10030178 | `a5391422e030668df4b59157392c9a23` |
+| `tts_0.6b` | `a9dc04505544291c175de9c6fb25f754` | 5718238 | `2d773a790c48037b83c54e9c695161c1` |
+| `tts_1.7b` | `a4417bc478e1e146894324c3096edeba` | 8829342 | same |
+
+All four `.layout` files are unchanged.  `board_io.py` reports no changes for
+any shipped axmodel.  TTS-1.7B is byte-identical to E5.  There is no separate
+embedding/other lm8 artifact under `output/`; `embedding_0.6b` and any other
+`q35_group` user inherit the same unconditional reduction path.
+
+28-layer CRUN, prefix 16, chained positions 16/17/18 (`out/e6_crun_<product>_l28/`):
+
+| product | new `out` vs HF | new `logits` vs HF | previous build |
+|---|---|---|---|
+| `asr_0.6b` | 0.9999434 / 0.9998972 / 0.9999391 | 0.9999850 / 0.9999748 / 0.9999883 | finite; `out` >= 0.9999104 and `logits` >= 0.9999839 vs new |
+| `asr_1.7b` | 0.9999861 / 0.9999570 / 0.9999602 | 0.9999953 / 0.9999828 / 0.9999900 | bit-identical to previous |
+| `tts_0.6b` | 0.9976678 / 0.9980232 / 0.9969611 | 0.9970251 / 0.9982038 / 0.9961040 | finite; `out` >= 0.9977100, `logits` >= 0.9965805 vs old |
+| `tts_1.7b` | 0.9994391 / 0.9993486 / 0.9996146 | 0.9993820 / 0.9992802 / 0.9994876 | bit-identical to E5 at all positions |
+
+TTS-0.6B misses the 0.999 HF target here (0.99696 `out`, 0.99610 `logits`),
+which is the same pre-existing full-depth BF16-chain gap recorded under Open
+issues; it is finite and matches the old build to 0.9977100 / 0.9965805.  The
+old finite TTS-0.6B graph was not bit-equivalent because the sentinel was
+already changing underflowed blocks.  ASR and TTS-1.7B meet the target.
+
+Board (10.126.35.209; staged under `/data/qiushui/e6/`):
+
+* ASR-0.6B, 8 chained calls: finite; HF min `out` 0.9997721, `logits`
+  0.9998333; versus old model `out` 0.9998811, `logits` 0.9999080.
+* ASR-1.7B, 8 chained calls: finite; HF min `out` 0.9998716, `logits`
+  0.9999064; old model bit-identical.
+* TTS-0.6B, 8 chained calls: finite; HF min `out` 0.9978122, `logits`
+  0.9971542; versus old model `out` 0.9994532, `logits` 0.9993623.  Same
+  pre-existing HF gap as above; the old model has the identical HF minima, so
+  the gap is not a regression from E6.
+* TTS-1.7B, E5's exact 60-call chain: finite; `out` vs BF16(E2 out * fnorm)
+  min 0.99999827, bit-identical on every call; per-layer K/V bit-identical.
+
+Board K/V minima (not part of the requested out/logits gate): ASR-0.6B
+0.9996699 / 0.9988992, ASR-1.7B 0.9998102 / 0.9994034, TTS-0.6B
+0.9995159 / 0.9986238, TTS-1.7B 0.99999988 / 0.99999988 (K / V).
+
+Scores are in `out/e6_board/{asr_0.6b,asr_1.7b,tts_0.6b}/score_board.json`,
+`score_vs_old_board.json`, and `out/e6_board/tts_1.7b/score_vs_e2.json`.
+Board model copies are `/data/qiushui/e6/asr_0.6b/model.axmodel`,
+`asr_1.7b/model.axmodel`, `tts_0.6b/model.axmodel`, and
+`/data/qiushui/e6/tts17_e6.axmodel`.
+
+Sentinel-pattern grep (report only; no files changed):
+
+* `/data/junda/work/q27m/src`: `q35_group.py:220`, `q35_layer_mc.py:283/341/592`,
+  `q35_prefill.py:296`, `q35_step.py:255` all reduce `m_s[:, :1+BC]`; safe.
+* `/data/junda/work/qsmall/mtp27`: `mtp_kernel.py:78/281` reduce
+  `m_s[:, :1+BC]`; `verify_group.py` and `verify_group_m4.py` import the q27m
+  bodies via `sys.path`; safe.
+* `/data/junda/work/qsmall/sgl35`: attention comes from
+  `sgl_kernel_axera.attention.flash_attn`; it writes a sentinel at
+  `state_scores[:, :1+kv_len+1]` but reduces `state_scores[:, :1+kv_len]`
+  (`/data/junda/work/npu-codebase/sgl-kernel-axera/python/sgl_kernel_axera/attention/flash_attn.py:120`); safe.
+
 ## Build
 
 ```
@@ -324,7 +530,7 @@ Compiled deliverables:
 |---|---|---:|
 | `asr_0.6b` | `output/build_asr_0.6b/qwen3_group28_attn_mx8_lm8_paged_c4096_npu4.axmodel` | 6322978 |
 | `asr_1.7b` | `output/build_asr_1.7b/qwen3_group28_attn_mx8_lm8_paged_c4096_npu4.axmodel` | 10030274 |
-| `tts_0.6b` | `output/build_tts_0.6b/qwen3_group28_attn_mx8_lm8_paged_c4096_npu4.axmodel` | 5717950 |
+| `tts_0.6b` | `output/build_tts_0.6b/qwen3_group28_attn_mx8_lm8_paged_c4096_npu4.axmodel` | 5718430 |
 | `tts_1.7b` | `output/build_tts_1.7b/qwen3_group28_attn_mx8_lm8_paged_c4096_npu4.axmodel` | 8829342 |
 
 ## Open issues
@@ -345,5 +551,7 @@ Compiled deliverables:
 * This group uses the prefill `b0_kv` layout, but the prefill kernel is driven
   by `indptr/indices/last_page_len/cache_location` while the group takes
   `pn = [cell, nblk, krow]`.  The host must keep the two views consistent.
-* No board run was performed after E3; only the TTS CRUN simulator numerics and
-  the two rebuilt AXModels.
+* The host path for a whole-model group must use the kernel's `out` directly:
+  it is already final-normalised.  Applying `output_norm` to it again would
+  double-normalise the hidden row (the logits would stay correct because the
+  kernel head uses the same row).

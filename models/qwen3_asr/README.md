@@ -19,6 +19,9 @@ Board (.184, SDK V0.5.1, 2026-11-01), against the former kernels (60+ per model)
 identical; the 60 s recording end to end on llama-server 0.6B 1.7 s, 1.7B 2.5 s (former 1.7B: 3.6 s); 1.7B decode
 12.0 -> 9.9 ms/token, the 60 s recording's prompt 1391 -> 303 ms, the encoder 296 -> 145 ms.
 
+The decode group's softmax reduces the 1 + 256 columns of a block only (no trailing sentinel; 2026-11-01): with it,
+an all very negative score block gave 0 / 0 (seen on TTS-1.7B). Gate transcripts unchanged.
+
 The former kernels' sources (`src/<commit>/`, PROVENANCE.md) are no longer in the manifests.
 
 Manifests (the contract with ggml-axera): `qwen3_asr_0.6b.manifest.json`, `qwen3_asr_1.7b.manifest.json`.
