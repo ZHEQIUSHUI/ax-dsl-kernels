@@ -203,6 +203,16 @@ def main():
                                (torch.zeros_like(state), *split_conv_state(torch.zeros_like(conv), KH * KD, VH * VD)), strict=True):
             w[name + "_in"] = w[name + "_out"] = value.contiguous()
         layers.append((None, w, mlp_w(L)))
+    # One state pool for every delta-net layer, in the adapter's phase-major order (phase p's block b is
+    # layer 4 b + p). The kernel then has four state inputs (27B's form), not one bank per phase: the known-good
+    # 27B prefill keeps its recurrent state in one bank, and the 9B kernel is the same graph at 9B shapes.
+    if os.getenv("SHARED_STATE", "1") == "1":
+        order = [4 * b + p for p in range(3) for b in range(NL // 4)]
+        for name in ("state", "q_conv_state", "k_conv_state", "v_conv_state"):
+            rows = [layers[il][1][name + "_in"] for il in order]
+            pool = torch.stack(rows)
+            for index, il in enumerate(order):
+                layers[il][1][name + "_in"] = layers[il][1][name + "_out"] = pool[index]
     saved = ROOT / "build" / "9b" / f"check_y_{H}_{NL}.pt"
     if os.path.exists(saved):
         y = torch.load(saved)

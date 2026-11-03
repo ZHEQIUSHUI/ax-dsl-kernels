@@ -1,7 +1,8 @@
-# Qwen3.5-9B whole-model kernels (WIP)
+# Qwen3.5-9B whole-model kernels
 
-Status: the prefill and text decode pieces build and pass their host checks; the ViT does not yet pass the acceptance
-gate, and the board rejected the prefill with `RunSync 0x8006008a` (work stopped per the task rule).
+Status: prefill, the 16-layer decode groups (including the full 32-layer chain), and the 3072-patch ViT pass their host
+CRUN checks. The ViT passes the released-kernel comparison on the same weights and input. Board testing is pending
+because the replacement board has not been reachable.
 
 The text path has one prefill kernel for the whole 32-layer model (a runtime loop over the 8 blocks and their
 `b0..b3` weight banks) and one decode-group kernel family (16 layers per call, two calls per token). The decode group
@@ -15,11 +16,12 @@ The layer kernels in `kernels/` are IO descriptors only; the adapter uses them t
 | prefill | `qwen35_9b_prefill256_mx4_kvc_c16384_npu4.axmodel` |
 | decode.group | `qwen35_9b_group16_gggagggagggaggga_mx4_kvc_c16384_npu4.axmodel` |
 | lm_head | `mul_mat_mx4_n248320_k4096_npu4.axmodel` |
+| vit | `qwen35_9b_vit3072_npu4.axmodel` |
 | layer.gdn (IO only) | `qwen35_gdn_mx4_npu1.axmodel` |
 | layer.attn (IO only) | `qwen35_attn_mx4_kvc_c16384_npu1.axmodel` |
 
-`kernels.md5` has the md5 of every file. `qwen35_9b_text.manifest.json` is the text-only manifest used for the board
-attempt (the ViT role is intentionally absent until its kernel is accepted).
+`kernels.md5` has the md5 of every file. `qwen35_9b.manifest.json` is the complete manifest: prefill `167 in / 1 out`,
+decode.group `61 in / 53 out`, lm_head `3 in / 1 out`, and ViT `31 in / 2 out`.
 
 ## Build
 
@@ -45,9 +47,15 @@ STEPS=1 G=16 FIRST=0 DUMP=build/9b/dec_g16/o \
 nice python ax-dsl-kernels/models/qwen35_9b/whole/src/q35_group.py build/9b/dec_g16
 ```
 
-ViT (attempted, not accepted): `vit/vit_full.py` with `MODEL=/data/junda/work/models/Qwen3.5-9B N=3072 QB=512 BC=256
-IMAGE=bus3072.png REF_BF16=1 VIT_ATTN_MODE=online VIT_ATTN_FP32=2 RUN_MODE=CRUN`. The 256-patch full-depth run (same
-source at the time) failed the output gate: mean 0.9997982, min 0.9988794.
+ViT (the output is the production `KNAME`):
+
+```sh
+source /data/junda/work/axdsl_env.sh
+cd models/qwen35_9b/whole/vit
+MODEL=/data/junda/work/models/Qwen3.5-9B N=3072 GH=48 GW=64 QB=512 BC=256 \
+IMAGE=bus3072.png REF_BF16=1 VIT_ATTN_MODE=online VIT_ATTN_FP32=2 \
+RUN_MODE=CRUN DUMP=build/9b/vit3072_prod nice -n 15 python vit_full.py
+```
 
 Manifest:
 
@@ -60,9 +68,15 @@ python tools/manifest/mkmanifest.py qwen35_whole build/9b/stage_io/io.json build
 
 - Prefill CRUN vs the HF reference with the same quantized weights: per-row cos mean `0.99989`, min `0.99955` over all
   256 rows and all 32 layers. PASS.
-- Decode group, step 0 (`STEPS=1`, so only the first 16-layer group): output cos `0.999758`, worst GDN state cos
-  `0.999529`, worst K-cache cos `0.999772`. It has not been run over the full 32-layer chain.
+- Decode group 0 with the real MXFP4 checkpoint weights at step 0: output cos `0.999978`, worst GDN state cos
+  `0.999915`, worst K-cache cos `0.999994`. PASS.
+- Full 32-layer decode chain with real weights: group 1 starts from group 0's hidden state but zero recurrent/KV state,
+  as required at step 0. Final output cos `0.999711`, worst GDN state cos `0.999640`, worst K-cache cos `0.999887`.
+  PASS.
+- ViT release equivalence on the exact same `bus256.png` input and BF16-rounded weights: released output rows
+  `0.9997616 / 0.9980317` (mean / min), ours `0.9996377 / 0.9978574`; minimum-cos delta `0.000174`, within the
+  `0.0005` acceptance rule. The saved references are bit-identical. PASS.
 - Host index-range checks are in `checks/index_ranges.py` (positions, pages, KV cells) and passed on the planned real
-  inputs.
-- Board: model load and CMM bank setup completed, then `prefill` returned `0x8006008a` (`RunSync` timeout). No board
-  benchmark or release comparison was completed.
+  inputs (`prompt4k.txt`: 4000 tokens / 16 pages / 160 cells; `prompt_greedy.txt`: 5 tokens / 1 page / 5 cells).
+- Board: no run on the replacement `.120` board yet; it was unreachable (`No route to host`). The earlier `.63` board
+  returned `0x8006008a` but is known broken and is not used.

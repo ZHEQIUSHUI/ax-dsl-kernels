@@ -475,13 +475,25 @@ def main():
                 blk = f" blk {numel // cols} {cols} {bw}"
             f.write(f"{key} {p} {off * es[p]} {numel * es[p]}{blk}\n")
     logger.info(f"wrote {dst[: -len('.axmodel')]}.layout (before the simulation)")
+    # INIT_PT / SAVE_PT: chain two groups (the full model): start from a previous group's kernel / reference x and
+    # states, then save both at the end. Default: start from the token embedding and zero states, save nothing.
+    init = torch.load(os.environ["INIT_PT"]) if os.environ.get("INIT_PT") else None
+    if init and os.environ.get("INIT_STATE", "carry") != "zero":
+        state["1"] = [t.clone() for t in init["ref_state"]]
+        conv["1"] = [t.clone() for t in init["ref_conv"]]
+        for j in range(len(KINDS)):
+            for d, t_ in zip(gio[j], init["k_gio"][j]):
+                d.copy_(t_)
+    elif init:
+        logger.info("chain: group states start at zero (step 0)")
     worst = 1.0
     for step in range(L.STEPS):
-        x0 = L.tokens(W, step)
+        x0 = init["x"].clone() if init and step == 0 else L.tokens(W, step)
+        x0_ref = init["ref_x"].clone() if init and step == 0 else x0
         cs, sn = L.rope_rows(step)
         att = dict(cos=cs, sin=sn, pos=torch.tensor([step], dtype=torch.int32),
                    nblk=torch.tensor([step // BC + 1], dtype=torch.int32), mask=L.mask_rows(step))
-        x = x0
+        x = x0_ref
         for j, kind in enumerate(KINDS):  # the single-core layers one after another
             o = torch.zeros((1, 1, H), dtype=torch.bfloat16)
             case = dict(raw[j], x=x, out=o)
@@ -534,6 +546,12 @@ def main():
         logger.info(f"group step {step}: worst K cache cos {kvc:.6f}")
         logger.info(f"group {tag} step {step}: out cos {cval:.6f} (bitwise {same}), worst gdn state cos {sc:.6f}")
         worst = min(worst, cval)
+    if os.environ.get("SAVE_PT"):
+        torch.save({"x": o, "ref_x": ref,
+                    "k_gio": [[t.detach().cpu() for t in gio[j]] for j in range(len(KINDS))],
+                    "ref_state": [t.detach().cpu() for t in state["1"]],
+                    "ref_conv": [t.detach().cpu() for t in conv["1"]]}, os.environ["SAVE_PT"])
+        logger.info(f"saved chain state {os.environ['SAVE_PT']}")
     path = max(glob.glob(f"{build}/grp/cache/group_kernel.*.compiled.axmodel"), key=os.path.getmtime)
     shutil.copy(path, dst)
     logger.info(f"wrote {dst} ({os.path.getsize(dst)} bytes) and its layout (worst cos {worst:.6f})")
