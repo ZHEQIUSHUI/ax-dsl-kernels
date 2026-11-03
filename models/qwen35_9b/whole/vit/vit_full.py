@@ -88,7 +88,7 @@ def vit_full(px, pos, cos, sin, kmask, nblk, w_patch, b_patch, ln1_w, ln1_b, w_q
     # embed by rows, rounds
     for r in range(ROUNDS):
         rows = tile_rows(c, r)
-        e = V.proj(ax.dsl.load(px[rows]).reshape(1, MT, CP), w_patch, b_patch, f"e{r}", output_dtype=ax.bf16)
+        e = V.proj(ax.dsl.load(px[rows]).reshape(1, MT, CP), w_patch, b_patch, f"e{r}", output_dtype=ax.fp32)
         e = ax.dsl.add(e, ax.dsl.load(pos[rows]).reshape(1, MT, H), output_dtype=ax.bf16).reshape(MT, H)
         exchange_x(r, e, f"e{r}")
 
@@ -126,11 +126,11 @@ def vit_full(px, pos, cos, sin, kmask, nblk, w_patch, b_patch, ln1_w, ln1_b, w_q
                 ax.dsl.move(x=at(sa, c, s), r=att[:, s * HC : (s + 1) * HC])
             rows = tile_rows(c, r)
             xt = ax.dsl.load(X[rows]).reshape(1, MT, H)
-            a = V.proj(att.reshape(1, MT, H), at(w_o, l), at(b_o, l), f"{t}o{r}", output_dtype=ax.bf16)
+            a = V.proj(att.reshape(1, MT, H), at(w_o, l), at(b_o, l), f"{t}o{r}", output_dtype=ax.fp32)
             x1 = ax.dsl.add(xt, a, output_dtype=ax.bf16)
-            u = gelu_tanh(V.proj(V.layernorm(x1, at(ln2_w, l), at(ln2_b, l)), at(w_up, l), at(b_up, l), f"{t}up{r}", output_dtype=ax.bf16),
+            u = gelu_tanh(V.proj(V.layernorm(x1, at(ln2_w, l), at(ln2_b, l)), at(w_up, l), at(b_up, l), f"{t}up{r}", output_dtype=ax.fp32),
                           output_dtype=ax.bf16)
-            d = V.proj(u, at(w_down, l), at(b_down, l), f"{t}dn{r}", output_dtype=ax.bf16)
+            d = V.proj(u, at(w_down, l), at(b_down, l), f"{t}dn{r}", output_dtype=ax.fp32)
             exchange_x(r, ax.dsl.add(x1, d, output_dtype=ax.bf16).reshape(MT, H), f"{t}r{r}")
 
     # the final hidden state (own rows) and the merge + projector
@@ -140,8 +140,8 @@ def vit_full(px, pos, cos, sin, kmask, nblk, w_patch, b_patch, ln1_w, ln1_b, w_q
         xt = ax.dsl.load(X[rows])
         ax.dsl.store(xt, r=xo[rows])
         h = V.layernorm(xt.reshape(1, MT, H), post_w, post_b).reshape(1, MT // G, G * H)
-        u = ax.dsl.gelu(V.proj(h, w0, b0, f"m0_{r}", output_dtype=ax.bf16), output_dtype=ax.bf16)
-        y = V.proj(u, w2, b2, f"m2_{r}", output_dtype=ax.bf16)
+        u = ax.dsl.gelu(V.proj(h, w0, b0, f"m0_{r}", output_dtype=ax.fp32), output_dtype=ax.bf16)
+        y = V.proj(u, w2, b2, f"m2_{r}", output_dtype=ax.fp32)
         ax.dsl.store(ax.dsl.cast(y, dtype=ax.fp32).reshape(MT // G, OUT), r=out[rows.start // G : rows.stop // G])
     return out, xo
 

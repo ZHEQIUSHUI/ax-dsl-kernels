@@ -183,9 +183,13 @@ def qwen35_whole_roles(io, tag):
     if not groups or not pres or not vits:
         sys.exit(f"qwen35_whole {tag}: decode {len(groups)}, prefill {len(pres)}, vit {len(vits)} kernels")
     H = next(e[3] for e in io[pres[0] + ".axmodel"]["in"] if e[0] == "x")[-1]
+    gdn = f"{tag}_gdn_mx4_npu1"
+    attn = f"{tag}_attn_mx4_kvc_c16384_npu1"
+    gdn = gdn if gdn + ".axmodel" in io else "qwen35_gdn_mx4_npu1"  # 9B reuses the shared descriptors
+    attn = attn if attn + ".axmodel" in io else "qwen35_attn_mx4_kvc_c16384_npu1"
     return {
-        "layer.gdn": "qwen35_gdn_mx4_npu1",       # IO only: the parameters of a GDN layer
-        "layer.attn": "qwen35_attn_mx4_kvc_c16384_npu1",  # IO only: the parameters of an attention layer
+        "layer.gdn": gdn,       # IO only: the parameters of a GDN layer
+        "layer.attn": attn,  # IO only: the parameters of an attention layer
         "decode.group": groups[-1],
         "prefill": pres[0],
         "lm_head": f"mul_mat_mx4_n248320_k{H}_npu4",
@@ -197,6 +201,8 @@ def vperm(ins, n, vh=48):
     """the value-head reorder of a delta-net parameter (GGUF tiled -> HF grouped) for the decode group of qwen38_27b:
     rows of the v part of qkv / conv (after q and k), rows of z / b / a, the 48 values of a_log / dt_bias, columns of out"""
     VH, KH = vh, 16
+    if VH == KH:
+        return None  # one value head per key head: the GGUF tiled order is HF's
     base = n[2:] if n.startswith(("w_", "s_")) else n
     if base in ("qkv", "conv_w"):
         rows = ins[n][2][0]

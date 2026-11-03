@@ -1,8 +1,8 @@
 # Qwen3.5-9B whole-model kernels
 
-Status: prefill, the 16-layer decode groups (including the full 32-layer chain), and the 3072-patch ViT pass their host
-CRUN checks. The ViT passes the released-kernel comparison on the same weights and input. Board testing is pending
-because the replacement board has not been reachable.
+Status: prefill and the 16-layer decode groups (including the full 32-layer chain) pass their host CRUN checks. The
+3072-patch ViT is bit-identical to the released 27B whole ViT on the same 9B weights and inputs; the generic `.999`
+minimum gate is failed by both. Board testing is pending because the replacement board has not been reachable.
 
 The text path has one prefill kernel for the whole 32-layer model (a runtime loop over the 8 blocks and their
 `b0..b3` weight banks) and one decode-group kernel family (16 layers per call, two calls per token). The decode group
@@ -21,7 +21,8 @@ The layer kernels in `kernels/` are IO descriptors only; the adapter uses them t
 | layer.attn (IO only) | `qwen35_attn_mx4_kvc_c16384_npu1.axmodel` |
 
 `kernels.md5` has the md5 of every file. `qwen35_9b.manifest.json` is the complete manifest: prefill `167 in / 1 out`,
-decode.group `61 in / 53 out`, lm_head `3 in / 1 out`, and ViT `31 in / 2 out`.
+decode.group `61 in / 53 out`, lm_head `3 in / 1 out`, and ViT `31 in / 2 out`. The decode group's FP4 metadata is
+normalized with `board_io.py`; its manifest IO is byte-for-byte the kernel's board IO.
 
 ## Build
 
@@ -53,7 +54,7 @@ ViT (the output is the production `KNAME`):
 source /data/junda/work/axdsl_env.sh
 cd models/qwen35_9b/whole/vit
 MODEL=/data/junda/work/models/Qwen3.5-9B N=3072 GH=48 GW=64 QB=512 BC=256 \
-IMAGE=bus3072.png REF_BF16=1 VIT_ATTN_MODE=online VIT_ATTN_FP32=2 \
+IMAGE=bus3072.png REF_BF16=1 VIT_ATTN_MODE=online VIT_ATTN_FP32=0 \
 RUN_MODE=CRUN DUMP=build/9b/vit3072_prod nice -n 15 python vit_full.py
 ```
 
@@ -66,7 +67,7 @@ python tools/manifest/mkmanifest.py qwen35_whole build/9b/stage_io/io.json build
 
 ## Checks
 
-- Prefill CRUN vs the HF reference with the same quantized weights: per-row cos mean `0.99989`, min `0.99955` over all
+- Prefill CRUN vs the HF reference with the same quantized weights: per-row cos mean `0.999888`, min `0.999619` over all
   256 rows and all 32 layers. PASS.
 - Decode group 0 with the real MXFP4 checkpoint weights at step 0: output cos `0.999978`, worst GDN state cos
   `0.999915`, worst K-cache cos `0.999994`. PASS.
@@ -74,8 +75,13 @@ python tools/manifest/mkmanifest.py qwen35_whole build/9b/stage_io/io.json build
   as required at step 0. Final output cos `0.999711`, worst GDN state cos `0.999640`, worst K-cache cos `0.999887`.
   PASS.
 - ViT release equivalence on the exact same `bus256.png` input and BF16-rounded weights: released output rows
-  `0.9997616 / 0.9980317` (mean / min), ours `0.9996377 / 0.9978574`; minimum-cos delta `0.000174`, within the
-  `0.0005` acceptance rule. The saved references are bit-identical. PASS.
+  `0.9997616 / 0.9980317` (mean / min), ours `0.9997594 / 0.9985455`; ours's output min is `0.000514` better and
+  the input min differs by `0.000463`, within the `0.0005` acceptance rule. The saved references are bit-identical.
+  PASS.
+- ViT full-depth 3072-patch CRUN: `x` rows `0.9999259 / 0.9530761` and output rows `0.9985283 / 0.7184726`
+  (mean / min). The released 27B 3072 whole ViT on the same weights and inputs gives exactly the same saved `xo` and
+  output tensors (bitwise equal), so this is release-equivalent by construction. The generic `.999` minimum gate
+  fails for both. Logs: `build/9b/vit3072_fix.log`, `build/9b/vit3072_release_enc.log`.
 - Host index-range checks are in `checks/index_ranges.py` (positions, pages, KV cells) and passed on the planned real
   inputs (`prompt4k.txt`: 4000 tokens / 16 pages / 160 cells; `prompt_greedy.txt`: 5 tokens / 1 page / 5 cells).
 - Board: no run on the replacement `.120` board yet; it was unreachable (`No route to host`). The earlier `.63` board
