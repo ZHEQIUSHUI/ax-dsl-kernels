@@ -3554,10 +3554,10 @@
     },
     {
      "name": "b0_attn_k_conv_state_in",
-     "bytes": 98304,
+     "bytes": 294912,
      "dtype": 9,
      "shape": [
-      8,
+      24,
       1,
       3,
       2048
@@ -3574,10 +3574,10 @@
     },
     {
      "name": "b0_attn_q_conv_state_in",
-     "bytes": 98304,
+     "bytes": 294912,
      "dtype": 9,
      "shape": [
-      8,
+      24,
       1,
       3,
       2048
@@ -3585,10 +3585,10 @@
     },
     {
      "name": "b0_attn_state_in",
-     "bytes": 16777216,
+     "bytes": 50331648,
      "dtype": 3,
      "shape": [
-      8,
+      24,
       1,
       32,
       128,
@@ -3597,10 +3597,10 @@
     },
     {
      "name": "b0_attn_v_conv_state_in",
-     "bytes": 196608,
+     "bytes": 589824,
      "dtype": 9,
      "shape": [
-      8,
+      24,
       1,
       3,
       4096
@@ -3984,57 +3984,12 @@
      ]
     },
     {
-     "name": "b1_attn_k_conv_state_in",
-     "bytes": 98304,
-     "dtype": 9,
-     "shape": [
-      8,
-      1,
-      3,
-      2048
-     ]
-    },
-    {
      "name": "b1_attn_o_norm_w",
      "bytes": 2048,
      "dtype": 9,
      "shape": [
       8,
       128
-     ]
-    },
-    {
-     "name": "b1_attn_q_conv_state_in",
-     "bytes": 98304,
-     "dtype": 9,
-     "shape": [
-      8,
-      1,
-      3,
-      2048
-     ]
-    },
-    {
-     "name": "b1_attn_state_in",
-     "bytes": 16777216,
-     "dtype": 3,
-     "shape": [
-      8,
-      1,
-      32,
-      128,
-      128
-     ]
-    },
-    {
-     "name": "b1_attn_v_conv_state_in",
-     "bytes": 196608,
-     "dtype": 9,
-     "shape": [
-      8,
-      1,
-      3,
-      4096
      ]
     },
     {
@@ -4415,57 +4370,12 @@
      ]
     },
     {
-     "name": "b2_attn_k_conv_state_in",
-     "bytes": 98304,
-     "dtype": 9,
-     "shape": [
-      8,
-      1,
-      3,
-      2048
-     ]
-    },
-    {
      "name": "b2_attn_o_norm_w",
      "bytes": 2048,
      "dtype": 9,
      "shape": [
       8,
       128
-     ]
-    },
-    {
-     "name": "b2_attn_q_conv_state_in",
-     "bytes": 98304,
-     "dtype": 9,
-     "shape": [
-      8,
-      1,
-      3,
-      2048
-     ]
-    },
-    {
-     "name": "b2_attn_state_in",
-     "bytes": 16777216,
-     "dtype": 3,
-     "shape": [
-      8,
-      1,
-      32,
-      128,
-      128
-     ]
-    },
-    {
-     "name": "b2_attn_v_conv_state_in",
-     "bytes": 196608,
-     "dtype": 9,
-     "shape": [
-      8,
-      1,
-      3,
-      4096
      ]
     },
     {
@@ -5214,6 +5124,314 @@
      "shape": [
       1,
       248320
+     ]
+    }
+   ]
+  },
+  "vit": {
+   "file": "qwen35_9b_vit3072_npu4.axmodel",
+   "in": [
+    {
+     "name": "px",
+     "bytes": 4718592,
+     "dtype": 9,
+     "shape": [
+      3072,
+      768
+     ]
+    },
+    {
+     "name": "pos",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      1152
+     ]
+    },
+    {
+     "name": "cos",
+     "bytes": 221184,
+     "dtype": 9,
+     "shape": [
+      3072,
+      36
+     ]
+    },
+    {
+     "name": "sin",
+     "bytes": 221184,
+     "dtype": 9,
+     "shape": [
+      3072,
+      36
+     ]
+    },
+    {
+     "name": "kmask",
+     "bytes": 3145728,
+     "dtype": 9,
+     "shape": [
+      12,
+      512,
+      256
+     ]
+    },
+    {
+     "name": "nblk",
+     "bytes": 4,
+     "dtype": 6,
+     "shape": [
+      1
+     ]
+    },
+    {
+     "name": "w_patch",
+     "bytes": 1769472,
+     "dtype": 9,
+     "shape": [
+      1152,
+      768
+     ]
+    },
+    {
+     "name": "b_patch",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "ln1_w",
+     "bytes": 62208,
+     "dtype": 9,
+     "shape": [
+      27,
+      1152
+     ]
+    },
+    {
+     "name": "ln1_b",
+     "bytes": 62208,
+     "dtype": 9,
+     "shape": [
+      27,
+      1152
+     ]
+    },
+    {
+     "name": "w_qkv",
+     "bytes": 214990848,
+     "dtype": 9,
+     "shape": [
+      27,
+      3456,
+      1152
+     ]
+    },
+    {
+     "name": "b_qkv",
+     "bytes": 186624,
+     "dtype": 9,
+     "shape": [
+      27,
+      3456
+     ]
+    },
+    {
+     "name": "w_o",
+     "bytes": 71663616,
+     "dtype": 9,
+     "shape": [
+      27,
+      1152,
+      1152
+     ]
+    },
+    {
+     "name": "b_o",
+     "bytes": 62208,
+     "dtype": 9,
+     "shape": [
+      27,
+      1152
+     ]
+    },
+    {
+     "name": "ln2_w",
+     "bytes": 62208,
+     "dtype": 9,
+     "shape": [
+      27,
+      1152
+     ]
+    },
+    {
+     "name": "ln2_b",
+     "bytes": 62208,
+     "dtype": 9,
+     "shape": [
+      27,
+      1152
+     ]
+    },
+    {
+     "name": "w_up",
+     "bytes": 267743232,
+     "dtype": 9,
+     "shape": [
+      27,
+      4304,
+      1152
+     ]
+    },
+    {
+     "name": "b_up",
+     "bytes": 232416,
+     "dtype": 9,
+     "shape": [
+      27,
+      4304
+     ]
+    },
+    {
+     "name": "w_down",
+     "bytes": 267743232,
+     "dtype": 9,
+     "shape": [
+      27,
+      1152,
+      4304
+     ]
+    },
+    {
+     "name": "b_down",
+     "bytes": 62208,
+     "dtype": 9,
+     "shape": [
+      27,
+      1152
+     ]
+    },
+    {
+     "name": "post_w",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "post_b",
+     "bytes": 2304,
+     "dtype": 9,
+     "shape": [
+      1152
+     ]
+    },
+    {
+     "name": "w0",
+     "bytes": 42467328,
+     "dtype": 9,
+     "shape": [
+      4608,
+      4608
+     ]
+    },
+    {
+     "name": "b0",
+     "bytes": 9216,
+     "dtype": 9,
+     "shape": [
+      4608
+     ]
+    },
+    {
+     "name": "w2",
+     "bytes": 37748736,
+     "dtype": 9,
+     "shape": [
+      4096,
+      4608
+     ]
+    },
+    {
+     "name": "b2",
+     "bytes": 8192,
+     "dtype": 9,
+     "shape": [
+      4096
+     ]
+    },
+    {
+     "name": "xr",
+     "bytes": 28311552,
+     "dtype": 9,
+     "shape": [
+      4,
+      3072,
+      1152
+     ]
+    },
+    {
+     "name": "qo",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      4,
+      3072,
+      288
+     ]
+    },
+    {
+     "name": "ko",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      4,
+      3072,
+      288
+     ]
+    },
+    {
+     "name": "vo",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      4,
+      3072,
+      288
+     ]
+    },
+    {
+     "name": "ao",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      4,
+      3072,
+      288
+     ]
+    }
+   ],
+   "out": [
+    {
+     "name": "out",
+     "bytes": 12582912,
+     "dtype": 3,
+     "shape": [
+      768,
+      4096
+     ]
+    },
+    {
+     "name": "xo",
+     "bytes": 7077888,
+     "dtype": 9,
+     "shape": [
+      3072,
+      1152
      ]
     }
    ]
