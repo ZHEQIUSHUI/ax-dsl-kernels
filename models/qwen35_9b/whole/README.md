@@ -2,7 +2,9 @@
 
 Status: prefill and the 16-layer decode groups (including the full 32-layer chain) pass their host CRUN checks. The
 3072-patch ViT is bit-identical to the released 27B whole ViT on the same 9B weights and inputs; the generic `.999`
-minimum gate is failed by both. Board testing is pending because the replacement board has not been reachable.
+minimum gate is failed by both. The 9B AX8860 release repository is not currently published on HF, so the released
+27B ViT binary (the same 1152-wide, 27-layer encoder) is the available release reference. Board testing is pending
+because the replacement board has not been reachable.
 
 The text path has one prefill kernel for the whole 32-layer model (a runtime loop over the 8 blocks and their
 `b0..b3` weight banks) and one decode-group kernel family (16 layers per call, two calls per token). The decode group
@@ -81,7 +83,9 @@ python tools/manifest/mkmanifest.py qwen35_whole build/9b/stage_io/io.json build
 - ViT full-depth 3072-patch CRUN: `x` rows `0.9999259 / 0.9530761` and output rows `0.9985283 / 0.7184726`
   (mean / min). The released 27B 3072 whole ViT on the same weights and inputs gives exactly the same saved `xo` and
   output tensors (bitwise equal), so this is release-equivalent by construction. The generic `.999` minimum gate
-  fails for both. Logs: `build/9b/vit3072_fix.log`, `build/9b/vit3072_release_enc.log`.
+  fails for both. The release artifact used is
+  `AXERA-TECH/Qwen3.8-27B-AX8860-llama.cpp/kernels/qwen38_27b_vit3072_npu4.axmodel`, size 92,575,684, md5
+  `875f979aa68c1940b3a2589fd518bd30`. Logs: `build/9b/vit3072_fix.log`, `build/9b/vit3072_release_enc.log`.
 - Host index-range checks are in `checks/index_ranges.py` (positions, pages, KV cells) and passed on the planned real
   inputs (`prompt4k.txt`: 4000 tokens / 16 pages / 160 cells; `prompt_greedy.txt`: 5 tokens / 1 page / 5 cells).
 - Board: no run on the replacement `.120` board yet; it was unreachable (`No route to host`). The earlier `.63` board
