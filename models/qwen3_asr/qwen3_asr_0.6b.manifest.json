@@ -1842,18 +1842,18 @@
     },
     {
      "name": "pw",
-     "bytes": 595984384,
+     "bytes": 302383104,
      "dtype": 11,
      "shape": [
-      595984384
+      302383104
      ]
     },
     {
      "name": "ps",
-     "bytes": 18624512,
+     "bytes": 9449472,
      "dtype": 1,
      "shape": [
-      18624512
+      9449472
      ]
     },
     {
@@ -1862,6 +1862,406 @@
      "dtype": 3,
      "shape": [
       64512
+     ]
+    },
+    {
+     "name": "k_b0_attn_w_q",
+     "bytes": 14680064,
+     "dtype": 11,
+     "shape": [
+      7,
+      2048,
+      1024
+     ]
+    },
+    {
+     "name": "k_b0_attn_w_scale_q",
+     "bytes": 458752,
+     "dtype": 1,
+     "shape": [
+      7,
+      2048,
+      32
+     ]
+    },
+    {
+     "name": "k_b0_attn_w_k",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "k_b0_attn_w_scale_k",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "k_b0_attn_w_v",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "k_b0_attn_w_scale_v",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "k_b0_mlp_w1",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "k_b0_mlp_w_scale1",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
+     ]
+    },
+    {
+     "name": "k_b0_mlp_w2",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "k_b0_mlp_w_scale2",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
+     ]
+    },
+    {
+     "name": "k_b1_attn_w_q",
+     "bytes": 14680064,
+     "dtype": 11,
+     "shape": [
+      7,
+      2048,
+      1024
+     ]
+    },
+    {
+     "name": "k_b1_attn_w_scale_q",
+     "bytes": 458752,
+     "dtype": 1,
+     "shape": [
+      7,
+      2048,
+      32
+     ]
+    },
+    {
+     "name": "k_b1_attn_w_k",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "k_b1_attn_w_scale_k",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "k_b1_attn_w_v",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "k_b1_attn_w_scale_v",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "k_b1_mlp_w1",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "k_b1_mlp_w_scale1",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
+     ]
+    },
+    {
+     "name": "k_b1_mlp_w2",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "k_b1_mlp_w_scale2",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
+     ]
+    },
+    {
+     "name": "k_b2_attn_w_q",
+     "bytes": 14680064,
+     "dtype": 11,
+     "shape": [
+      7,
+      2048,
+      1024
+     ]
+    },
+    {
+     "name": "k_b2_attn_w_scale_q",
+     "bytes": 458752,
+     "dtype": 1,
+     "shape": [
+      7,
+      2048,
+      32
+     ]
+    },
+    {
+     "name": "k_b2_attn_w_k",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "k_b2_attn_w_scale_k",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "k_b2_attn_w_v",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "k_b2_attn_w_scale_v",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "k_b2_mlp_w1",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "k_b2_mlp_w_scale1",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
+     ]
+    },
+    {
+     "name": "k_b2_mlp_w2",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "k_b2_mlp_w_scale2",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
+     ]
+    },
+    {
+     "name": "k_b3_attn_w_q",
+     "bytes": 14680064,
+     "dtype": 11,
+     "shape": [
+      7,
+      2048,
+      1024
+     ]
+    },
+    {
+     "name": "k_b3_attn_w_scale_q",
+     "bytes": 458752,
+     "dtype": 1,
+     "shape": [
+      7,
+      2048,
+      32
+     ]
+    },
+    {
+     "name": "k_b3_attn_w_k",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "k_b3_attn_w_scale_k",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "k_b3_attn_w_v",
+     "bytes": 7340032,
+     "dtype": 11,
+     "shape": [
+      7,
+      1024,
+      1024
+     ]
+    },
+    {
+     "name": "k_b3_attn_w_scale_v",
+     "bytes": 229376,
+     "dtype": 1,
+     "shape": [
+      7,
+      1024,
+      32
+     ]
+    },
+    {
+     "name": "k_b3_mlp_w1",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "k_b3_mlp_w_scale1",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
+     ]
+    },
+    {
+     "name": "k_b3_mlp_w2",
+     "bytes": 22020096,
+     "dtype": 11,
+     "shape": [
+      7,
+      3072,
+      1024
+     ]
+    },
+    {
+     "name": "k_b3_mlp_w_scale2",
+     "bytes": 688128,
+     "dtype": 1,
+     "shape": [
+      7,
+      3072,
+      32
      ]
     },
     {
@@ -1944,8 +2344,8 @@
     }
    ],
    "packs": {
-    "pw": 595984384,
-    "ps": 18624512,
+    "pw": 302383104,
+    "ps": 9449472,
     "pf": 258048
    },
    "members": [
@@ -1956,60 +2356,6 @@
      "bytes": 4096,
      "layer": 0,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L0.w_q",
-     "pack": "pw",
-     "offset": 0,
-     "bytes": 2097152,
-     "layer": 0,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L0.s_q",
-     "pack": "ps",
-     "offset": 0,
-     "bytes": 65536,
-     "layer": 0,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L0.w_k",
-     "pack": "pw",
-     "offset": 2097152,
-     "bytes": 1048576,
-     "layer": 0,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L0.s_k",
-     "pack": "ps",
-     "offset": 65536,
-     "bytes": 32768,
-     "layer": 0,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L0.w_v",
-     "pack": "pw",
-     "offset": 3145728,
-     "bytes": 1048576,
-     "layer": 0,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L0.s_v",
-     "pack": "ps",
-     "offset": 98304,
-     "bytes": 32768,
-     "layer": 0,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -2033,7 +2379,7 @@
     {
      "name": "L0.w_o",
      "pack": "pw",
-     "offset": 4194304,
+     "offset": 0,
      "bytes": 2097152,
      "layer": 0,
      "param": "w_o",
@@ -2047,7 +2393,7 @@
     {
      "name": "L0.s_o",
      "pack": "ps",
-     "offset": 131072,
+     "offset": 0,
      "bytes": 65536,
      "layer": 0,
      "param": "s_o",
@@ -2068,45 +2414,9 @@
      "kind": "attn"
     },
     {
-     "name": "L0.w_gate",
-     "pack": "pw",
-     "offset": 6291456,
-     "bytes": 3145728,
-     "layer": 0,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L0.s_gate",
-     "pack": "ps",
-     "offset": 196608,
-     "bytes": 98304,
-     "layer": 0,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L0.w_up",
-     "pack": "pw",
-     "offset": 9437184,
-     "bytes": 3145728,
-     "layer": 0,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L0.s_up",
-     "pack": "ps",
-     "offset": 294912,
-     "bytes": 98304,
-     "layer": 0,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L0.w_down",
      "pack": "pw",
-     "offset": 12582912,
+     "offset": 2097152,
      "bytes": 3145728,
      "layer": 0,
      "param": "w_down",
@@ -2120,7 +2430,7 @@
     {
      "name": "L0.s_down",
      "pack": "ps",
-     "offset": 393216,
+     "offset": 65536,
      "bytes": 98304,
      "layer": 0,
      "param": "s_down",
@@ -2138,60 +2448,6 @@
      "bytes": 4096,
      "layer": 1,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L1.w_q",
-     "pack": "pw",
-     "offset": 15728640,
-     "bytes": 2097152,
-     "layer": 1,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L1.s_q",
-     "pack": "ps",
-     "offset": 491520,
-     "bytes": 65536,
-     "layer": 1,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L1.w_k",
-     "pack": "pw",
-     "offset": 17825792,
-     "bytes": 1048576,
-     "layer": 1,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L1.s_k",
-     "pack": "ps",
-     "offset": 557056,
-     "bytes": 32768,
-     "layer": 1,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L1.w_v",
-     "pack": "pw",
-     "offset": 18874368,
-     "bytes": 1048576,
-     "layer": 1,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L1.s_v",
-     "pack": "ps",
-     "offset": 589824,
-     "bytes": 32768,
-     "layer": 1,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -2215,7 +2471,7 @@
     {
      "name": "L1.w_o",
      "pack": "pw",
-     "offset": 19922944,
+     "offset": 5242880,
      "bytes": 2097152,
      "layer": 1,
      "param": "w_o",
@@ -2229,7 +2485,7 @@
     {
      "name": "L1.s_o",
      "pack": "ps",
-     "offset": 622592,
+     "offset": 163840,
      "bytes": 65536,
      "layer": 1,
      "param": "s_o",
@@ -2250,45 +2506,9 @@
      "kind": "attn"
     },
     {
-     "name": "L1.w_gate",
-     "pack": "pw",
-     "offset": 22020096,
-     "bytes": 3145728,
-     "layer": 1,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L1.s_gate",
-     "pack": "ps",
-     "offset": 688128,
-     "bytes": 98304,
-     "layer": 1,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L1.w_up",
-     "pack": "pw",
-     "offset": 25165824,
-     "bytes": 3145728,
-     "layer": 1,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L1.s_up",
-     "pack": "ps",
-     "offset": 786432,
-     "bytes": 98304,
-     "layer": 1,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L1.w_down",
      "pack": "pw",
-     "offset": 28311552,
+     "offset": 7340032,
      "bytes": 3145728,
      "layer": 1,
      "param": "w_down",
@@ -2302,7 +2522,7 @@
     {
      "name": "L1.s_down",
      "pack": "ps",
-     "offset": 884736,
+     "offset": 229376,
      "bytes": 98304,
      "layer": 1,
      "param": "s_down",
@@ -2320,60 +2540,6 @@
      "bytes": 4096,
      "layer": 2,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L2.w_q",
-     "pack": "pw",
-     "offset": 31457280,
-     "bytes": 2097152,
-     "layer": 2,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L2.s_q",
-     "pack": "ps",
-     "offset": 983040,
-     "bytes": 65536,
-     "layer": 2,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L2.w_k",
-     "pack": "pw",
-     "offset": 33554432,
-     "bytes": 1048576,
-     "layer": 2,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L2.s_k",
-     "pack": "ps",
-     "offset": 1048576,
-     "bytes": 32768,
-     "layer": 2,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L2.w_v",
-     "pack": "pw",
-     "offset": 34603008,
-     "bytes": 1048576,
-     "layer": 2,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L2.s_v",
-     "pack": "ps",
-     "offset": 1081344,
-     "bytes": 32768,
-     "layer": 2,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -2397,7 +2563,7 @@
     {
      "name": "L2.w_o",
      "pack": "pw",
-     "offset": 35651584,
+     "offset": 10485760,
      "bytes": 2097152,
      "layer": 2,
      "param": "w_o",
@@ -2411,7 +2577,7 @@
     {
      "name": "L2.s_o",
      "pack": "ps",
-     "offset": 1114112,
+     "offset": 327680,
      "bytes": 65536,
      "layer": 2,
      "param": "s_o",
@@ -2432,45 +2598,9 @@
      "kind": "attn"
     },
     {
-     "name": "L2.w_gate",
-     "pack": "pw",
-     "offset": 37748736,
-     "bytes": 3145728,
-     "layer": 2,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L2.s_gate",
-     "pack": "ps",
-     "offset": 1179648,
-     "bytes": 98304,
-     "layer": 2,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L2.w_up",
-     "pack": "pw",
-     "offset": 40894464,
-     "bytes": 3145728,
-     "layer": 2,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L2.s_up",
-     "pack": "ps",
-     "offset": 1277952,
-     "bytes": 98304,
-     "layer": 2,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L2.w_down",
      "pack": "pw",
-     "offset": 44040192,
+     "offset": 12582912,
      "bytes": 3145728,
      "layer": 2,
      "param": "w_down",
@@ -2484,7 +2614,7 @@
     {
      "name": "L2.s_down",
      "pack": "ps",
-     "offset": 1376256,
+     "offset": 393216,
      "bytes": 98304,
      "layer": 2,
      "param": "s_down",
@@ -2502,60 +2632,6 @@
      "bytes": 4096,
      "layer": 3,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L3.w_q",
-     "pack": "pw",
-     "offset": 47185920,
-     "bytes": 2097152,
-     "layer": 3,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L3.s_q",
-     "pack": "ps",
-     "offset": 1474560,
-     "bytes": 65536,
-     "layer": 3,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L3.w_k",
-     "pack": "pw",
-     "offset": 49283072,
-     "bytes": 1048576,
-     "layer": 3,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L3.s_k",
-     "pack": "ps",
-     "offset": 1540096,
-     "bytes": 32768,
-     "layer": 3,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L3.w_v",
-     "pack": "pw",
-     "offset": 50331648,
-     "bytes": 1048576,
-     "layer": 3,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L3.s_v",
-     "pack": "ps",
-     "offset": 1572864,
-     "bytes": 32768,
-     "layer": 3,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -2579,7 +2655,7 @@
     {
      "name": "L3.w_o",
      "pack": "pw",
-     "offset": 51380224,
+     "offset": 15728640,
      "bytes": 2097152,
      "layer": 3,
      "param": "w_o",
@@ -2593,7 +2669,7 @@
     {
      "name": "L3.s_o",
      "pack": "ps",
-     "offset": 1605632,
+     "offset": 491520,
      "bytes": 65536,
      "layer": 3,
      "param": "s_o",
@@ -2614,45 +2690,9 @@
      "kind": "attn"
     },
     {
-     "name": "L3.w_gate",
-     "pack": "pw",
-     "offset": 53477376,
-     "bytes": 3145728,
-     "layer": 3,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L3.s_gate",
-     "pack": "ps",
-     "offset": 1671168,
-     "bytes": 98304,
-     "layer": 3,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L3.w_up",
-     "pack": "pw",
-     "offset": 56623104,
-     "bytes": 3145728,
-     "layer": 3,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L3.s_up",
-     "pack": "ps",
-     "offset": 1769472,
-     "bytes": 98304,
-     "layer": 3,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L3.w_down",
      "pack": "pw",
-     "offset": 59768832,
+     "offset": 17825792,
      "bytes": 3145728,
      "layer": 3,
      "param": "w_down",
@@ -2666,7 +2706,7 @@
     {
      "name": "L3.s_down",
      "pack": "ps",
-     "offset": 1867776,
+     "offset": 557056,
      "bytes": 98304,
      "layer": 3,
      "param": "s_down",
@@ -2684,60 +2724,6 @@
      "bytes": 4096,
      "layer": 4,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L4.w_q",
-     "pack": "pw",
-     "offset": 62914560,
-     "bytes": 2097152,
-     "layer": 4,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L4.s_q",
-     "pack": "ps",
-     "offset": 1966080,
-     "bytes": 65536,
-     "layer": 4,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L4.w_k",
-     "pack": "pw",
-     "offset": 65011712,
-     "bytes": 1048576,
-     "layer": 4,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L4.s_k",
-     "pack": "ps",
-     "offset": 2031616,
-     "bytes": 32768,
-     "layer": 4,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L4.w_v",
-     "pack": "pw",
-     "offset": 66060288,
-     "bytes": 1048576,
-     "layer": 4,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L4.s_v",
-     "pack": "ps",
-     "offset": 2064384,
-     "bytes": 32768,
-     "layer": 4,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -2761,7 +2747,7 @@
     {
      "name": "L4.w_o",
      "pack": "pw",
-     "offset": 67108864,
+     "offset": 20971520,
      "bytes": 2097152,
      "layer": 4,
      "param": "w_o",
@@ -2775,7 +2761,7 @@
     {
      "name": "L4.s_o",
      "pack": "ps",
-     "offset": 2097152,
+     "offset": 655360,
      "bytes": 65536,
      "layer": 4,
      "param": "s_o",
@@ -2796,45 +2782,9 @@
      "kind": "attn"
     },
     {
-     "name": "L4.w_gate",
-     "pack": "pw",
-     "offset": 69206016,
-     "bytes": 3145728,
-     "layer": 4,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L4.s_gate",
-     "pack": "ps",
-     "offset": 2162688,
-     "bytes": 98304,
-     "layer": 4,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L4.w_up",
-     "pack": "pw",
-     "offset": 72351744,
-     "bytes": 3145728,
-     "layer": 4,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L4.s_up",
-     "pack": "ps",
-     "offset": 2260992,
-     "bytes": 98304,
-     "layer": 4,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L4.w_down",
      "pack": "pw",
-     "offset": 75497472,
+     "offset": 23068672,
      "bytes": 3145728,
      "layer": 4,
      "param": "w_down",
@@ -2848,7 +2798,7 @@
     {
      "name": "L4.s_down",
      "pack": "ps",
-     "offset": 2359296,
+     "offset": 720896,
      "bytes": 98304,
      "layer": 4,
      "param": "s_down",
@@ -2866,60 +2816,6 @@
      "bytes": 4096,
      "layer": 5,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L5.w_q",
-     "pack": "pw",
-     "offset": 78643200,
-     "bytes": 2097152,
-     "layer": 5,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L5.s_q",
-     "pack": "ps",
-     "offset": 2457600,
-     "bytes": 65536,
-     "layer": 5,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L5.w_k",
-     "pack": "pw",
-     "offset": 80740352,
-     "bytes": 1048576,
-     "layer": 5,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L5.s_k",
-     "pack": "ps",
-     "offset": 2523136,
-     "bytes": 32768,
-     "layer": 5,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L5.w_v",
-     "pack": "pw",
-     "offset": 81788928,
-     "bytes": 1048576,
-     "layer": 5,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L5.s_v",
-     "pack": "ps",
-     "offset": 2555904,
-     "bytes": 32768,
-     "layer": 5,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -2943,7 +2839,7 @@
     {
      "name": "L5.w_o",
      "pack": "pw",
-     "offset": 82837504,
+     "offset": 26214400,
      "bytes": 2097152,
      "layer": 5,
      "param": "w_o",
@@ -2957,7 +2853,7 @@
     {
      "name": "L5.s_o",
      "pack": "ps",
-     "offset": 2588672,
+     "offset": 819200,
      "bytes": 65536,
      "layer": 5,
      "param": "s_o",
@@ -2978,45 +2874,9 @@
      "kind": "attn"
     },
     {
-     "name": "L5.w_gate",
-     "pack": "pw",
-     "offset": 84934656,
-     "bytes": 3145728,
-     "layer": 5,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L5.s_gate",
-     "pack": "ps",
-     "offset": 2654208,
-     "bytes": 98304,
-     "layer": 5,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L5.w_up",
-     "pack": "pw",
-     "offset": 88080384,
-     "bytes": 3145728,
-     "layer": 5,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L5.s_up",
-     "pack": "ps",
-     "offset": 2752512,
-     "bytes": 98304,
-     "layer": 5,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L5.w_down",
      "pack": "pw",
-     "offset": 91226112,
+     "offset": 28311552,
      "bytes": 3145728,
      "layer": 5,
      "param": "w_down",
@@ -3030,7 +2890,7 @@
     {
      "name": "L5.s_down",
      "pack": "ps",
-     "offset": 2850816,
+     "offset": 884736,
      "bytes": 98304,
      "layer": 5,
      "param": "s_down",
@@ -3048,60 +2908,6 @@
      "bytes": 4096,
      "layer": 6,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L6.w_q",
-     "pack": "pw",
-     "offset": 94371840,
-     "bytes": 2097152,
-     "layer": 6,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L6.s_q",
-     "pack": "ps",
-     "offset": 2949120,
-     "bytes": 65536,
-     "layer": 6,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L6.w_k",
-     "pack": "pw",
-     "offset": 96468992,
-     "bytes": 1048576,
-     "layer": 6,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L6.s_k",
-     "pack": "ps",
-     "offset": 3014656,
-     "bytes": 32768,
-     "layer": 6,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L6.w_v",
-     "pack": "pw",
-     "offset": 97517568,
-     "bytes": 1048576,
-     "layer": 6,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L6.s_v",
-     "pack": "ps",
-     "offset": 3047424,
-     "bytes": 32768,
-     "layer": 6,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -3125,7 +2931,7 @@
     {
      "name": "L6.w_o",
      "pack": "pw",
-     "offset": 98566144,
+     "offset": 31457280,
      "bytes": 2097152,
      "layer": 6,
      "param": "w_o",
@@ -3139,7 +2945,7 @@
     {
      "name": "L6.s_o",
      "pack": "ps",
-     "offset": 3080192,
+     "offset": 983040,
      "bytes": 65536,
      "layer": 6,
      "param": "s_o",
@@ -3160,45 +2966,9 @@
      "kind": "attn"
     },
     {
-     "name": "L6.w_gate",
-     "pack": "pw",
-     "offset": 100663296,
-     "bytes": 3145728,
-     "layer": 6,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L6.s_gate",
-     "pack": "ps",
-     "offset": 3145728,
-     "bytes": 98304,
-     "layer": 6,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L6.w_up",
-     "pack": "pw",
-     "offset": 103809024,
-     "bytes": 3145728,
-     "layer": 6,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L6.s_up",
-     "pack": "ps",
-     "offset": 3244032,
-     "bytes": 98304,
-     "layer": 6,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L6.w_down",
      "pack": "pw",
-     "offset": 106954752,
+     "offset": 33554432,
      "bytes": 3145728,
      "layer": 6,
      "param": "w_down",
@@ -3212,7 +2982,7 @@
     {
      "name": "L6.s_down",
      "pack": "ps",
-     "offset": 3342336,
+     "offset": 1048576,
      "bytes": 98304,
      "layer": 6,
      "param": "s_down",
@@ -3230,60 +3000,6 @@
      "bytes": 4096,
      "layer": 7,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L7.w_q",
-     "pack": "pw",
-     "offset": 110100480,
-     "bytes": 2097152,
-     "layer": 7,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L7.s_q",
-     "pack": "ps",
-     "offset": 3440640,
-     "bytes": 65536,
-     "layer": 7,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L7.w_k",
-     "pack": "pw",
-     "offset": 112197632,
-     "bytes": 1048576,
-     "layer": 7,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L7.s_k",
-     "pack": "ps",
-     "offset": 3506176,
-     "bytes": 32768,
-     "layer": 7,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L7.w_v",
-     "pack": "pw",
-     "offset": 113246208,
-     "bytes": 1048576,
-     "layer": 7,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L7.s_v",
-     "pack": "ps",
-     "offset": 3538944,
-     "bytes": 32768,
-     "layer": 7,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -3307,7 +3023,7 @@
     {
      "name": "L7.w_o",
      "pack": "pw",
-     "offset": 114294784,
+     "offset": 36700160,
      "bytes": 2097152,
      "layer": 7,
      "param": "w_o",
@@ -3321,7 +3037,7 @@
     {
      "name": "L7.s_o",
      "pack": "ps",
-     "offset": 3571712,
+     "offset": 1146880,
      "bytes": 65536,
      "layer": 7,
      "param": "s_o",
@@ -3342,45 +3058,9 @@
      "kind": "attn"
     },
     {
-     "name": "L7.w_gate",
-     "pack": "pw",
-     "offset": 116391936,
-     "bytes": 3145728,
-     "layer": 7,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L7.s_gate",
-     "pack": "ps",
-     "offset": 3637248,
-     "bytes": 98304,
-     "layer": 7,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L7.w_up",
-     "pack": "pw",
-     "offset": 119537664,
-     "bytes": 3145728,
-     "layer": 7,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L7.s_up",
-     "pack": "ps",
-     "offset": 3735552,
-     "bytes": 98304,
-     "layer": 7,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L7.w_down",
      "pack": "pw",
-     "offset": 122683392,
+     "offset": 38797312,
      "bytes": 3145728,
      "layer": 7,
      "param": "w_down",
@@ -3394,7 +3074,7 @@
     {
      "name": "L7.s_down",
      "pack": "ps",
-     "offset": 3833856,
+     "offset": 1212416,
      "bytes": 98304,
      "layer": 7,
      "param": "s_down",
@@ -3412,60 +3092,6 @@
      "bytes": 4096,
      "layer": 8,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L8.w_q",
-     "pack": "pw",
-     "offset": 125829120,
-     "bytes": 2097152,
-     "layer": 8,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L8.s_q",
-     "pack": "ps",
-     "offset": 3932160,
-     "bytes": 65536,
-     "layer": 8,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L8.w_k",
-     "pack": "pw",
-     "offset": 127926272,
-     "bytes": 1048576,
-     "layer": 8,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L8.s_k",
-     "pack": "ps",
-     "offset": 3997696,
-     "bytes": 32768,
-     "layer": 8,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L8.w_v",
-     "pack": "pw",
-     "offset": 128974848,
-     "bytes": 1048576,
-     "layer": 8,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L8.s_v",
-     "pack": "ps",
-     "offset": 4030464,
-     "bytes": 32768,
-     "layer": 8,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -3489,7 +3115,7 @@
     {
      "name": "L8.w_o",
      "pack": "pw",
-     "offset": 130023424,
+     "offset": 41943040,
      "bytes": 2097152,
      "layer": 8,
      "param": "w_o",
@@ -3503,7 +3129,7 @@
     {
      "name": "L8.s_o",
      "pack": "ps",
-     "offset": 4063232,
+     "offset": 1310720,
      "bytes": 65536,
      "layer": 8,
      "param": "s_o",
@@ -3524,45 +3150,9 @@
      "kind": "attn"
     },
     {
-     "name": "L8.w_gate",
-     "pack": "pw",
-     "offset": 132120576,
-     "bytes": 3145728,
-     "layer": 8,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L8.s_gate",
-     "pack": "ps",
-     "offset": 4128768,
-     "bytes": 98304,
-     "layer": 8,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L8.w_up",
-     "pack": "pw",
-     "offset": 135266304,
-     "bytes": 3145728,
-     "layer": 8,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L8.s_up",
-     "pack": "ps",
-     "offset": 4227072,
-     "bytes": 98304,
-     "layer": 8,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L8.w_down",
      "pack": "pw",
-     "offset": 138412032,
+     "offset": 44040192,
      "bytes": 3145728,
      "layer": 8,
      "param": "w_down",
@@ -3576,7 +3166,7 @@
     {
      "name": "L8.s_down",
      "pack": "ps",
-     "offset": 4325376,
+     "offset": 1376256,
      "bytes": 98304,
      "layer": 8,
      "param": "s_down",
@@ -3594,60 +3184,6 @@
      "bytes": 4096,
      "layer": 9,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L9.w_q",
-     "pack": "pw",
-     "offset": 141557760,
-     "bytes": 2097152,
-     "layer": 9,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L9.s_q",
-     "pack": "ps",
-     "offset": 4423680,
-     "bytes": 65536,
-     "layer": 9,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L9.w_k",
-     "pack": "pw",
-     "offset": 143654912,
-     "bytes": 1048576,
-     "layer": 9,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L9.s_k",
-     "pack": "ps",
-     "offset": 4489216,
-     "bytes": 32768,
-     "layer": 9,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L9.w_v",
-     "pack": "pw",
-     "offset": 144703488,
-     "bytes": 1048576,
-     "layer": 9,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L9.s_v",
-     "pack": "ps",
-     "offset": 4521984,
-     "bytes": 32768,
-     "layer": 9,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -3671,7 +3207,7 @@
     {
      "name": "L9.w_o",
      "pack": "pw",
-     "offset": 145752064,
+     "offset": 47185920,
      "bytes": 2097152,
      "layer": 9,
      "param": "w_o",
@@ -3685,7 +3221,7 @@
     {
      "name": "L9.s_o",
      "pack": "ps",
-     "offset": 4554752,
+     "offset": 1474560,
      "bytes": 65536,
      "layer": 9,
      "param": "s_o",
@@ -3706,45 +3242,9 @@
      "kind": "attn"
     },
     {
-     "name": "L9.w_gate",
-     "pack": "pw",
-     "offset": 147849216,
-     "bytes": 3145728,
-     "layer": 9,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L9.s_gate",
-     "pack": "ps",
-     "offset": 4620288,
-     "bytes": 98304,
-     "layer": 9,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L9.w_up",
-     "pack": "pw",
-     "offset": 150994944,
-     "bytes": 3145728,
-     "layer": 9,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L9.s_up",
-     "pack": "ps",
-     "offset": 4718592,
-     "bytes": 98304,
-     "layer": 9,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L9.w_down",
      "pack": "pw",
-     "offset": 154140672,
+     "offset": 49283072,
      "bytes": 3145728,
      "layer": 9,
      "param": "w_down",
@@ -3758,7 +3258,7 @@
     {
      "name": "L9.s_down",
      "pack": "ps",
-     "offset": 4816896,
+     "offset": 1540096,
      "bytes": 98304,
      "layer": 9,
      "param": "s_down",
@@ -3776,60 +3276,6 @@
      "bytes": 4096,
      "layer": 10,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L10.w_q",
-     "pack": "pw",
-     "offset": 157286400,
-     "bytes": 2097152,
-     "layer": 10,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L10.s_q",
-     "pack": "ps",
-     "offset": 4915200,
-     "bytes": 65536,
-     "layer": 10,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L10.w_k",
-     "pack": "pw",
-     "offset": 159383552,
-     "bytes": 1048576,
-     "layer": 10,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L10.s_k",
-     "pack": "ps",
-     "offset": 4980736,
-     "bytes": 32768,
-     "layer": 10,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L10.w_v",
-     "pack": "pw",
-     "offset": 160432128,
-     "bytes": 1048576,
-     "layer": 10,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L10.s_v",
-     "pack": "ps",
-     "offset": 5013504,
-     "bytes": 32768,
-     "layer": 10,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -3853,7 +3299,7 @@
     {
      "name": "L10.w_o",
      "pack": "pw",
-     "offset": 161480704,
+     "offset": 52428800,
      "bytes": 2097152,
      "layer": 10,
      "param": "w_o",
@@ -3867,7 +3313,7 @@
     {
      "name": "L10.s_o",
      "pack": "ps",
-     "offset": 5046272,
+     "offset": 1638400,
      "bytes": 65536,
      "layer": 10,
      "param": "s_o",
@@ -3888,45 +3334,9 @@
      "kind": "attn"
     },
     {
-     "name": "L10.w_gate",
-     "pack": "pw",
-     "offset": 163577856,
-     "bytes": 3145728,
-     "layer": 10,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L10.s_gate",
-     "pack": "ps",
-     "offset": 5111808,
-     "bytes": 98304,
-     "layer": 10,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L10.w_up",
-     "pack": "pw",
-     "offset": 166723584,
-     "bytes": 3145728,
-     "layer": 10,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L10.s_up",
-     "pack": "ps",
-     "offset": 5210112,
-     "bytes": 98304,
-     "layer": 10,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L10.w_down",
      "pack": "pw",
-     "offset": 169869312,
+     "offset": 54525952,
      "bytes": 3145728,
      "layer": 10,
      "param": "w_down",
@@ -3940,7 +3350,7 @@
     {
      "name": "L10.s_down",
      "pack": "ps",
-     "offset": 5308416,
+     "offset": 1703936,
      "bytes": 98304,
      "layer": 10,
      "param": "s_down",
@@ -3958,60 +3368,6 @@
      "bytes": 4096,
      "layer": 11,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L11.w_q",
-     "pack": "pw",
-     "offset": 173015040,
-     "bytes": 2097152,
-     "layer": 11,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L11.s_q",
-     "pack": "ps",
-     "offset": 5406720,
-     "bytes": 65536,
-     "layer": 11,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L11.w_k",
-     "pack": "pw",
-     "offset": 175112192,
-     "bytes": 1048576,
-     "layer": 11,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L11.s_k",
-     "pack": "ps",
-     "offset": 5472256,
-     "bytes": 32768,
-     "layer": 11,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L11.w_v",
-     "pack": "pw",
-     "offset": 176160768,
-     "bytes": 1048576,
-     "layer": 11,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L11.s_v",
-     "pack": "ps",
-     "offset": 5505024,
-     "bytes": 32768,
-     "layer": 11,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -4035,7 +3391,7 @@
     {
      "name": "L11.w_o",
      "pack": "pw",
-     "offset": 177209344,
+     "offset": 57671680,
      "bytes": 2097152,
      "layer": 11,
      "param": "w_o",
@@ -4049,7 +3405,7 @@
     {
      "name": "L11.s_o",
      "pack": "ps",
-     "offset": 5537792,
+     "offset": 1802240,
      "bytes": 65536,
      "layer": 11,
      "param": "s_o",
@@ -4070,45 +3426,9 @@
      "kind": "attn"
     },
     {
-     "name": "L11.w_gate",
-     "pack": "pw",
-     "offset": 179306496,
-     "bytes": 3145728,
-     "layer": 11,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L11.s_gate",
-     "pack": "ps",
-     "offset": 5603328,
-     "bytes": 98304,
-     "layer": 11,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L11.w_up",
-     "pack": "pw",
-     "offset": 182452224,
-     "bytes": 3145728,
-     "layer": 11,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L11.s_up",
-     "pack": "ps",
-     "offset": 5701632,
-     "bytes": 98304,
-     "layer": 11,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L11.w_down",
      "pack": "pw",
-     "offset": 185597952,
+     "offset": 59768832,
      "bytes": 3145728,
      "layer": 11,
      "param": "w_down",
@@ -4122,7 +3442,7 @@
     {
      "name": "L11.s_down",
      "pack": "ps",
-     "offset": 5799936,
+     "offset": 1867776,
      "bytes": 98304,
      "layer": 11,
      "param": "s_down",
@@ -4140,60 +3460,6 @@
      "bytes": 4096,
      "layer": 12,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L12.w_q",
-     "pack": "pw",
-     "offset": 188743680,
-     "bytes": 2097152,
-     "layer": 12,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L12.s_q",
-     "pack": "ps",
-     "offset": 5898240,
-     "bytes": 65536,
-     "layer": 12,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L12.w_k",
-     "pack": "pw",
-     "offset": 190840832,
-     "bytes": 1048576,
-     "layer": 12,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L12.s_k",
-     "pack": "ps",
-     "offset": 5963776,
-     "bytes": 32768,
-     "layer": 12,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L12.w_v",
-     "pack": "pw",
-     "offset": 191889408,
-     "bytes": 1048576,
-     "layer": 12,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L12.s_v",
-     "pack": "ps",
-     "offset": 5996544,
-     "bytes": 32768,
-     "layer": 12,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -4217,7 +3483,7 @@
     {
      "name": "L12.w_o",
      "pack": "pw",
-     "offset": 192937984,
+     "offset": 62914560,
      "bytes": 2097152,
      "layer": 12,
      "param": "w_o",
@@ -4231,7 +3497,7 @@
     {
      "name": "L12.s_o",
      "pack": "ps",
-     "offset": 6029312,
+     "offset": 1966080,
      "bytes": 65536,
      "layer": 12,
      "param": "s_o",
@@ -4252,45 +3518,9 @@
      "kind": "attn"
     },
     {
-     "name": "L12.w_gate",
-     "pack": "pw",
-     "offset": 195035136,
-     "bytes": 3145728,
-     "layer": 12,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L12.s_gate",
-     "pack": "ps",
-     "offset": 6094848,
-     "bytes": 98304,
-     "layer": 12,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L12.w_up",
-     "pack": "pw",
-     "offset": 198180864,
-     "bytes": 3145728,
-     "layer": 12,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L12.s_up",
-     "pack": "ps",
-     "offset": 6193152,
-     "bytes": 98304,
-     "layer": 12,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L12.w_down",
      "pack": "pw",
-     "offset": 201326592,
+     "offset": 65011712,
      "bytes": 3145728,
      "layer": 12,
      "param": "w_down",
@@ -4304,7 +3534,7 @@
     {
      "name": "L12.s_down",
      "pack": "ps",
-     "offset": 6291456,
+     "offset": 2031616,
      "bytes": 98304,
      "layer": 12,
      "param": "s_down",
@@ -4322,60 +3552,6 @@
      "bytes": 4096,
      "layer": 13,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L13.w_q",
-     "pack": "pw",
-     "offset": 204472320,
-     "bytes": 2097152,
-     "layer": 13,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L13.s_q",
-     "pack": "ps",
-     "offset": 6389760,
-     "bytes": 65536,
-     "layer": 13,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L13.w_k",
-     "pack": "pw",
-     "offset": 206569472,
-     "bytes": 1048576,
-     "layer": 13,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L13.s_k",
-     "pack": "ps",
-     "offset": 6455296,
-     "bytes": 32768,
-     "layer": 13,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L13.w_v",
-     "pack": "pw",
-     "offset": 207618048,
-     "bytes": 1048576,
-     "layer": 13,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L13.s_v",
-     "pack": "ps",
-     "offset": 6488064,
-     "bytes": 32768,
-     "layer": 13,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -4399,7 +3575,7 @@
     {
      "name": "L13.w_o",
      "pack": "pw",
-     "offset": 208666624,
+     "offset": 68157440,
      "bytes": 2097152,
      "layer": 13,
      "param": "w_o",
@@ -4413,7 +3589,7 @@
     {
      "name": "L13.s_o",
      "pack": "ps",
-     "offset": 6520832,
+     "offset": 2129920,
      "bytes": 65536,
      "layer": 13,
      "param": "s_o",
@@ -4434,45 +3610,9 @@
      "kind": "attn"
     },
     {
-     "name": "L13.w_gate",
-     "pack": "pw",
-     "offset": 210763776,
-     "bytes": 3145728,
-     "layer": 13,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L13.s_gate",
-     "pack": "ps",
-     "offset": 6586368,
-     "bytes": 98304,
-     "layer": 13,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L13.w_up",
-     "pack": "pw",
-     "offset": 213909504,
-     "bytes": 3145728,
-     "layer": 13,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L13.s_up",
-     "pack": "ps",
-     "offset": 6684672,
-     "bytes": 98304,
-     "layer": 13,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L13.w_down",
      "pack": "pw",
-     "offset": 217055232,
+     "offset": 70254592,
      "bytes": 3145728,
      "layer": 13,
      "param": "w_down",
@@ -4486,7 +3626,7 @@
     {
      "name": "L13.s_down",
      "pack": "ps",
-     "offset": 6782976,
+     "offset": 2195456,
      "bytes": 98304,
      "layer": 13,
      "param": "s_down",
@@ -4504,60 +3644,6 @@
      "bytes": 4096,
      "layer": 14,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L14.w_q",
-     "pack": "pw",
-     "offset": 220200960,
-     "bytes": 2097152,
-     "layer": 14,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L14.s_q",
-     "pack": "ps",
-     "offset": 6881280,
-     "bytes": 65536,
-     "layer": 14,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L14.w_k",
-     "pack": "pw",
-     "offset": 222298112,
-     "bytes": 1048576,
-     "layer": 14,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L14.s_k",
-     "pack": "ps",
-     "offset": 6946816,
-     "bytes": 32768,
-     "layer": 14,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L14.w_v",
-     "pack": "pw",
-     "offset": 223346688,
-     "bytes": 1048576,
-     "layer": 14,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L14.s_v",
-     "pack": "ps",
-     "offset": 6979584,
-     "bytes": 32768,
-     "layer": 14,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -4581,7 +3667,7 @@
     {
      "name": "L14.w_o",
      "pack": "pw",
-     "offset": 224395264,
+     "offset": 73400320,
      "bytes": 2097152,
      "layer": 14,
      "param": "w_o",
@@ -4595,7 +3681,7 @@
     {
      "name": "L14.s_o",
      "pack": "ps",
-     "offset": 7012352,
+     "offset": 2293760,
      "bytes": 65536,
      "layer": 14,
      "param": "s_o",
@@ -4616,45 +3702,9 @@
      "kind": "attn"
     },
     {
-     "name": "L14.w_gate",
-     "pack": "pw",
-     "offset": 226492416,
-     "bytes": 3145728,
-     "layer": 14,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L14.s_gate",
-     "pack": "ps",
-     "offset": 7077888,
-     "bytes": 98304,
-     "layer": 14,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L14.w_up",
-     "pack": "pw",
-     "offset": 229638144,
-     "bytes": 3145728,
-     "layer": 14,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L14.s_up",
-     "pack": "ps",
-     "offset": 7176192,
-     "bytes": 98304,
-     "layer": 14,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L14.w_down",
      "pack": "pw",
-     "offset": 232783872,
+     "offset": 75497472,
      "bytes": 3145728,
      "layer": 14,
      "param": "w_down",
@@ -4668,7 +3718,7 @@
     {
      "name": "L14.s_down",
      "pack": "ps",
-     "offset": 7274496,
+     "offset": 2359296,
      "bytes": 98304,
      "layer": 14,
      "param": "s_down",
@@ -4686,60 +3736,6 @@
      "bytes": 4096,
      "layer": 15,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L15.w_q",
-     "pack": "pw",
-     "offset": 235929600,
-     "bytes": 2097152,
-     "layer": 15,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L15.s_q",
-     "pack": "ps",
-     "offset": 7372800,
-     "bytes": 65536,
-     "layer": 15,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L15.w_k",
-     "pack": "pw",
-     "offset": 238026752,
-     "bytes": 1048576,
-     "layer": 15,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L15.s_k",
-     "pack": "ps",
-     "offset": 7438336,
-     "bytes": 32768,
-     "layer": 15,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L15.w_v",
-     "pack": "pw",
-     "offset": 239075328,
-     "bytes": 1048576,
-     "layer": 15,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L15.s_v",
-     "pack": "ps",
-     "offset": 7471104,
-     "bytes": 32768,
-     "layer": 15,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -4763,7 +3759,7 @@
     {
      "name": "L15.w_o",
      "pack": "pw",
-     "offset": 240123904,
+     "offset": 78643200,
      "bytes": 2097152,
      "layer": 15,
      "param": "w_o",
@@ -4777,7 +3773,7 @@
     {
      "name": "L15.s_o",
      "pack": "ps",
-     "offset": 7503872,
+     "offset": 2457600,
      "bytes": 65536,
      "layer": 15,
      "param": "s_o",
@@ -4798,45 +3794,9 @@
      "kind": "attn"
     },
     {
-     "name": "L15.w_gate",
-     "pack": "pw",
-     "offset": 242221056,
-     "bytes": 3145728,
-     "layer": 15,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L15.s_gate",
-     "pack": "ps",
-     "offset": 7569408,
-     "bytes": 98304,
-     "layer": 15,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L15.w_up",
-     "pack": "pw",
-     "offset": 245366784,
-     "bytes": 3145728,
-     "layer": 15,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L15.s_up",
-     "pack": "ps",
-     "offset": 7667712,
-     "bytes": 98304,
-     "layer": 15,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L15.w_down",
      "pack": "pw",
-     "offset": 248512512,
+     "offset": 80740352,
      "bytes": 3145728,
      "layer": 15,
      "param": "w_down",
@@ -4850,7 +3810,7 @@
     {
      "name": "L15.s_down",
      "pack": "ps",
-     "offset": 7766016,
+     "offset": 2523136,
      "bytes": 98304,
      "layer": 15,
      "param": "s_down",
@@ -4868,60 +3828,6 @@
      "bytes": 4096,
      "layer": 16,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L16.w_q",
-     "pack": "pw",
-     "offset": 251658240,
-     "bytes": 2097152,
-     "layer": 16,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L16.s_q",
-     "pack": "ps",
-     "offset": 7864320,
-     "bytes": 65536,
-     "layer": 16,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L16.w_k",
-     "pack": "pw",
-     "offset": 253755392,
-     "bytes": 1048576,
-     "layer": 16,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L16.s_k",
-     "pack": "ps",
-     "offset": 7929856,
-     "bytes": 32768,
-     "layer": 16,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L16.w_v",
-     "pack": "pw",
-     "offset": 254803968,
-     "bytes": 1048576,
-     "layer": 16,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L16.s_v",
-     "pack": "ps",
-     "offset": 7962624,
-     "bytes": 32768,
-     "layer": 16,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -4945,7 +3851,7 @@
     {
      "name": "L16.w_o",
      "pack": "pw",
-     "offset": 255852544,
+     "offset": 83886080,
      "bytes": 2097152,
      "layer": 16,
      "param": "w_o",
@@ -4959,7 +3865,7 @@
     {
      "name": "L16.s_o",
      "pack": "ps",
-     "offset": 7995392,
+     "offset": 2621440,
      "bytes": 65536,
      "layer": 16,
      "param": "s_o",
@@ -4980,45 +3886,9 @@
      "kind": "attn"
     },
     {
-     "name": "L16.w_gate",
-     "pack": "pw",
-     "offset": 257949696,
-     "bytes": 3145728,
-     "layer": 16,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L16.s_gate",
-     "pack": "ps",
-     "offset": 8060928,
-     "bytes": 98304,
-     "layer": 16,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L16.w_up",
-     "pack": "pw",
-     "offset": 261095424,
-     "bytes": 3145728,
-     "layer": 16,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L16.s_up",
-     "pack": "ps",
-     "offset": 8159232,
-     "bytes": 98304,
-     "layer": 16,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L16.w_down",
      "pack": "pw",
-     "offset": 264241152,
+     "offset": 85983232,
      "bytes": 3145728,
      "layer": 16,
      "param": "w_down",
@@ -5032,7 +3902,7 @@
     {
      "name": "L16.s_down",
      "pack": "ps",
-     "offset": 8257536,
+     "offset": 2686976,
      "bytes": 98304,
      "layer": 16,
      "param": "s_down",
@@ -5050,60 +3920,6 @@
      "bytes": 4096,
      "layer": 17,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L17.w_q",
-     "pack": "pw",
-     "offset": 267386880,
-     "bytes": 2097152,
-     "layer": 17,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L17.s_q",
-     "pack": "ps",
-     "offset": 8355840,
-     "bytes": 65536,
-     "layer": 17,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L17.w_k",
-     "pack": "pw",
-     "offset": 269484032,
-     "bytes": 1048576,
-     "layer": 17,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L17.s_k",
-     "pack": "ps",
-     "offset": 8421376,
-     "bytes": 32768,
-     "layer": 17,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L17.w_v",
-     "pack": "pw",
-     "offset": 270532608,
-     "bytes": 1048576,
-     "layer": 17,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L17.s_v",
-     "pack": "ps",
-     "offset": 8454144,
-     "bytes": 32768,
-     "layer": 17,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -5127,7 +3943,7 @@
     {
      "name": "L17.w_o",
      "pack": "pw",
-     "offset": 271581184,
+     "offset": 89128960,
      "bytes": 2097152,
      "layer": 17,
      "param": "w_o",
@@ -5141,7 +3957,7 @@
     {
      "name": "L17.s_o",
      "pack": "ps",
-     "offset": 8486912,
+     "offset": 2785280,
      "bytes": 65536,
      "layer": 17,
      "param": "s_o",
@@ -5162,45 +3978,9 @@
      "kind": "attn"
     },
     {
-     "name": "L17.w_gate",
-     "pack": "pw",
-     "offset": 273678336,
-     "bytes": 3145728,
-     "layer": 17,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L17.s_gate",
-     "pack": "ps",
-     "offset": 8552448,
-     "bytes": 98304,
-     "layer": 17,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L17.w_up",
-     "pack": "pw",
-     "offset": 276824064,
-     "bytes": 3145728,
-     "layer": 17,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L17.s_up",
-     "pack": "ps",
-     "offset": 8650752,
-     "bytes": 98304,
-     "layer": 17,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L17.w_down",
      "pack": "pw",
-     "offset": 279969792,
+     "offset": 91226112,
      "bytes": 3145728,
      "layer": 17,
      "param": "w_down",
@@ -5214,7 +3994,7 @@
     {
      "name": "L17.s_down",
      "pack": "ps",
-     "offset": 8749056,
+     "offset": 2850816,
      "bytes": 98304,
      "layer": 17,
      "param": "s_down",
@@ -5232,60 +4012,6 @@
      "bytes": 4096,
      "layer": 18,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L18.w_q",
-     "pack": "pw",
-     "offset": 283115520,
-     "bytes": 2097152,
-     "layer": 18,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L18.s_q",
-     "pack": "ps",
-     "offset": 8847360,
-     "bytes": 65536,
-     "layer": 18,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L18.w_k",
-     "pack": "pw",
-     "offset": 285212672,
-     "bytes": 1048576,
-     "layer": 18,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L18.s_k",
-     "pack": "ps",
-     "offset": 8912896,
-     "bytes": 32768,
-     "layer": 18,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L18.w_v",
-     "pack": "pw",
-     "offset": 286261248,
-     "bytes": 1048576,
-     "layer": 18,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L18.s_v",
-     "pack": "ps",
-     "offset": 8945664,
-     "bytes": 32768,
-     "layer": 18,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -5309,7 +4035,7 @@
     {
      "name": "L18.w_o",
      "pack": "pw",
-     "offset": 287309824,
+     "offset": 94371840,
      "bytes": 2097152,
      "layer": 18,
      "param": "w_o",
@@ -5323,7 +4049,7 @@
     {
      "name": "L18.s_o",
      "pack": "ps",
-     "offset": 8978432,
+     "offset": 2949120,
      "bytes": 65536,
      "layer": 18,
      "param": "s_o",
@@ -5344,45 +4070,9 @@
      "kind": "attn"
     },
     {
-     "name": "L18.w_gate",
-     "pack": "pw",
-     "offset": 289406976,
-     "bytes": 3145728,
-     "layer": 18,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L18.s_gate",
-     "pack": "ps",
-     "offset": 9043968,
-     "bytes": 98304,
-     "layer": 18,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L18.w_up",
-     "pack": "pw",
-     "offset": 292552704,
-     "bytes": 3145728,
-     "layer": 18,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L18.s_up",
-     "pack": "ps",
-     "offset": 9142272,
-     "bytes": 98304,
-     "layer": 18,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L18.w_down",
      "pack": "pw",
-     "offset": 295698432,
+     "offset": 96468992,
      "bytes": 3145728,
      "layer": 18,
      "param": "w_down",
@@ -5396,7 +4086,7 @@
     {
      "name": "L18.s_down",
      "pack": "ps",
-     "offset": 9240576,
+     "offset": 3014656,
      "bytes": 98304,
      "layer": 18,
      "param": "s_down",
@@ -5414,60 +4104,6 @@
      "bytes": 4096,
      "layer": 19,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L19.w_q",
-     "pack": "pw",
-     "offset": 298844160,
-     "bytes": 2097152,
-     "layer": 19,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L19.s_q",
-     "pack": "ps",
-     "offset": 9338880,
-     "bytes": 65536,
-     "layer": 19,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L19.w_k",
-     "pack": "pw",
-     "offset": 300941312,
-     "bytes": 1048576,
-     "layer": 19,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L19.s_k",
-     "pack": "ps",
-     "offset": 9404416,
-     "bytes": 32768,
-     "layer": 19,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L19.w_v",
-     "pack": "pw",
-     "offset": 301989888,
-     "bytes": 1048576,
-     "layer": 19,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L19.s_v",
-     "pack": "ps",
-     "offset": 9437184,
-     "bytes": 32768,
-     "layer": 19,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -5491,7 +4127,7 @@
     {
      "name": "L19.w_o",
      "pack": "pw",
-     "offset": 303038464,
+     "offset": 99614720,
      "bytes": 2097152,
      "layer": 19,
      "param": "w_o",
@@ -5505,7 +4141,7 @@
     {
      "name": "L19.s_o",
      "pack": "ps",
-     "offset": 9469952,
+     "offset": 3112960,
      "bytes": 65536,
      "layer": 19,
      "param": "s_o",
@@ -5526,45 +4162,9 @@
      "kind": "attn"
     },
     {
-     "name": "L19.w_gate",
-     "pack": "pw",
-     "offset": 305135616,
-     "bytes": 3145728,
-     "layer": 19,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L19.s_gate",
-     "pack": "ps",
-     "offset": 9535488,
-     "bytes": 98304,
-     "layer": 19,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L19.w_up",
-     "pack": "pw",
-     "offset": 308281344,
-     "bytes": 3145728,
-     "layer": 19,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L19.s_up",
-     "pack": "ps",
-     "offset": 9633792,
-     "bytes": 98304,
-     "layer": 19,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L19.w_down",
      "pack": "pw",
-     "offset": 311427072,
+     "offset": 101711872,
      "bytes": 3145728,
      "layer": 19,
      "param": "w_down",
@@ -5578,7 +4178,7 @@
     {
      "name": "L19.s_down",
      "pack": "ps",
-     "offset": 9732096,
+     "offset": 3178496,
      "bytes": 98304,
      "layer": 19,
      "param": "s_down",
@@ -5596,60 +4196,6 @@
      "bytes": 4096,
      "layer": 20,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L20.w_q",
-     "pack": "pw",
-     "offset": 314572800,
-     "bytes": 2097152,
-     "layer": 20,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L20.s_q",
-     "pack": "ps",
-     "offset": 9830400,
-     "bytes": 65536,
-     "layer": 20,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L20.w_k",
-     "pack": "pw",
-     "offset": 316669952,
-     "bytes": 1048576,
-     "layer": 20,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L20.s_k",
-     "pack": "ps",
-     "offset": 9895936,
-     "bytes": 32768,
-     "layer": 20,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L20.w_v",
-     "pack": "pw",
-     "offset": 317718528,
-     "bytes": 1048576,
-     "layer": 20,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L20.s_v",
-     "pack": "ps",
-     "offset": 9928704,
-     "bytes": 32768,
-     "layer": 20,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -5673,7 +4219,7 @@
     {
      "name": "L20.w_o",
      "pack": "pw",
-     "offset": 318767104,
+     "offset": 104857600,
      "bytes": 2097152,
      "layer": 20,
      "param": "w_o",
@@ -5687,7 +4233,7 @@
     {
      "name": "L20.s_o",
      "pack": "ps",
-     "offset": 9961472,
+     "offset": 3276800,
      "bytes": 65536,
      "layer": 20,
      "param": "s_o",
@@ -5708,45 +4254,9 @@
      "kind": "attn"
     },
     {
-     "name": "L20.w_gate",
-     "pack": "pw",
-     "offset": 320864256,
-     "bytes": 3145728,
-     "layer": 20,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L20.s_gate",
-     "pack": "ps",
-     "offset": 10027008,
-     "bytes": 98304,
-     "layer": 20,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L20.w_up",
-     "pack": "pw",
-     "offset": 324009984,
-     "bytes": 3145728,
-     "layer": 20,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L20.s_up",
-     "pack": "ps",
-     "offset": 10125312,
-     "bytes": 98304,
-     "layer": 20,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L20.w_down",
      "pack": "pw",
-     "offset": 327155712,
+     "offset": 106954752,
      "bytes": 3145728,
      "layer": 20,
      "param": "w_down",
@@ -5760,7 +4270,7 @@
     {
      "name": "L20.s_down",
      "pack": "ps",
-     "offset": 10223616,
+     "offset": 3342336,
      "bytes": 98304,
      "layer": 20,
      "param": "s_down",
@@ -5778,60 +4288,6 @@
      "bytes": 4096,
      "layer": 21,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L21.w_q",
-     "pack": "pw",
-     "offset": 330301440,
-     "bytes": 2097152,
-     "layer": 21,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L21.s_q",
-     "pack": "ps",
-     "offset": 10321920,
-     "bytes": 65536,
-     "layer": 21,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L21.w_k",
-     "pack": "pw",
-     "offset": 332398592,
-     "bytes": 1048576,
-     "layer": 21,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L21.s_k",
-     "pack": "ps",
-     "offset": 10387456,
-     "bytes": 32768,
-     "layer": 21,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L21.w_v",
-     "pack": "pw",
-     "offset": 333447168,
-     "bytes": 1048576,
-     "layer": 21,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L21.s_v",
-     "pack": "ps",
-     "offset": 10420224,
-     "bytes": 32768,
-     "layer": 21,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -5855,7 +4311,7 @@
     {
      "name": "L21.w_o",
      "pack": "pw",
-     "offset": 334495744,
+     "offset": 110100480,
      "bytes": 2097152,
      "layer": 21,
      "param": "w_o",
@@ -5869,7 +4325,7 @@
     {
      "name": "L21.s_o",
      "pack": "ps",
-     "offset": 10452992,
+     "offset": 3440640,
      "bytes": 65536,
      "layer": 21,
      "param": "s_o",
@@ -5890,45 +4346,9 @@
      "kind": "attn"
     },
     {
-     "name": "L21.w_gate",
-     "pack": "pw",
-     "offset": 336592896,
-     "bytes": 3145728,
-     "layer": 21,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L21.s_gate",
-     "pack": "ps",
-     "offset": 10518528,
-     "bytes": 98304,
-     "layer": 21,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L21.w_up",
-     "pack": "pw",
-     "offset": 339738624,
-     "bytes": 3145728,
-     "layer": 21,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L21.s_up",
-     "pack": "ps",
-     "offset": 10616832,
-     "bytes": 98304,
-     "layer": 21,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L21.w_down",
      "pack": "pw",
-     "offset": 342884352,
+     "offset": 112197632,
      "bytes": 3145728,
      "layer": 21,
      "param": "w_down",
@@ -5942,7 +4362,7 @@
     {
      "name": "L21.s_down",
      "pack": "ps",
-     "offset": 10715136,
+     "offset": 3506176,
      "bytes": 98304,
      "layer": 21,
      "param": "s_down",
@@ -5960,60 +4380,6 @@
      "bytes": 4096,
      "layer": 22,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L22.w_q",
-     "pack": "pw",
-     "offset": 346030080,
-     "bytes": 2097152,
-     "layer": 22,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L22.s_q",
-     "pack": "ps",
-     "offset": 10813440,
-     "bytes": 65536,
-     "layer": 22,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L22.w_k",
-     "pack": "pw",
-     "offset": 348127232,
-     "bytes": 1048576,
-     "layer": 22,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L22.s_k",
-     "pack": "ps",
-     "offset": 10878976,
-     "bytes": 32768,
-     "layer": 22,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L22.w_v",
-     "pack": "pw",
-     "offset": 349175808,
-     "bytes": 1048576,
-     "layer": 22,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L22.s_v",
-     "pack": "ps",
-     "offset": 10911744,
-     "bytes": 32768,
-     "layer": 22,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -6037,7 +4403,7 @@
     {
      "name": "L22.w_o",
      "pack": "pw",
-     "offset": 350224384,
+     "offset": 115343360,
      "bytes": 2097152,
      "layer": 22,
      "param": "w_o",
@@ -6051,7 +4417,7 @@
     {
      "name": "L22.s_o",
      "pack": "ps",
-     "offset": 10944512,
+     "offset": 3604480,
      "bytes": 65536,
      "layer": 22,
      "param": "s_o",
@@ -6072,45 +4438,9 @@
      "kind": "attn"
     },
     {
-     "name": "L22.w_gate",
-     "pack": "pw",
-     "offset": 352321536,
-     "bytes": 3145728,
-     "layer": 22,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L22.s_gate",
-     "pack": "ps",
-     "offset": 11010048,
-     "bytes": 98304,
-     "layer": 22,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L22.w_up",
-     "pack": "pw",
-     "offset": 355467264,
-     "bytes": 3145728,
-     "layer": 22,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L22.s_up",
-     "pack": "ps",
-     "offset": 11108352,
-     "bytes": 98304,
-     "layer": 22,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L22.w_down",
      "pack": "pw",
-     "offset": 358612992,
+     "offset": 117440512,
      "bytes": 3145728,
      "layer": 22,
      "param": "w_down",
@@ -6124,7 +4454,7 @@
     {
      "name": "L22.s_down",
      "pack": "ps",
-     "offset": 11206656,
+     "offset": 3670016,
      "bytes": 98304,
      "layer": 22,
      "param": "s_down",
@@ -6142,60 +4472,6 @@
      "bytes": 4096,
      "layer": 23,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L23.w_q",
-     "pack": "pw",
-     "offset": 361758720,
-     "bytes": 2097152,
-     "layer": 23,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L23.s_q",
-     "pack": "ps",
-     "offset": 11304960,
-     "bytes": 65536,
-     "layer": 23,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L23.w_k",
-     "pack": "pw",
-     "offset": 363855872,
-     "bytes": 1048576,
-     "layer": 23,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L23.s_k",
-     "pack": "ps",
-     "offset": 11370496,
-     "bytes": 32768,
-     "layer": 23,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L23.w_v",
-     "pack": "pw",
-     "offset": 364904448,
-     "bytes": 1048576,
-     "layer": 23,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L23.s_v",
-     "pack": "ps",
-     "offset": 11403264,
-     "bytes": 32768,
-     "layer": 23,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -6219,7 +4495,7 @@
     {
      "name": "L23.w_o",
      "pack": "pw",
-     "offset": 365953024,
+     "offset": 120586240,
      "bytes": 2097152,
      "layer": 23,
      "param": "w_o",
@@ -6233,7 +4509,7 @@
     {
      "name": "L23.s_o",
      "pack": "ps",
-     "offset": 11436032,
+     "offset": 3768320,
      "bytes": 65536,
      "layer": 23,
      "param": "s_o",
@@ -6254,45 +4530,9 @@
      "kind": "attn"
     },
     {
-     "name": "L23.w_gate",
-     "pack": "pw",
-     "offset": 368050176,
-     "bytes": 3145728,
-     "layer": 23,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L23.s_gate",
-     "pack": "ps",
-     "offset": 11501568,
-     "bytes": 98304,
-     "layer": 23,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L23.w_up",
-     "pack": "pw",
-     "offset": 371195904,
-     "bytes": 3145728,
-     "layer": 23,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L23.s_up",
-     "pack": "ps",
-     "offset": 11599872,
-     "bytes": 98304,
-     "layer": 23,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L23.w_down",
      "pack": "pw",
-     "offset": 374341632,
+     "offset": 122683392,
      "bytes": 3145728,
      "layer": 23,
      "param": "w_down",
@@ -6306,7 +4546,7 @@
     {
      "name": "L23.s_down",
      "pack": "ps",
-     "offset": 11698176,
+     "offset": 3833856,
      "bytes": 98304,
      "layer": 23,
      "param": "s_down",
@@ -6324,60 +4564,6 @@
      "bytes": 4096,
      "layer": 24,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L24.w_q",
-     "pack": "pw",
-     "offset": 377487360,
-     "bytes": 2097152,
-     "layer": 24,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L24.s_q",
-     "pack": "ps",
-     "offset": 11796480,
-     "bytes": 65536,
-     "layer": 24,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L24.w_k",
-     "pack": "pw",
-     "offset": 379584512,
-     "bytes": 1048576,
-     "layer": 24,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L24.s_k",
-     "pack": "ps",
-     "offset": 11862016,
-     "bytes": 32768,
-     "layer": 24,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L24.w_v",
-     "pack": "pw",
-     "offset": 380633088,
-     "bytes": 1048576,
-     "layer": 24,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L24.s_v",
-     "pack": "ps",
-     "offset": 11894784,
-     "bytes": 32768,
-     "layer": 24,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -6401,7 +4587,7 @@
     {
      "name": "L24.w_o",
      "pack": "pw",
-     "offset": 381681664,
+     "offset": 125829120,
      "bytes": 2097152,
      "layer": 24,
      "param": "w_o",
@@ -6415,7 +4601,7 @@
     {
      "name": "L24.s_o",
      "pack": "ps",
-     "offset": 11927552,
+     "offset": 3932160,
      "bytes": 65536,
      "layer": 24,
      "param": "s_o",
@@ -6436,45 +4622,9 @@
      "kind": "attn"
     },
     {
-     "name": "L24.w_gate",
-     "pack": "pw",
-     "offset": 383778816,
-     "bytes": 3145728,
-     "layer": 24,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L24.s_gate",
-     "pack": "ps",
-     "offset": 11993088,
-     "bytes": 98304,
-     "layer": 24,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L24.w_up",
-     "pack": "pw",
-     "offset": 386924544,
-     "bytes": 3145728,
-     "layer": 24,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L24.s_up",
-     "pack": "ps",
-     "offset": 12091392,
-     "bytes": 98304,
-     "layer": 24,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L24.w_down",
      "pack": "pw",
-     "offset": 390070272,
+     "offset": 127926272,
      "bytes": 3145728,
      "layer": 24,
      "param": "w_down",
@@ -6488,7 +4638,7 @@
     {
      "name": "L24.s_down",
      "pack": "ps",
-     "offset": 12189696,
+     "offset": 3997696,
      "bytes": 98304,
      "layer": 24,
      "param": "s_down",
@@ -6506,60 +4656,6 @@
      "bytes": 4096,
      "layer": 25,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L25.w_q",
-     "pack": "pw",
-     "offset": 393216000,
-     "bytes": 2097152,
-     "layer": 25,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L25.s_q",
-     "pack": "ps",
-     "offset": 12288000,
-     "bytes": 65536,
-     "layer": 25,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L25.w_k",
-     "pack": "pw",
-     "offset": 395313152,
-     "bytes": 1048576,
-     "layer": 25,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L25.s_k",
-     "pack": "ps",
-     "offset": 12353536,
-     "bytes": 32768,
-     "layer": 25,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L25.w_v",
-     "pack": "pw",
-     "offset": 396361728,
-     "bytes": 1048576,
-     "layer": 25,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L25.s_v",
-     "pack": "ps",
-     "offset": 12386304,
-     "bytes": 32768,
-     "layer": 25,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -6583,7 +4679,7 @@
     {
      "name": "L25.w_o",
      "pack": "pw",
-     "offset": 397410304,
+     "offset": 131072000,
      "bytes": 2097152,
      "layer": 25,
      "param": "w_o",
@@ -6597,7 +4693,7 @@
     {
      "name": "L25.s_o",
      "pack": "ps",
-     "offset": 12419072,
+     "offset": 4096000,
      "bytes": 65536,
      "layer": 25,
      "param": "s_o",
@@ -6618,45 +4714,9 @@
      "kind": "attn"
     },
     {
-     "name": "L25.w_gate",
-     "pack": "pw",
-     "offset": 399507456,
-     "bytes": 3145728,
-     "layer": 25,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L25.s_gate",
-     "pack": "ps",
-     "offset": 12484608,
-     "bytes": 98304,
-     "layer": 25,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L25.w_up",
-     "pack": "pw",
-     "offset": 402653184,
-     "bytes": 3145728,
-     "layer": 25,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L25.s_up",
-     "pack": "ps",
-     "offset": 12582912,
-     "bytes": 98304,
-     "layer": 25,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L25.w_down",
      "pack": "pw",
-     "offset": 405798912,
+     "offset": 133169152,
      "bytes": 3145728,
      "layer": 25,
      "param": "w_down",
@@ -6670,7 +4730,7 @@
     {
      "name": "L25.s_down",
      "pack": "ps",
-     "offset": 12681216,
+     "offset": 4161536,
      "bytes": 98304,
      "layer": 25,
      "param": "s_down",
@@ -6688,60 +4748,6 @@
      "bytes": 4096,
      "layer": 26,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L26.w_q",
-     "pack": "pw",
-     "offset": 408944640,
-     "bytes": 2097152,
-     "layer": 26,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L26.s_q",
-     "pack": "ps",
-     "offset": 12779520,
-     "bytes": 65536,
-     "layer": 26,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L26.w_k",
-     "pack": "pw",
-     "offset": 411041792,
-     "bytes": 1048576,
-     "layer": 26,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L26.s_k",
-     "pack": "ps",
-     "offset": 12845056,
-     "bytes": 32768,
-     "layer": 26,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L26.w_v",
-     "pack": "pw",
-     "offset": 412090368,
-     "bytes": 1048576,
-     "layer": 26,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L26.s_v",
-     "pack": "ps",
-     "offset": 12877824,
-     "bytes": 32768,
-     "layer": 26,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -6765,7 +4771,7 @@
     {
      "name": "L26.w_o",
      "pack": "pw",
-     "offset": 413138944,
+     "offset": 136314880,
      "bytes": 2097152,
      "layer": 26,
      "param": "w_o",
@@ -6779,7 +4785,7 @@
     {
      "name": "L26.s_o",
      "pack": "ps",
-     "offset": 12910592,
+     "offset": 4259840,
      "bytes": 65536,
      "layer": 26,
      "param": "s_o",
@@ -6800,45 +4806,9 @@
      "kind": "attn"
     },
     {
-     "name": "L26.w_gate",
-     "pack": "pw",
-     "offset": 415236096,
-     "bytes": 3145728,
-     "layer": 26,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L26.s_gate",
-     "pack": "ps",
-     "offset": 12976128,
-     "bytes": 98304,
-     "layer": 26,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L26.w_up",
-     "pack": "pw",
-     "offset": 418381824,
-     "bytes": 3145728,
-     "layer": 26,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L26.s_up",
-     "pack": "ps",
-     "offset": 13074432,
-     "bytes": 98304,
-     "layer": 26,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L26.w_down",
      "pack": "pw",
-     "offset": 421527552,
+     "offset": 138412032,
      "bytes": 3145728,
      "layer": 26,
      "param": "w_down",
@@ -6852,7 +4822,7 @@
     {
      "name": "L26.s_down",
      "pack": "ps",
-     "offset": 13172736,
+     "offset": 4325376,
      "bytes": 98304,
      "layer": 26,
      "param": "s_down",
@@ -6870,60 +4840,6 @@
      "bytes": 4096,
      "layer": 27,
      "param": "ln1",
-     "kind": "attn"
-    },
-    {
-     "name": "L27.w_q",
-     "pack": "pw",
-     "offset": 424673280,
-     "bytes": 2097152,
-     "layer": 27,
-     "param": "w_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L27.s_q",
-     "pack": "ps",
-     "offset": 13271040,
-     "bytes": 65536,
-     "layer": 27,
-     "param": "s_q",
-     "kind": "attn"
-    },
-    {
-     "name": "L27.w_k",
-     "pack": "pw",
-     "offset": 426770432,
-     "bytes": 1048576,
-     "layer": 27,
-     "param": "w_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L27.s_k",
-     "pack": "ps",
-     "offset": 13336576,
-     "bytes": 32768,
-     "layer": 27,
-     "param": "s_k",
-     "kind": "attn"
-    },
-    {
-     "name": "L27.w_v",
-     "pack": "pw",
-     "offset": 427819008,
-     "bytes": 1048576,
-     "layer": 27,
-     "param": "w_v",
-     "kind": "attn"
-    },
-    {
-     "name": "L27.s_v",
-     "pack": "ps",
-     "offset": 13369344,
-     "bytes": 32768,
-     "layer": 27,
-     "param": "s_v",
      "kind": "attn"
     },
     {
@@ -6947,7 +4863,7 @@
     {
      "name": "L27.w_o",
      "pack": "pw",
-     "offset": 428867584,
+     "offset": 141557760,
      "bytes": 2097152,
      "layer": 27,
      "param": "w_o",
@@ -6961,7 +4877,7 @@
     {
      "name": "L27.s_o",
      "pack": "ps",
-     "offset": 13402112,
+     "offset": 4423680,
      "bytes": 65536,
      "layer": 27,
      "param": "s_o",
@@ -6982,45 +4898,9 @@
      "kind": "attn"
     },
     {
-     "name": "L27.w_gate",
-     "pack": "pw",
-     "offset": 430964736,
-     "bytes": 3145728,
-     "layer": 27,
-     "param": "w_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L27.s_gate",
-     "pack": "ps",
-     "offset": 13467648,
-     "bytes": 98304,
-     "layer": 27,
-     "param": "s_gate",
-     "kind": "attn"
-    },
-    {
-     "name": "L27.w_up",
-     "pack": "pw",
-     "offset": 434110464,
-     "bytes": 3145728,
-     "layer": 27,
-     "param": "w_up",
-     "kind": "attn"
-    },
-    {
-     "name": "L27.s_up",
-     "pack": "ps",
-     "offset": 13565952,
-     "bytes": 98304,
-     "layer": 27,
-     "param": "s_up",
-     "kind": "attn"
-    },
-    {
      "name": "L27.w_down",
      "pack": "pw",
-     "offset": 437256192,
+     "offset": 143654912,
      "bytes": 3145728,
      "layer": 27,
      "param": "w_down",
@@ -7034,7 +4914,7 @@
     {
      "name": "L27.s_down",
      "pack": "ps",
-     "offset": 13664256,
+     "offset": 4489216,
      "bytes": 98304,
      "layer": 27,
      "param": "s_down",
@@ -7048,7 +4928,7 @@
     {
      "name": "LM.w_lm",
      "pack": "pw",
-     "offset": 440401920,
+     "offset": 146800640,
      "bytes": 155582464,
      "param": "LM.w_lm",
      "kind": "out"
@@ -7056,7 +4936,7 @@
     {
      "name": "LM.s_lm",
      "pack": "ps",
-     "offset": 13762560,
+     "offset": 4587520,
      "bytes": 4861952,
      "param": "LM.s_lm",
      "kind": "out"

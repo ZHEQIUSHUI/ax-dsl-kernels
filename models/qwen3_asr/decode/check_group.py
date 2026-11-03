@@ -10,8 +10,10 @@ and simulates the same cases instead of using the Python reference execution.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -203,6 +205,12 @@ def print_stats(label, st):
           f"abs mean={st['abs_mean']:.6g} max={st['abs_max']:.6g}", flush=True)
 
 
+def dtype_name(dtype):
+    return {torch.bfloat16: "bfloat16", torch.float32: "float32", torch.int32: "int32",
+            torch.float8_e4m3fn: "float8_e4m3fn", torch.float8_e8m0fnu: "uint8"}.get(
+                dtype, str(dtype).removeprefix("torch."))
+
+
 def make_inputs(shards, name, rows, generator):
     if name.startswith("tts_"):
         text = shards.get("talker.model.text_embedding.weight")
@@ -253,6 +261,8 @@ def main():
     ap.add_argument("--save-outputs", action="store_true",
                     help="write each decoded row and its logits next to result.json")
     ap.add_argument("--run-mode", default=os.environ.get("RUN_MODE", "PYRUN"), choices=("PYRUN", "CRUN"))
+    ap.add_argument("--kernel-out", default=None, help="also write the compiled kernel and layout here")
+    ap.add_argument("--kernel-name", default=None)
     args = ap.parse_args()
     if args.layers % 4:
         raise ValueError("layers must be a multiple of four")
@@ -288,6 +298,7 @@ def main():
     print(f"build group {args.run_mode}", flush=True)
     kernel, packs, lm, meta = Q.prepare_group(W, out_dir, layers=layer_count, lmhead=lmhead,
                                               run_mode=args.run_mode)
+    saved = [False]
     lm_ref = None
     if lmhead:
         head_w = mb.dequant(lm["w_lm"], lm["s_lm"]).float()
@@ -305,10 +316,27 @@ def main():
         pn = torch.tensor([pos, pos // q.BC + 1, (pos // q.BC) * 2 * q.BC + pos % q.BC], dtype=torch.int32)
         out = torch.empty((1, 1, q.H), dtype=torch.bfloat16)
         case = dict(x=x.reshape(1, 1, q.H), cs=cs, pn=pn, mask=mask_for(pos), kv=kv, fnorm=fnorm,
-                    hbuf=torch.zeros((1, 1, q.H), dtype=torch.bfloat16), out=out, **packs)
+                    hbuf=torch.zeros((1, 1, q.H), dtype=torch.bfloat16), out=out, **packs, **meta["banks"])
         if lmhead:
             case["logits"] = logits
+        if args.kernel_out and not (out_dir / "inputs.json").exists():
+            io = {n: {"shape": list(case[n].shape), "dtype": dtype_name(case[n].dtype)} for n in names}
+            (out_dir / "inputs.json").write_text(json.dumps(
+                {"model": args.model, "layers": layer_count, "lmhead": lmhead, "context": q.LMAX,
+                 "cores": L.CORES, "inputs": io}, indent=2) + "\n")
         kernel[4](*[case[n] for n in names])
+        if args.kernel_out and not saved[0]:
+            dst_dir = Path(args.kernel_out)
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            paths = glob.glob(os.path.join(meta["build"], "cache", "group_kernel.*.compiled.axmodel"))
+            if not paths:
+                raise SystemExit("compiled axmodel not found")
+            name = args.kernel_name or f"qwen3_group{layer_count}_attn_mx8{'_lm8' if lmhead else ''}_paged_c{q.LMAX}_npu{L.CORES}_{args.model}"
+            dst = dst_dir / f"{name}.axmodel"
+            shutil.copy(max(paths, key=os.path.getmtime), dst)
+            Q.write_layout(str(dst)[:-len(".axmodel")] + ".layout", meta["sizes"], meta["elem"])
+            print(f"wrote {dst} and its layout", flush=True)
+            saved[0] = True
         return out, (logits.clone() if lmhead else None)
 
     result = {"model": args.model, "layers": layer_count, "prefix": args.prefix, "e2_mode": args.e2_mode,

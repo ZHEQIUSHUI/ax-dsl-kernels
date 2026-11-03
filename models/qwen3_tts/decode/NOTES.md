@@ -555,3 +555,40 @@ Compiled deliverables:
   it is already final-normalised.  Applying `output_norm` to it again would
   double-normalise the hidden row (the logits would stay correct because the
   kernel head uses the same row).
+
+## E7: one copy of the row-split weights (2026-11-03)
+
+`BANKS=1` makes a decode group read `w_q/k/v`, `w_gate/up` and their E8M0 scales
+from the prefill kernel's banks: layer `j` takes block `j // 4` of
+`k_b<j % 4>_<name>`, which is the prefill input `b<j % 4>_<name>`.  The host
+binds each `k_<bank>` input to that prefill bank buffer.  `w_o`, `w_down`,
+their scales, the norms and the output head stay in the packs (the same
+column-split split as 27B step 1).
+
+Pack bytes before -> after (MiB): ASR-0.6B 586.38 -> 297.63, ASR-1.7B 1692.49
+-> 768.49, TTS-0.6B 436.47 -> 147.72, TTS-1.7B 1392.66 -> 468.66.  Removed
+duplication is 288.75 MiB (0.6B) / 924 MiB (1.7B); the remaining column-split
+`w_o` / `w_down` + scales are 144.375 / 462 MiB.  The TTS code predictor
+(`a.gen.code.*`) and codec are separate weights, not copies of these layers.
+
+Host checks: every `k_b*` input equals its prefill `b*` input's shape and bytes;
+all 140 row-split layer members (28 x 5 weights/scales) are bit-identical to
+host quantization; `check_banks.py` passes page-boundary positions
+0,1,254,255,256,257,258,511,512,4095.
+
+CRUN: ASR-0.6B and ASR-1.7B pass full 28 layers.  TTS-0.6B and TTS-1.7B pass
+the standard 4-layer CRUN check.  The full 28-layer TTS cosine floor is the
+Transformers reference chain, not the bank path: the same-input `BANKS=0`
+TTS-0.6B run gives exactly the same per-position cosines and difference
+statistics as the banked run (out 0.9991911 / 0.9982210 / 0.9988307).  Details
+and the TTS-1.7B confirmation are in the top-level `NOTES.md` of the smallbank
+work directory.
+
+Current artifacts:
+
+| product | axmodel md5 | bytes |
+|---|---|---:|
+| ASR-0.6B | `44b8e1fb35532fd03fcca5c014fccff2` | 6443178 |
+| ASR-1.7B | `4a12f8cb768b74ddb70900c4f784f1af` | 10049610 |
+| TTS-0.6B | `1a1215ab0595e7ae87876884041082be` | 5842276 |
+| TTS-1.7B | `e684b513067a86fafe239f4ff74be83f` | 8971846 |

@@ -79,6 +79,19 @@ PDT = {}  # pack name -> dtype, in kernel-input order
 
 def base(p):
     return p.split("_")[0]
+
+
+# BANKS=1: the row-split projection weights come from the prefill kernel's banks.  Layer j reads block j // 4 of
+# b<j % 4>_<name> through input k_b<j % 4>_<name>; the column-split w_o / w_down and the small parameters stay packed.
+BANKS = os.environ.get("BANKS", "0") == "1"
+BANK_OF = {"attn": {
+    "w_q": "attn_w_q", "s_q": "attn_w_scale_q",
+    "w_k": "attn_w_k", "s_k": "attn_w_scale_k",
+    "w_v": "attn_w_v", "s_v": "attn_w_scale_v",
+    "w_gate": "mlp_w1", "s_gate": "mlp_w_scale1",
+    "w_up": "mlp_w2", "s_up": "mlp_w_scale2",
+}}
+BANK_NAMES = []  # the bank inputs k_<name>, in kernel-input order
 FULL = {}  # (j, w_<x>) -> columns before blocking
 # the single-core layer kernels the group is checked against (NVFP4: their twins, t_<x> after each s_<x>)
 _only = K.MLP_W if K.MIX else None
@@ -307,11 +320,18 @@ def attention_split_qa(c, qa, kv, nblk, mask, attn, kcur, vcur, tag=""):
     ax.dsl.div(o_total, l_total, output_dtype=ax.bf16, r=attn.reshape(QH, D))
 
 
-def members(src, j):
-    """layer j's parameters: static slices of the packs (scales and column strips registered as q35_layer_pk.unpack)"""
+def members(src, j, banks=None):
+    """layer j's parameters: static slices of the packs (scales and column strips registered as q35_layer_pk.unpack),
+    with BANKS the row-split weights from block j // 4 of the bank inputs"""
     mb.SCALES.clear()  # the previous layer's: their tensors are gone, their ids may come back (an MX weight of this
     mb.SCALES2.clear()  # layer would find an NVFP4 scale2 under its id)
     m = {}
+    if banks is not None and j != "M":
+        kind = KINDS[j]
+        for n, bn in BANK_OF[kind].items():
+            t = banks["k_b%d_%s" % (j % 4, bn)]
+            assert t.shape[0] == G // 4 and j // 4 < t.shape[0]
+            m[n] = t[j // 4 : j // 4 + 1].reshape(*t.shape[1:])
     for key, (p, off, shape) in SPEC.items():
         lj, n = key.split(".", 1)
         if lj != f"L{j}":  # j == "M": the output head's ("LM.<name>")
@@ -328,7 +348,7 @@ def members(src, j):
     return m
 
 
-def group_body(x, packs, cs, pn, mask, kv, fnorm, hbuf, out, logits=None):
+def group_body(x, packs, cs, pn, mask, kv, fnorm, hbuf, out, logits=None, banks=None):
     """One decode token through every layer.  ``kv`` is the whole paged BF16 cache
     [layers, NBLK, 2, BC, HKV, D]; layer j reads / writes kv[j].  ``pn`` is
     [cell, nblk, krow]."""
@@ -346,7 +366,7 @@ def group_body(x, packs, cs, pn, mask, kv, fnorm, hbuf, out, logits=None):
     cell = ax.dsl.cast(ax.dsl.load(pn[0:1]), dtype=ax.int32)
     ax.dsl.select_scatter(minus_inf, cell, dim=0, r=mask_hist.reshape(L.NBLK * L.BC))
     for j, kind in enumerate(KINDS):
-        m = members(packs, j)
+        m = members(packs, j, banks)
         if kind == "gdn":
             raise RuntimeError("the Qwen3 dense group has attention layers only")
         xt = attn_layer(c, xt, m, cs, pn, mask_hist, kv[j : j + 1].reshape(*kv.shape[1:]), f"L{j}_")
@@ -391,11 +411,13 @@ def kernel_source():
     runtime input; the layer index is a static slice of it."""
     packs = list(PDT)
     lo = ["logits"] if LMHEAD else []
-    params = ", ".join(["x"] + packs + ["cs", "pn", "mask", "kv", "fnorm", "hbuf", "out"] + lo)
+    params = ", ".join(["x"] + packs + BANK_NAMES + ["cs", "pn", "mask", "kv", "fnorm", "hbuf", "out"] + lo)
     pd = ", ".join(f"{p}={p}" for p in packs)
+    bd = ", ".join(f"{p}={p}" for p in BANK_NAMES)
     lo_arg = ", logits" if LMHEAD else ""
     return (f"import q35_group as Q\n\n\ndef group_kernel({params}):\n"
-            f"    Q.group_body(x, dict({pd}), cs, pn, mask, kv, fnorm, hbuf, out{lo_arg})\n"
+            f"    Q.group_body(x, dict({pd}), cs, pn, mask, kv, fnorm, hbuf, out, "
+            f"{'logits=logits, ' if LMHEAD else ''}banks={'dict(' + bd + ')' if BANKS else 'None'})\n"
             f"    return {', '.join(['out'] + lo)}\n")
 
 
@@ -436,7 +458,14 @@ def build_layout(W, layers, *, lmhead):
             K.PACKS["pe"] = torch.float8_e8m0fnu
     order = {"attn": L.order(AL)}
     items = [(f"L{j}.{n}", j, args[j][n]) for j in range(layers) for n in order["attn"]
-             if torch.is_tensor(args[j].get(n)) and n != "x"]
+             if torch.is_tensor(args[j].get(n)) and n != "x" and not (BANKS and n in BANK_OF["attn"])]
+    bank_t = {}
+    if BANKS:
+        assert layers % 4 == 0 and KINDS == ["attn"] * layers
+        for ph in range(4):
+            for n, bn in BANK_OF["attn"].items():
+                bank_t["k_b%d_%s" % (ph, bn)] = torch.stack([args[j][n] for j in range(ph, layers, 4)])
+        BANK_NAMES[:] = list(bank_t)
     items += ([(f"LM.{n}", layers - 1, lm[n]) for n in ("w_lm", "s_lm", "fnorm") if n in lm]
               if lmhead else [])
     for S in [s for s in range(1, layers + 1) if layers % s == 0]:
@@ -461,7 +490,7 @@ def build_layout(W, layers, *, lmhead):
         pk[p][off : off + tns.numel()] = tns
     pk = {p: (pk[p].view(dt) if es[p] == 1 else pk[p]) for p, dt in PDT.items()}
     logger.info(f"{S} pack set(s): " + ", ".join(f"{p} {used[p]}" for p in PDT))
-    return pk, lm, sizes, es, args
+    return pk, lm, sizes, es, args, bank_t
 
 
 def write_layout(dst, sizes, es):
@@ -490,7 +519,7 @@ def prepare_group(W, out_dir, *, layers, lmhead, run_mode, tag="", cache_path=No
     set_kinds(layers)
     out_dir = os.path.abspath(out_dir)
     os.makedirs(out_dir, exist_ok=True)
-    pk, lm, sizes, es, args = build_layout(W, layers, lmhead=lmhead)
+    pk, lm, sizes, es, args, bank_t = build_layout(W, layers, lmhead=lmhead)
     src = kernel_source()
     build = os.path.abspath(cache_path or os.path.join(out_dir, "grp"))
     os.makedirs(build, exist_ok=True)
@@ -504,6 +533,7 @@ def prepare_group(W, out_dir, *, layers, lmhead, run_mode, tag="", cache_path=No
     kernel = ax.builder(run_mode=ax.RunMode(run_mode), enable_cache=True, unique_axmodel=True,
                         cache_path=os.path.join(build, "cache"), dump_path=build)(fn)
     meta = dict(SPEC=dict(SPEC), packs=list(PDT), sizes=sizes, elem=es, args=args, lm=lm, build=build,
+                banks=bank_t,
                 layers=layers, lmhead=lmhead)
     return kernel, pk, lm, meta
 

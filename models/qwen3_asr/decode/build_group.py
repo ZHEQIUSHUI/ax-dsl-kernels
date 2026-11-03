@@ -64,7 +64,7 @@ def dtype_name(dtype):
             torch.float8_e8m0fnu: "uint8"}.get(dtype, str(dtype).removeprefix("torch."))
 
 
-def make_case(spec, packs, lm, layers, lmhead):
+def make_case(spec, packs, lm, layers, lmhead, banks=None):
     H, HKV, D, BC, ROT = q.H, q.HKV, q.D, q.BC, q.ROT
     pages = q.LMAX // BC
     case = dict(
@@ -78,6 +78,7 @@ def make_case(spec, packs, lm, layers, lmhead):
         out=torch.zeros((1, 1, H), dtype=torch.bfloat16),
     )
     case.update(packs)
+    case.update(banks or {})
     if lmhead:
         case["logits"] = torch.zeros((1, lm["w_lm"].shape[0]), dtype=torch.float32)
     return case
@@ -116,7 +117,7 @@ def main():
     importlib.invalidate_caches()
     fn = importlib.import_module("group_kernel").group_kernel
     names = L.order(fn)
-    case = make_case(None, packs, lm, args.layers, lmhead)
+    case = make_case(None, packs, lm, args.layers, lmhead, meta["banks"])
     io = describe(case, names)
     (out_dir / "inputs.json").write_text(json.dumps(
         {"model": args.model, "layers": args.layers, "lmhead": lmhead, "mrope_section": list(q.MROPE_SECTION),
