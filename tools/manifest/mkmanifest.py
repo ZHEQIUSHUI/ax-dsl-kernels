@@ -173,10 +173,30 @@ def qwen38_27b_roles(io):
     }
 
 
-def vperm(ins, n):
+def qwen35_whole_roles(io, tag):
+    """the Qwen3.5 whole-model path: one prefill kernel (banks, runtime block loop), one decode group reading the
+    row-split projections from those banks, the output head, the whole ViT in one kernel. `tag` is the model's kernel
+    file prefix (qwen35_9b / qwen35_2b)."""
+    groups = sorted(f[:-8] for f in io if re.fullmatch(rf"{tag}_group\d+_[ga]+_mx4_kvc_c16384_npu4\.axmodel", f))
+    pres = sorted(f[:-8] for f in io if re.fullmatch(rf"{tag}_prefill256_mx4_kvc_c16384_npu4\.axmodel", f))
+    vits = sorted(f[:-8] for f in io if re.fullmatch(rf"{tag}_vit\d+_npu4\.axmodel", f))
+    if not groups or not pres or not vits:
+        sys.exit(f"qwen35_whole {tag}: decode {len(groups)}, prefill {len(pres)}, vit {len(vits)} kernels")
+    H = next(e[3] for e in io[pres[0] + ".axmodel"]["in"] if e[0] == "x")[-1]
+    return {
+        "layer.gdn": "qwen35_gdn_mx4_npu1",       # IO only: the parameters of a GDN layer
+        "layer.attn": "qwen35_attn_mx4_kvc_c16384_npu1",  # IO only: the parameters of an attention layer
+        "decode.group": groups[-1],
+        "prefill": pres[0],
+        "lm_head": f"mul_mat_mx4_n248320_k{H}_npu4",
+        "vit": vits[0],
+    }
+
+
+def vperm(ins, n, vh=48):
     """the value-head reorder of a delta-net parameter (GGUF tiled -> HF grouped) for the decode group of qwen38_27b:
     rows of the v part of qkv / conv (after q and k), rows of z / b / a, the 48 values of a_log / dt_bias, columns of out"""
-    VH, KH = 48, 16
+    VH, KH = vh, 16
     base = n[2:] if n.startswith(("w_", "s_")) else n
     if base in ("qkv", "conv_w"):
         rows = ins[n][2][0]
@@ -216,7 +236,8 @@ def params(model, kernel):
         else:
             conv = "tensor"  # as it is (bf16 / f32), a bf16 copy of a quantized / f16 tensor
         out[n] = {"gguf": g, "convert": conv, "bytes": b, "dtype": t, "shape": s}
-        vp = vperm(ins, n) if model == "qwen38_27b" and "w_qkv" in ins else None
+        vp = (vperm(ins, n, ins["a_log"][2][0] if "a_log" in ins else 48)
+              if model in ("qwen38_27b", "qwen35_whole") and "w_qkv" in ins else None)
         if vp:
             out[n]["vperm"] = vp
     return out
@@ -254,10 +275,14 @@ def main():
     ctx = int(sys.argv[4]) if model == "qwen3" else CONTEXT
     opt = {a.split("=")[0]: a.split("=")[1] for a in sys.argv[5:] if "=" in a}
     pos = [a for a in sys.argv[5:] if "=" not in a]
+    # qwen35_whole names its kernels by model tag (qwen35_9b / qwen35_2b): accept it as the extra positional
+    # argument, or in argv[4] where the other non-qwen3 models have no use for it
+    tag = pos[0] if pos else (sys.argv[4] if model == "qwen35_whole" else "")
     roles = ({**qwen3_roles(io, ctx, pos[0] if pos else None), **(audio_roles(int(opt["audio"])) if "audio" in opt else {}),
               **(tts_roles(io) if opt.get("tts") == "1" else {})}
              if model == "qwen3" else
              qwen35_dense_roles(io) if model == "qwen35_dense" else qwen38_27b_roles(io) if model == "qwen38_27b" else
+             qwen35_whole_roles(io, tag) if model == "qwen35_whole" else
              ROLES[model])
     man = {"format": 1, "model": model, "context": ctx, "cores": 4, "params": {}, "kernels": {}}
     for role, base in {**roles, **({} if "vit" in roles else vit_roles(io))}.items():
