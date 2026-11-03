@@ -42,7 +42,7 @@ Decode groups (`BANKS=1`; `FIRST=0` and `FIRST=12` build the two groups):
 source /data/junda/work/axdsl_env.sh
 export PYTHONPATH=$PWD/ax-dsl-kernels/models/qwen35_2b/whole/src
 QW_RANDOM=1 KVL=cell BC=256 CORES=4 WFMT=mx8 BLOCK=1 BANKS=1 \
-MODEL=/data/junda/k4090/cfg/Qwen3.5-2B WFMT4=1 KVX=1 DEC_SPLIT=1 LMAX=16384 \
+MODEL=/data/junda/k4090/cfg/Qwen3.5-2B WFMT4=1 KVX=0 DEC_SPLIT=1 LMAX=16384 \
 STEPS=1 G=12 FIRST=0 DUMP=build/2b/dec_g12_g0 \
 nice python ax-dsl-kernels/models/qwen35_2b/whole/src/q35_group.py build/2b/dec_g12_g0
 ```
@@ -70,8 +70,12 @@ RUN_MODE=CRUN DUMP=build/2b/vit3072 KNAME=qwen35_2b_vit3072 nice -n 15 python vi
   The separate per-layer kernels fail the same way on the real image (`bus256.png`: layer-15 rows
   `0.999353 / 0.945638`, merged output rows `0.997783 / 0.920831`), while the whole kernel's merged output is
   `0.998151 / 0.943694`. The failure starts with the model's layer-10/23 massive activations (reference row 211 norm
-  jumps from `18.5` to `161.9`, then to `5212.6` at layer 23), which makes BF16 attention rows hypersensitive. This is
-  the same release limitation seen in the AXERA 9B 3072 ViT, not a whole-kernel composition bug. Logs:
-  `build/2b/vit3072.log`, `build/2b/vit_layers_img256_chain_rows.log`, `build/2b/vit_dbg_layers16.log`.
+  jumps from `18.5` to `161.9`, then to `5212.6` at layer 23), which makes BF16 attention rows hypersensitive. Row 58
+  (norm `8.49`) is the worst chained row at layer 15; the large row 211 itself stays at cos `0.999997`, so a tiny key-row
+  error is amplified by softmax. Three precision variants did not improve the baseline (`0.997832 / 0.728709`):
+  exact-HF residual rounding `0.997586 / 0.689126`, output-accumulator FP32 `0.998269 / 0.679624`, and FP32 softmax
+  `0.997927 / 0.686096`. This is the same release limitation seen in the AXERA 9B 3072 ViT, not a whole-kernel
+  composition bug. Logs: `build/2b/vit3072.log`, `build/2b/vit_layers_img256_chain_rows.log`,
+  `build/2b/vit_dbg_layers16.log`, `build/2b/vit_img256_l16_round.log`, `build/2b/vit_img256_l16_f32sm.log`.
 - Board: pending, `.120` unreachable (`No route to host`). There is no local AX8860 2B release package, so the board
   release comparison is unavailable until one is provided.
