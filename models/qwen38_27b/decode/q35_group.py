@@ -57,6 +57,56 @@ PDT = {}  # pack name -> dtype, in kernel-input order
 
 def base(p):
     return p.split("_")[0]
+
+
+# BANKS=1: the row-split projection weights read from the prefill kernel's banks (b<phase>_<group>_<name> [blocks, ..],
+# layer j of the group in block j // 4 of phase j % 4: inputs k_<bank name> holding the group's 4 blocks), not packed;
+# the column-split ones (w_down, w_out, w_o) and the small parameters stay in the packs
+BANKS = os.environ.get("BANKS", "0") == "1"
+BANK_OF = {  # kind -> member name -> bank name (without b<phase>_)
+    "gdn": {"w_gq": "attn_w_q", "s_gq": "attn_w_q_scale", "w_gk": "attn_w_k", "s_gk": "attn_w_k_scale",
+            "w_gv": "attn_w_v", "s_gv": "attn_w_v_scale", "w_z": "attn_w_z", "s_z": "attn_w_z_scale",
+            "w_a": "attn_w_a", "w_b": "attn_w_b", "w_gate": "mlp_w1", "s_gate": "mlp_w_scale1",
+            "w_up": "mlp_w2", "s_up": "mlp_w_scale2"},
+    "attn": {"w_q": "attn_w_q", "s_q": "attn_w_scale_q", "w_k": "attn_w_k", "s_k": "attn_w_scale_k",
+             "w_v": "attn_w_v", "s_v": "attn_w_scale_v", "w_gate": "mlp_w1", "s_gate": "mlp_w_scale1",
+             "w_up": "mlp_w2", "s_up": "mlp_w_scale2"},
+}
+# KSTRIDE=1 (with BANKS): the column-split ones too (w_down, w_out, w_o) read from the banks' rows: each core's column
+# strip straight from the row-major bank (a strided read: every row's K / CORES columns), the same K split and
+# reductions as the packed strips; nothing but the small parameters left in the packs
+KSTRIDE = BANKS and os.environ.get("KSTRIDE", "0") == "1"
+# KS_DOWN_ONLY=1: only w_down so (w_out / w_o stay packed, column-blocked)
+KS_DOWN_ONLY = KSTRIDE and os.environ.get("KS_DOWN_ONLY", "0") == "1"
+if KSTRIDE:
+    BANK_OF["gdn"].update(w_down="mlp_w3", s_down="mlp_w_scale3")
+    BANK_OF["attn"].update(w_down="mlp_w3", s_down="mlp_w_scale3")
+    K.BW.pop("w_down")
+    if not KS_DOWN_ONLY:
+        BANK_OF["gdn"].update(w_out="attn_w_o", s_out="attn_w_o_scale")
+        BANK_OF["attn"].update(w_o="attn_w_o", s_o="attn_w_scale_o")
+        K.BW.clear()  # (row-major, not column-blocked)
+BANK_NAMES = []  # the bank inputs k_<name>, in kernel-input order
+
+
+def strip(w, c0, c1):
+    """KSTRIDE: input columns [c0, c1) of a row-major MX weight (the kernel's FP4 tensors in logical columns) with its
+    scales"""
+    ws = w[:, c0:c1]
+    mb.SCALES[id(ws)] = mb.SCALES[id(w)][:, c0 // mb.GROUP : c1 // mb.GROUP]
+    return ws
+
+
+def bank_split(a, kind):
+    """a layer's args with w_qkv / s_qkv split into the GDN's q / k / v parts (the banks' tensors)"""
+    if kind != "gdn" or "w_qkv" not in a:
+        return a
+    a = dict(a)
+    KD = L.KD
+    for n in ("w_qkv", "s_qkv"):
+        t = a.pop(n)
+        a[n[:2] + "gq"], a[n[:2] + "gk"], a[n[:2] + "gv"] = t[:KD], t[KD : 2 * KD], t[2 * KD :]
+    return a
 FULL = {}  # (j, w_<x>) -> columns before blocking
 # the single-core layer kernels the group is checked against (NVFP4: their twins, t_<x> after each s_<x>)
 GL, AL = (mb.nv_twin(mb.gdn_layer_mx), mb.nv_twin(mb.attn_layer_mx)) if K.NVF else (mb.gdn_layer_mx, mb.attn_layer_mx)
@@ -82,7 +132,8 @@ def mlp(c, x1, m, t):
     act = silu_mul(q.proj(h2, q.slice_w(m["w_gate"], rows=fs), t + "mlp_gate"),
                    q.proj(h2, q.slice_w(m["w_up"], rows=fs), t + "mlp_up"), activation_output_dtype=ax.fp32,
                    output_dtype=ax.bf16)
-    d = q.proj(act, q.slice_w(m["w_down"], cols=fs), t + "mlp_down", output_dtype=ax.fp32)
+    wd = strip(m["w_down"], fs.start, fs.stop) if KSTRIDE else q.slice_w(m["w_down"], cols=fs)
+    d = q.proj(act, wd, t + "mlp_down", output_dtype=ax.fp32)
     return reduce(c, x1, d, t + "m")
 
 
@@ -94,7 +145,12 @@ def gdn_layer(c, xt, m, state, cq, ck, cv_, t):
     h = rmsnorm(xt, ax.dsl.load(m["ln1"]).reshape(1, 1, H), eps=EPS)
 
     def cv(row0, col0, n, st, i):
-        pr = q.proj(h, q.slice_w(m["w_qkv"], rows=slice(row0, row0 + n)), f"{t}gdn_qkv{i}")
+        if "w_qkv" in m:
+            w = q.slice_w(m["w_qkv"], rows=slice(row0, row0 + n))
+        else:  # (BANKS: the q / k / v parts)
+            part, r0 = ("w_gq", 0) if row0 < KD else ("w_gk", KD) if row0 < 2 * KD else ("w_gv", 2 * KD)
+            w = q.slice_w(m[part], rows=slice(row0 - r0, row0 - r0 + n))
+        pr = q.proj(h, w, f"{t}gdn_qkv{i}")
         return stateful_runtime_causal_depthwise_conv1d_silu(pr, m["conv_w"][row0 : row0 + n], st[:, :, col0 : col0 + n],
                                                              st[:, :, col0 : col0 + n], CONV, f"{t}gdn_conv{i}")
 
@@ -122,8 +178,9 @@ def gdn_layer(c, xt, m, state, cq, ck, cv_, t):
         ax.dsl.store(x=st.reshape(1, DK, DV), r=state[vh : vh + 1])
     normed = rmsnorm(core, ax.dsl.load(m["norm_w"]).reshape(1, 1, 1, DV), eps=EPS)
     gated = silu_gate(normed, z, activation_output_dtype=ax.fp32, output_dtype=ax.bf16).reshape(1, 1, VC * DV)
-    o = q.proj(gated, q.slice_w(m["w_out"], cols=slice(c * VC * DV, (c + 1) * VC * DV)), t + "gdn_out",
-               output_dtype=ax.fp32)
+    wo = (strip(m["w_out"], c * VC * DV, (c + 1) * VC * DV) if KSTRIDE and not KS_DOWN_ONLY
+          else q.slice_w(m["w_out"], cols=slice(c * VC * DV, (c + 1) * VC * DV)))
+    o = q.proj(gated, wo, t + "gdn_out", output_dtype=ax.fp32)
     return mlp(c, reduce(c, xt, o, t + "a"), m, t)
 
 
@@ -186,7 +243,8 @@ def attn_layer(c, xt, m, cs, pn, mask, kv, t):
             attention_split_qa(c, qa, kv, pn[1:2], mask, attn, t)
     gated = (sigmoid_mul(attn, qg[:, :, D : 2 * D], activation_output_dtype=ax.fp32, output_dtype=ax.bf16) if q.GATE
              else attn).reshape(1, 1, QH * D)
-    o = q.proj(gated, q.slice_w(m["w_o"], cols=slice(c * QH * D, (c + 1) * QH * D)), t + "attn_o", output_dtype=ax.fp32)
+    wo = strip(m["w_o"], c * QH * D, (c + 1) * QH * D) if KSTRIDE and not KS_DOWN_ONLY else q.slice_w(m["w_o"], cols=slice(c * QH * D, (c + 1) * QH * D))
+    o = q.proj(gated, wo, t + "attn_o", output_dtype=ax.fp32)
     return mlp(c, reduce(c, xt, o, t + "a"), m, t)
 
 
@@ -257,9 +315,15 @@ def attention_split_qa(c, qa, kv, nblk, mask, attn, tag=""):
     ax.dsl.div(o_sum, l_sum, output_dtype=ax.bf16, r=attn.reshape(QH, D))
 
 
-def members(src, j):
-    """layer j's parameters: static slices of the packs (scales and column strips registered as q35_layer_pk.unpack)"""
+def members(src, j, banks=None):
+    """layer j's parameters: static slices of the packs (scales and column strips registered as q35_layer_pk.unpack),
+    with BANKS the row-split weights block j // 4 of the bank inputs"""
     m = {}
+    if banks is not None and j != "M":
+        kind = KINDS[j]
+        for n, bn in BANK_OF[kind].items():
+            t = banks["k_b%d_%s" % (j % 4, bn)]
+            m[n] = t[j // 4 : j // 4 + 1].reshape(*t.shape[1:])
     for key, (p, off, shape) in SPEC.items():
         lj, n = key.split(".", 1)
         if lj != f"L{j}":  # j == "M": the output head's ("LM.<name>")
@@ -267,7 +331,7 @@ def members(src, j):
         off, shape = K.dsl_dims(base(p), off, shape)
         m[n] = src[p][off : off + int(np.prod(shape))].reshape(*shape)
     for n in list(m):
-        if n.startswith("w_") and "s_" + n[2:] in m:
+        if n.startswith("w_") and "s_" + n[2:] in m:  # (w_gq: s_gq, ...)
             mb.SCALES[id(m[n])] = m["s_" + n[2:]]
             if "t_" + n[2:] in m:
                 mb.SCALES2[id(m[n])] = m["t_" + n[2:]]
@@ -276,7 +340,7 @@ def members(src, j):
     return m
 
 
-def group_body(x, packs, cs, pn, mask, out, io):
+def group_body(x, packs, cs, pn, mask, out, io, banks=None):
     """packs: name -> pack; io: per layer j its state / conv or kc / vc tensors"""
     c = ax.program_id(0)
     mb.SCALES.clear()
@@ -285,7 +349,7 @@ def group_body(x, packs, cs, pn, mask, out, io):
     L.SHM_LIVE.clear()
     xt = ax.dsl.load(x)
     for j, kind in enumerate(KINDS):
-        m = members(packs, j)
+        m = members(packs, j, banks)
         if kind == "gdn":
             xt = gdn_layer(c, xt, m, *io[j], f"L{j}_")
         else:
@@ -312,11 +376,12 @@ def kernel_source():
         ios.append("(" + ", ".join(names) + ",)")
     packs = list(PDT)
     lo = ["logits"] if LMHEAD else []
-    params = ", ".join(["x"] + packs + ["cs", "pn", "mask", "out"] + outs + lo)
+    params = ", ".join(["x"] + packs + BANK_NAMES + ["cs", "pn", "mask", "out"] + outs + lo)
     pd = ", ".join(f"{p}={p}" for p in packs)
+    bd = ", ".join(f"{p}={p}" for p in BANK_NAMES)
     io = ", ".join(ios + (["logits"] if LMHEAD else []))
     return (f"import q35_group as Q\n\n\ndef group_kernel({params}):\n"
-            f"    Q.group_body(x, dict({pd}), cs, pn, mask, out, [{io}])\n"
+            f"    Q.group_body(x, dict({pd}), cs, pn, mask, out, [{io}], {'dict(' + bd + ')' if BANKS else 'None'})\n"
             f"    return {', '.join(['out'] + outs + lo)}\n"), outs
 
 
@@ -340,7 +405,7 @@ def main():
             if n in a:
                 FULL[(j, n)] = a[n].shape[1] * (2 if a[n].dtype == torch.float4_e2m1fn_x2 else 1)
         K.FULL_COLS[kind] = {n: FULL[(j, n)] for n in K.BW if n in a}
-        args.append(K.block_args(a))
+        args.append(bank_split(K.block_args(a), kind) if BANKS else K.block_args(a))
     # layout: every layer's members in kernel-input order, by dtype, aligned; the layers in S pack sets
     lm = None
     if LMHEAD:
@@ -354,8 +419,19 @@ def main():
         if K.NVF:  # the head's E8M0 scales: ps holds the layers' E4M3 ones
             K.PACKS["pe"] = torch.float8_e8m0fnu
     order = {"gdn": L.order(GL), "attn": L.order(AL)}
+    if BANKS:  # order: the layer kernels' names with w_qkv / s_qkv as their parts
+        order = {k: [x for n in o for x in ((n[:2] + "gq", n[:2] + "gk", n[:2] + "gv") if n in ("w_qkv", "s_qkv") else (n,))]
+                 for k, o in order.items()}
     items = [(f"L{j}.{n}", j, args[j][n]) for j, kind in enumerate(KINDS) for n in order[kind]
-             if torch.is_tensor(args[j].get(n)) and n != "x"]
+             if torch.is_tensor(args[j].get(n)) and n != "x" and not (BANKS and n in BANK_OF[kind])]
+    bank_t = {}
+    if BANKS:
+        assert G % 4 == 0 and KINDS == ["gdn", "gdn", "gdn", "attn"] * (G // 4)
+        for ph in range(4):
+            kind = KINDS[ph]
+            for n, bn in BANK_OF[kind].items():
+                bank_t["k_b%d_%s" % (ph, bn)] = torch.stack([args[j][n] for j in range(ph, G, 4)])
+        BANK_NAMES[:] = list(bank_t)
     items += [(f"LM.{n}", G - 1, lm[n]) for n in ("norm", "w_lm", "s_lm")] if LMHEAD else []
     for S in [s for s in range(1, G + 1) if G % s == 0]:
         SPEC.clear()
@@ -448,7 +524,7 @@ def main():
         ref = x
         o = torch.zeros((1, 1, H), dtype=torch.bfloat16)
         krow = (step // BC) * 2 * BC + step % BC
-        case = dict(pk, x=x0, out=o, cs=torch.cat([cs, sn]), pn=torch.tensor([step, step // BC + 1, krow], dtype=torch.int32),
+        case = dict(pk, **bank_t, x=x0, out=o, cs=torch.cat([cs, sn]), pn=torch.tensor([step, step // BC + 1, krow], dtype=torch.int32),
                     mask=att["mask"])
         if LMHEAD:
             case["logits"] = torch.zeros((1, lm["w_lm"].shape[0]))
