@@ -7,10 +7,11 @@ at load and runs a kernel directory through the model adapter its `manifest.json
 
 | directory | model | ggml-axera adapter |
 |---|---|---|
-| `models/qwen38_27b` | Qwen3.8-27B: whole-model prefill kernel, 16-layer decode group | `qwen38_27b` |
+| `models/qwen38_27b` | Qwen3.8-27B: whole-model prefill kernel, 16-layer decode group, 16k / 128k / 256k | `qwen38_27b` |
 | `models/qwen35_35b_a3b` | Qwen3.5-35B-A3B (MoE) | `qwen35_moe` |
-| `models/qwen35_9b` | Qwen3.5-9B | `qwen35_dense` |
-| `models/qwen35_vit` | the Qwen3.5 vision encoder (27B, 35B-A3B), 4 cores | `qwen35_vit` |
+| `models/qwen35_9b` | Qwen3.5-9B: whole-model prefill kernel, 16-layer decode group, 16k / 128k / 256k | `qwen35_whole` |
+| `models/qwen35_2b` | Qwen3.5-2B: whole-model prefill kernel, 12-layer decode group, 16k / 128k / 256k | `qwen35_whole` |
+| `models/qwen35_vit` | the Qwen3.5 vision encoder (27B, 35B-A3B, 9B, 2B), 4 cores | `qwen35_vit` |
 | `models/qwen3_embedding` | Qwen3-Embedding-0.6B | `qwen3` |
 | `models/qwen3_asr` | Qwen3-ASR-0.6B / 1.7B (text model + audio encoder) | `qwen3`, `qwen3_asr` |
 | `models/qwen3_tts` | Qwen3-TTS-0.6B / 1.7B (talker, code predictor, codec decoder) | `qwen3`, `qwen3_tts` |

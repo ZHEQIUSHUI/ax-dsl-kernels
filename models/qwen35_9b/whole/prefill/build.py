@@ -123,11 +123,14 @@ def main():
     kinds = ["linear_attention" if i % 4 < 3 else "full_attention" for i in range(4 * blocks)]
     assert kinds == C["layer_types"][: 4 * blocks]
     layers = [gdn() if i % 4 < 3 else gqa() for i in range(4 * blocks)]
-    linear = [a for kv, a, _ in layers if kv is None]
+    # Phase-major state pools, the same layout the adapter's decode groups write (phase p, block b -> p * blocks + b).
+    # The kernel's b0 bank is one such pool per call; keeping calls' pools contiguous lets the host bind a call's
+    # [3 * blocks] rows with one offset.
+    order = [4 * b + p for p in range(3) for b in range(blocks)]
     for name in ("state", "q_conv_state", "k_conv_state", "v_conv_state"):
-        pool = torch.stack([a[name + "_in"] for a in linear])
-        for i, a in enumerate(linear):
-            a[name + "_in"] = a[name + "_out"] = pool[i]
+        pool = torch.stack([layers[il][1][name + "_in"] for il in order])
+        for i, il in enumerate(order):
+            layers[il][1][name + "_in"] = layers[il][1][name + "_out"] = pool[i]
     kv_pool = torch.stack([kv for kv, _, _ in layers if kv is not None])
     j = 0
     for i, (kv, a, m) in enumerate(layers):

@@ -2,6 +2,7 @@
 """manifest.json of a model's kernel directory: the contract between ax-dsl-kernels and ggml-axera.
 
 mkmanifest.py <model: qwen35_dense|qwen35_moe> <io.json> <layout dir> > manifest.json
+mkmanifest.py qwen35_whole <io.json> <layout dir> <qwen35_9b|qwen35_2b> > manifest.json   (context in CTX)
 mkmanifest.py qwen3 <io.json> <layout dir> <context> [lm_head kernel] [audio=<encoder width>] [tts=1] > manifest.json
 
 - params: per layer kind (gdn / attn), each layer parameter the kernels take: its GGUF tensor (within blk.<i>.), the
@@ -173,12 +174,13 @@ def qwen38_27b_roles(io):
     }
 
 
-def qwen35_whole_roles(io, tag):
+def qwen35_whole_roles(io, tag, ctx=CONTEXT):
     """the Qwen3.5 whole-model path: one prefill kernel (banks, runtime block loop), one decode group reading the
     row-split projections from those banks, the output head, the whole ViT in one kernel. `tag` is the model's kernel
     file prefix (qwen35_9b / qwen35_2b)."""
-    groups = sorted(f[:-8] for f in io if re.fullmatch(rf"{tag}_group\d+_[ga]+_mx4_kvc_c16384_npu4\.axmodel", f))
-    pres = sorted(f[:-8] for f in io if re.fullmatch(rf"{tag}_prefill256_mx4_kvc_c16384_npu4\.axmodel", f))
+    groups = sorted(f[:-8] for f in io if re.fullmatch(rf"{tag}_group\d+_[ga]+_mx4_kvc_c{ctx}_npu4\.axmodel", f))
+    pres = sorted(f[:-8] for f in io
+                  if re.fullmatch(rf"{tag}_prefill256(?:_b\d+)?_mx4_kvc_c{ctx}(?:_b\d+)?_npu4\.axmodel", f))
     vits = sorted(f[:-8] for f in io if re.fullmatch(rf"{tag}_vit\d+_npu4\.axmodel", f))
     if not groups or not pres or not vits:
         sys.exit(f"qwen35_whole {tag}: decode {len(groups)}, prefill {len(pres)}, vit {len(vits)} kernels")
@@ -278,7 +280,8 @@ def layout(path):
 def main():
     model, io_path, lay_dir = sys.argv[1:4]
     io = json.load(open(io_path))
-    ctx = int(sys.argv[4]) if model == "qwen3" else CONTEXT
+    ctx = (int(sys.argv[4]) if model == "qwen3" else
+           int(os.environ.get("CTX", CONTEXT)) if model == "qwen35_whole" else CONTEXT)
     opt = {a.split("=")[0]: a.split("=")[1] for a in sys.argv[5:] if "=" in a}
     pos = [a for a in sys.argv[5:] if "=" not in a]
     # qwen35_whole names its kernels by model tag (qwen35_9b / qwen35_2b): accept it as the extra positional
@@ -288,7 +291,7 @@ def main():
               **(tts_roles(io) if opt.get("tts") == "1" else {})}
              if model == "qwen3" else
              qwen35_dense_roles(io) if model == "qwen35_dense" else qwen38_27b_roles(io) if model == "qwen38_27b" else
-             qwen35_whole_roles(io, tag) if model == "qwen35_whole" else
+             qwen35_whole_roles(io, tag, ctx) if model == "qwen35_whole" else
              ROLES[model])
     man = {"format": 1, "model": model, "context": ctx, "cores": 4, "params": {}, "kernels": {}}
     for role, base in {**roles, **({} if "vit" in roles else vit_roles(io))}.items():

@@ -40,6 +40,9 @@ H, I, HEADS, KVH, HD = C["hidden_size"], C["intermediate_size"], C["num_attentio
 KH, VH, KD, VD = C["linear_num_key_heads"], C["linear_num_value_heads"], C["linear_key_head_dim"], C["linear_value_head_dim"]
 REP = VH // KH
 T = 256
+CTX = int(os.environ.get("CTX", "16384"))
+ROPE_CTX = int(os.environ.get("ROPE_CTX", str(CTX)))
+CACHE_CTX = int(os.environ.get("CACHE_CTX", str(CTX)))
 NORM1 = os.getenv("NORM1", "1") == "1"
 FULL = os.getenv("FULL", "0") == "1"
 NL = int(C["num_hidden_layers"]) if FULL else 4
@@ -133,11 +136,11 @@ def gqa_w(L):
         w["w_" + n], w["w_scale_" + n], w["w_scale2_" + n] = mx4(f"blk.{L}.{g}.weight")
         w["w_zeropoint_" + n] = torch.zeros(1, dtype=torch.bfloat16)
     rot = int(HD * C.get("partial_rotary_factor", 0.25))
-    ang = torch.arange(16384)[:, None].double() / (1e7 ** (torch.arange(0, rot, 2).double() / rot))[None, :]
+    ang = torch.arange(ROPE_CTX)[:, None].double() / (1e7 ** (torch.arange(0, rot, 2).double() / rot))[None, :]
     w.update(w_norm_attn=nrm(f"blk.{L}.attn_norm.weight"), w_norm_q=f32(f"blk.{L}.attn_q_norm.weight") / HD**0.5,
              w_norm_k=f32(f"blk.{L}.attn_k_norm.weight").bfloat16(), cos=ang.cos().float(), sin=ang.sin().float(),
              partial_rotary_factor=0.25)
-    return torch.zeros(64, 2, 256, KVH, HD, dtype=torch.bfloat16), w, mlp_w(L)
+    return torch.zeros(CACHE_CTX // 256, 2, 256, KVH, HD, dtype=torch.bfloat16), w, mlp_w(L)
 
 
 def gguf_into_hf(sd, L):
@@ -234,7 +237,8 @@ def main():
                                run_mode=os.getenv("RUN_MODE", "PYRUN"))
     y = x.clone()
     meta = (torch.arange(T, dtype=torch.int32).expand(3, -1).contiguous(), torch.tensor([0, 0], dtype=torch.int32),
-            torch.arange(64, dtype=torch.int32), torch.tensor([T], dtype=torch.int32), torch.tensor([0, 0], dtype=torch.int32))
+            torch.arange(CACHE_CTX // 256, dtype=torch.int32), torch.tensor([T], dtype=torch.int32),
+            torch.tensor([0, 0], dtype=torch.int32))
     kernels[T][4, 4](y, *meta, y, valid_tokens=torch.tensor([T], dtype=torch.int32), **weights)
     print("kernel done", flush=True)
     torch.save(y, saved)

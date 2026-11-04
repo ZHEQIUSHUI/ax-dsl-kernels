@@ -9,10 +9,11 @@ the ViT's patch-tile / key-block / mask-block / merger-row arithmetic at the boa
 """
 import json
 import math
+import os
 import sys
 
 PG = 256
-CTX = 16384
+CTX = int(os.environ.get("CTX", "16384"))
 
 
 def check_real_inputs(hf, paths):
@@ -53,6 +54,12 @@ def main():
     c = cfg["text_config"]
     layers = c["num_hidden_layers"]
     blocks = layers // 4
+    kv_heads, head_dim = c["num_key_value_heads"], c["head_dim"]
+    prefill_blocks = int(os.environ.get("BLOCKS", blocks))
+    assert 0 < prefill_blocks <= blocks and blocks % prefill_blocks == 0
+    # a prefill call's KV input: [blocks attention layers][pages][K, V][PG][kv heads][head dim] bf16
+    kv_bytes = prefill_blocks * (CTX // PG) * 2 * PG * kv_heads * head_dim * 2
+    assert kv_bytes < 2 << 30, (prefill_blocks, kv_bytes)
     assert layers % 4 == 0 and CTX % PG == 0
     # prefill: a batch at cell 0 and one that restarts inside its page; every M-RoPE coordinate is < the context
     for c0, n in ((0, 4096), (0, CTX), (3 * PG, 5 * PG), (CTX - PG, PG)):
@@ -71,12 +78,13 @@ def main():
         row = page * 2 * PG + off
         assert 0 <= cell < CTX and 0 < nblk <= CTX // PG and 0 <= row < (CTX // PG) * 2 * PG
     # a 16-layer group needs 4 prefill blocks; its two calls cover the 8 blocks exactly
-    G = 16
+    G = int(os.environ.get("G", "16"))
     assert layers % G == 0 and G % 4 == 0
     for gi in range(layers // G):
         first = gi * (G // 4)
         assert 0 <= first and first + G // 4 <= blocks
-    print(f"ok: {layers} layers, {blocks} blocks, {CTX // PG} pages, context {CTX}")
+    print(f"ok: {layers} layers, {blocks} blocks, {CTX // PG} pages, context {CTX}; "
+          f"prefill {prefill_blocks} blocks/call, KV input {kv_bytes} B")
     # ViT: N=3072 patch slots, QB=512 query rows, BC=256 key rows, MT=128 rows per projection tile,
     # MERGE=2 -> 4 rows per merged output.
     v = cfg["vision_config"]
@@ -102,7 +110,6 @@ def main():
     print(f"ok: ViT {N} patches, {N // QB} query tiles, {N // BC} key blocks, {CORES}x{RC // MT} row tiles, "
           f"{N // (MERGE * MERGE)} merged rows")
     if len(sys.argv) > 2:
-        import os
         check_real_inputs(os.environ.get("MODEL", sys.argv[1]), sys.argv[2:])
 
 
