@@ -33,21 +33,22 @@ kernels (cos > 0.9999); `prefill/check27.py` runs block 0 of the prefill kernel 
 adapter does against transformers' layers (cos 0.99995 with the GGUF's weights); `decode/q35_group.py` compares the
 group with the single-core layer kernels in the simulator; `vit/vit_full.py` with `RUN_MODE=PYRUN` (N=256, VIT_L=27) runs the ViT kernel on the HF weights against transformers' vision encoder (layer 26 cos 0.99982, merged output 0.99976).
 
-Context lengths: the kernels tied to the context (prefill, decode group, verify, the three MTP kernels; the heads and the ViT
-are not) are built for 16384, 131072 and 262144 cells (`kernels.md5` lists all three sets; the adapter reads the context
-from `manifest.json`). The same scripts with the context in the environment: decode group `LMAX=<ctx>`; verify
-`LMAX=<ctx>` (`verify/build_verify_m4.py`, checked by `check_verify_m4_crun.py`: min cos 0.99989 at every context);
-MTP `LMAX=<ctx>` (`mtp/build_mtp.py` with `ONLY=t1,prompt`, `mtp/build_mtp_m8.py` with `MTP_KERNEL=if`); prefill
-`CTX=<ctx> BLOCKS=<b>` (`prefill/build27.py`: a kernel of `b` blocks per call, the host calls it 16 / b times per page:
-BLOCKS=16 at 16k, 2 at 128k (named `_b2`), 1 at 256k (`_b1`) — the kernel's KV input (`[b][pages][K, V][256][4 x 256]`
-bf16) has to stay under the runtime's 2 GiB IO limit). The 128k / 256k decode groups have the same layout as the 16k
-one (one `.layout` file).
+Context: one kernel set for up to 262144 cells (`kernels.md5`; the adapter reads the context from `manifest.json`) with
+an 8-bit KV cache: K / V rows stored as e4m3 x a constant scale (`KV8=2`, `_kvf8`: the K page is read by the attention as
+a native MX matmul with a constant E8M0 scale, V is widened to bf16; `decode/q35_group.py`, `verify/`, and the prefill
+through `prefill/sgl_kv8_kvf8.patch` on sgl-kernel-axera at `prefill/sgl_base_commit.txt`), so a KV page is half the
+bytes of the bf16 one and the attention of a long context reads half as much. The host sizes the KV pools by llama.cpp's
+`-c` (`GGML_AXERA_KV_PAGES` / the `cache_k_l` allocation), so the NPU memory follows the context given, not the kernel's
+maximum; the prefill kernel is one block per call (`BLOCKS=1`, `_b1`: the KV input under the runtime's 2 GiB IO limit, the
+host calls it 16 times per page). The verify kernel (`verify/verify_group_m4.py`) runs the 4 rows' attention in one pass
+over the KV (one scan per layer instead of four). Builds: `g16ks_c256k_kvf8.sh` (decode), `verify/` with `KV8=2
+LMAX=262144`, `prefill/b27_c256k_kvf8.sh`. CRUN: decode output cos 0.99972 / K cache 0.99939 against the bf16 reference;
+verify min cos 0.99947 at 256k. Earlier sets (bf16 KV at 16k / 128k / 256k) are in the history of `kernels.md5`.
 
-Board (2026-11-04, .184): 128k set: CMM after load 24.2 GB, MTP 21 - 23 tok/s (short answers), needle-in-a-haystack
-64k found (prefill 683 tok/s, decode 8.5 tok/s at that context); 256k set: CMM 32.9 GB, MTP 21 - 22 tok/s, needle 120k
-found (403 tok/s, decode 7.2 tok/s); PPL -c 4096 4.287 / 4.289 vs 4.294 (16k). A long prompt heats the NPU to the
-board's reset point (~109 °C, no thermal trip points) in about 30 s: the adapter pauses kernels above
-`GGML_AXERA_TEMP_MAX` (100 °C), which costs the 64k prefill ~25%.
+Board (2026-11-05, .184, SDK V0.5.1, the fp8 256k set): greedy outputs identical to the bf16 sets; CMM after load 15.7 GB
+at -c 4096 (+ the KV of the context given), load 65 s, host 0.85 GB; MTP 22 - 23.5 tok/s on short answers, 20.0 on a
+400-token answer (verify 74.6 ms); needle-in-a-haystack 64k found (prefill 803 tok/s, plain decode 8.9 tok/s, MTP 17.9),
+120k found (614 tok/s, plain 7.7, MTP 13.6); PPL -c 4096 4.2856 (bf16 256k set 4.289).
 
 Board (2026-11-03, SDK V0.5.1): one copy of the weights: CMM after load 30.8 -> 18.2 GB (with the MTP kernels), load 62 s;
 decode 13.4 - 13.5 tok/s as before; MTP (`--spec-type draft-mtp --spec-draft-n-max 3`, greedy): 22 - 24 tok/s on short
