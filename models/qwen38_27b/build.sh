@@ -4,6 +4,8 @@
 #   NPU_PREFILL  npu-codebase checkout at cad0db3d6 (fix/sglang_axera_opt: axnn + sgl-kernel-axera of the prefill kernel)
 #   HF_27B       the Hugging Face Qwen3.8-27B directory (the ViT kernel's config)
 # (the verify, MTP and output-head kernels: the scripts in verify/, mtp/, head/; see README.md)
+# CTX=131072 BLOCKS=2 / CTX=262144 BLOCKS=1 for the prefill and LMAX=<ctx> for the decode group give the 128k / 256k
+# sets (README.md: context lengths); the defaults below are the 16k set
 # Writes the decode group (+ .layout), the whole-model prefill kernel (both as the board runtime loads them, board_io:
 # FP4 / E8M0 IO declared u8) and the whole ViT kernel, and checks them against kernels.md5. The kernel directory adds
 # the output head of the delivered directory (unchanged; see README.md) and manifest.json.
