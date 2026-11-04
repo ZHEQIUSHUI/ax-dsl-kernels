@@ -1,0 +1,40 @@
+{
+  "kernel": "mul_mat_mx4_n65536_k2560",
+  "run_mode": "CRUN",
+  "inputs": [
+    {
+      "name": "x",
+      "shape": [
+        1,
+        2560
+      ],
+      "dtype": "bfloat16"
+    },
+    {
+      "name": "w",
+      "shape": [
+        65536,
+        1280
+      ],
+      "dtype": "float4_e2m1fn_x2"
+    },
+    {
+      "name": "s",
+      "shape": [
+        65536,
+        80
+      ],
+      "dtype": "float8_e8m0fnu"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "out",
+      "shape": [
+        1,
+        65536
+      ],
+      "dtype": "float32"
+    }
+  ]
+}
