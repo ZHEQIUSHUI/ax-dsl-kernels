@@ -61,14 +61,16 @@ def zeros_ios():
                         torch.zeros((1, L.CONV - 1, L.KD), dtype=torch.bfloat16),
                         torch.zeros((1, L.CONV - 1, L.VD), dtype=torch.bfloat16)))
         else:
-            ios.append((torch.zeros((NBLK, 2, BC, HKV_D), dtype=torch.bfloat16),))
+            ios.append((torch.zeros((NBLK, 2, BC, HKV_D), dtype=torch.int8),
+                        torch.zeros((NBLK, 2, BC, L.HKV), dtype=torch.bfloat16)) if G.KV8 else
+                       (torch.zeros((NBLK, 2, BC, HKV_D), dtype=torch.float8_e4m3fn if G.KVF8 else torch.bfloat16),))
     return ios
 
 
 def names_ios(ios):
     out = {}
     for j, kind in enumerate(G.KINDS):
-        ns = [f"st{j}", f"cq{j}", f"ck{j}", f"cv{j}"] if kind == "gdn" else [f"kv{j}"]
+        ns = [f"st{j}", f"cq{j}", f"ck{j}", f"cv{j}"] if kind == "gdn" else [f"kv{j}"] + ([f"kvs{j}"] if G.KV8 else [])
         out.update(dict(zip(ns, ios[j])))
     return out
 
@@ -150,8 +152,15 @@ def main():
                 for t in range(nt):
                     cell = POS0 + t
                     pg, cl = divmod(cell, BC)
-                    r["kv"] += [cos(case[f"kv{j}"][pg, 0, cl], ref["snaps1"][t][f"kv{j}"][pg, 0, cl]),
-                                cos(case[f"kv{j}"][pg, 1, cl], ref["snaps1"][t][f"kv{j}"][pg, 1, cl])]
+                    def kvrow(pl):  # the kernel's K / V row (KV8: dequantized)
+                        row = case[f"kv{j}"][pg, pl, cl].float()
+                        if G.KVF8:
+                            row = row / G.KV8_SCALE
+                        if G.KV8:
+                            row = (row.reshape(L.HKV, L.D) * case[f"kvs{j}"][pg, pl, cl].float().reshape(L.HKV, 1)).reshape(-1)
+                        return row
+                    r["kv"] += [cos(kvrow(0), ref["snaps1"][t][f"kv{j}"][pg, 0, cl]),
+                                cos(kvrow(1), ref["snaps1"][t][f"kv{j}"][pg, 1, cl])]
         res = {n: stats(v) for n, v in r.items() if v}
         res["min"] = min(v["min"] for v in res.values())
         res["pass"] = res["min"] >= 0.999

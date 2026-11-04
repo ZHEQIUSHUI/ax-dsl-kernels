@@ -27,7 +27,7 @@ import q35_group as G
 import q35_layer_mc as L
 import q35_step as q
 from group_common import compare_layout, dump_json, make_group_bundle
-from verify_group_m4 import T, make_source, snapshot_shapes
+from verify_group_m4 import T, make_source, snapshot_shapes, layer_io_names
 
 MODEL = os.environ["MODEL"]
 RUN_MODE = os.environ.get("RUN_MODE", "PYRUN")
@@ -58,8 +58,11 @@ def state_ios():
                         torch.zeros((1, L.CONV - 1, L.KD), dtype=torch.bfloat16),
                         torch.zeros((1, L.CONV - 1, L.KD), dtype=torch.bfloat16),
                         torch.zeros((1, L.CONV - 1, L.VD), dtype=torch.bfloat16)))
+        elif G.KV8:  # int8 rows + a bf16 scale per row and head
+            ios.append((torch.zeros((NBLK, 2, BC, HKV * D), dtype=torch.int8),
+                        torch.zeros((NBLK, 2, BC, HKV), dtype=torch.bfloat16)))
         else:
-            ios.append((torch.zeros((NBLK, 2, BC, HKV * D), dtype=torch.bfloat16),))
+            ios.append((torch.zeros((NBLK, 2, BC, HKV * D), dtype=torch.float8_e4m3fn if G.KVF8 else torch.bfloat16),))
     return ios
 
 
@@ -71,6 +74,8 @@ def init_resident(ios):
                 q.RESIDENT[name] = t.clone()
         else:
             q.RESIDENT[f"kv{j}"] = ios[j][0].clone()
+            if G.KV8:
+                q.RESIDENT[f"kvs{j}"] = ios[j][1].clone()
 
 
 def build_module(build, sub, src, modname):
@@ -113,7 +118,7 @@ def main():
                  cksnap=torch.zeros(shapes[2], dtype=torch.bfloat16),
                  cvsnap=torch.zeros(shapes[3], dtype=torch.bfloat16))
     for j, kind in enumerate(G.KINDS):
-        for name, t in zip([f"st{j}", f"cq{j}", f"ck{j}", f"cv{j}"] if kind == "gdn" else [f"kv{j}"], ios4[j]):
+        for name, t in zip(layer_io_names(kind, j), ios4[j]):
             case4[name] = t
     init_resident(ios4)
 

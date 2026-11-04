@@ -1,0 +1,214 @@
+diff --git a/sgl-kernel-axera/python/sgl_kernel_axera/attention/flash_attn.py b/sgl-kernel-axera/python/sgl_kernel_axera/attention/flash_attn.py
+index 2c99805352..31ca0fbe54 100644
+--- a/sgl-kernel-axera/python/sgl_kernel_axera/attention/flash_attn.py
++++ b/sgl-kernel-axera/python/sgl_kernel_axera/attention/flash_attn.py
+@@ -32,6 +32,14 @@ BASELINE_PAGE_SIZE = 256
+ # axnn decode tests keep ``MAX_NUM_PAGES >= 32``; match that floor so both the
+ # 5D page axis and the 1-D page-id table stay out of that lowering.
+ _MIN_PAGED_GATHER_PAGES = 32
++# KV8=2 (build27.py): the paged cache in FP8 E4M3, the values x KV_FP8_SCALE before the cast; K is a native MX operand
++# of the score matmul (a constant E8M0 w_scale of 1 / KV_FP8_SCALE), V is cast to bf16 and the probabilities carry it
++KV_FP8_SCALE = float(os.environ.get("KV8_SCALE", "8"))
++KV_FP8_E8M0 = 127 + int(round(np.log2(1.0 / KV_FP8_SCALE)))
++
++
++def kv_fp8_kscale(rows, head_dim):
++    return ax.dsl.full((rows, head_dim // 32), ax.mxe8m0, fill_value=KV_FP8_E8M0)  # (the raw E8M0 byte)
+ # Qwen3-0.6B is GQA=2, so each KV head attends two query heads. Concat-padding
+ # that size-2 view is still a size-2 SDMA gather source (8B is GQA=4 and already
+ # clears it). Select dummy rows from the full local Q instead, then drop them.
+@@ -49,11 +57,28 @@ _OUTPUT_PROJECTION_WEIGHT_IC_LOAD_TILE = 512
+ _OUTPUT_PROJECTION_WEIGHT_OC_LOAD_TILE = 512
+ 
+ 
+-def store_paged_kv(values, cache, location, plane, head_start, banks=None):
+-    """Scatter this core's token/head rows directly into the retained KV pool."""
++def quantize_kv_rows(values):
++    """values [T, Hc, D] BF16 -> (int8 [T, Hc, D], BF16 scale [T, Hc, 1]): q = round(x / s), s = amax / 127 per row."""
++    neg = ax.dsl.mul(values, ax.dsl.full((1,), ax.bf16, fill_value=-1.0), output_dtype=ax.bf16)
++    amax = ax.dsl.max(ax.dsl.maximum(values, neg), dim=-1, keepdim=True)
++    amax = ax.dsl.maximum(amax, ax.dsl.full((1,), ax.bf16, fill_value=1e-5))
++    scale = ax.dsl.mul(amax, ax.dsl.full((1,), ax.bf16, fill_value=1.0 / 127), output_dtype=ax.bf16)
++    q = ax.dsl.cast(ax.dsl.mul(values, ax.dsl.reciprocal(scale), output_dtype=ax.bf16), dtype=ax.int8)
++    return q, scale
++
++
++def store_paged_kv(values, cache, location, plane, head_start, banks=None, scale_cache=None):
++    """Scatter this core's token/head rows directly into the retained KV pool.
++
++    scale_cache ([P, 2, L, H] BF16): the cache is int8; the rows are quantized here, their scales stored alongside."""
+     # T=tokens, Hc=local_heads, D=head_dim; cache[P,2,L,H,D], location[2] int32.
+     # values[T,Hc,D] and cache use A=values.dtype (BF16 for Qwen3); S=P*2*L*H.
+     tokens, local_heads, head_dim = values.shape
++    if scale_cache is not None:
++        values, scales = quantize_kv_rows(values)
++    elif cache.dtype == ax.fp8_e4m3:
++        values = ax.dsl.cast(ax.dsl.mul(values, ax.dsl.full((1,), ax.bf16, fill_value=KV_FP8_SCALE), output_dtype=ax.bf16),
++                             dtype=ax.fp8_e4m3)
+     heads = cache.shape[3]
+     page_size = cache.shape[2]
+     # load: location[2] int32 DDR -> target[2] int32 OCM (page ID, token offset).
+@@ -81,6 +106,8 @@ def store_paged_kv(values, cache, location, plane, head_start, banks=None):
+         r=cache.reshape(-1, head_dim),
+         banks=banks,
+     )
++    if scale_cache is not None:
++        scatter_rows(scales.reshape(tokens * local_heads, 1), row_indices, dim=0, r=scale_cache.reshape(-1, 1), banks=banks)
+ 
+ 
+ def _history_tail_mask(page_index, slot_positions, page_size_scalar, valid_kv_len, page_size, dtype):
+@@ -139,9 +166,14 @@ def paged_attn_update(
+     # so online-softmax then reduces uninitialized scores to Inf.
+     score_rows = state_scores[:, 1 : 1 + kv_len]
+     score_start = 0
++    kv_fp8 = any(k_tile.dtype == ax.fp8_e4m3 for k_tile in k_tiles)
+     for k_tile in k_tiles:
+         score_stop = score_start + k_tile.shape[0]
+-        ax.dsl.matmul(q, k_tile, transposed=True, r=score_rows[:, score_start:score_stop])
++        if k_tile.dtype == ax.fp8_e4m3:  # the FP8 cache: K x KV_FP8_SCALE, undone by the constant MX scale
++            ax.dsl.matmul(q, k_tile, transposed=True, w_scale=kv_fp8_kscale(k_tile.shape[0], head_dim),
++                          r=score_rows[:, score_start:score_stop])
++        else:
++            ax.dsl.matmul(q, k_tile, transposed=True, r=score_rows[:, score_start:score_stop])
+         score_start = score_stop
+ 
+     if active_mask is not None:
+@@ -172,6 +204,9 @@ def paged_attn_update(
+         )
+         value_start = value_stop
+ 
++    if kv_fp8:  # the V rows carry KV_FP8_SCALE: undone on the block weighted values (not on the probabilities: the
++        # scheduler loses the DDR allocation of a reassigned probabilities tensor)
++        ax.dsl.mul(weighted_values, ax.dsl.full((1,), weighted_values.dtype, fill_value=1.0 / KV_FP8_SCALE), r=weighted_values)
+     scaled_previous_output = ax.dsl.mul(
+         previous_state_ratio.reshape(1, query_rows, 1),
+         accumulator,
+@@ -481,6 +516,7 @@ def paged_flash_attention(
+     history_page_count,
+     kv_head_start,
+     banks=None,
++    paged_kv_scale=None,
+ ):
+     """Update all local Q-head states over history and current KV.
+ 
+@@ -542,21 +578,33 @@ def paged_flash_attention(
+         kv_page_heads = []
+         for local_kv_head in range(kv_head_count):
+             global_kv_head = kv_head_start + local_kv_head
+-            kv_page_heads.append(
+-                gather_rows(
+-                    paged_kv_cache[:, :, :, global_kv_head : global_kv_head + 1, :],
++            page = gather_rows(
++                paged_kv_cache[:, :, :, global_kv_head : global_kv_head + 1, :],
++                physical_page,
++                dim=0,
++                banks=banks,
++            ).reshape(2, _KV_PAGE_SIZE, 1, head_dim)
++            if page.dtype == ax.fp8_e4m3 and paged_kv_scale is None:  # the FP8 cache: K stays FP8, V to bf16
++                page = (page[0:1].reshape(_KV_PAGE_SIZE, head_dim), ax.dsl.cast(page[1:2].reshape(_KV_PAGE_SIZE, head_dim), dtype=ax.bf16))
++            elif paged_kv_scale is not None:  # int8 rows x their scales
++                scales = gather_rows(
++                    paged_kv_scale[:, :, :, global_kv_head : global_kv_head + 1],
+                     physical_page,
+                     dim=0,
+                     banks=banks,
+-                ).reshape(2, _KV_PAGE_SIZE, 1, head_dim)
+-            )
++                ).reshape(2, _KV_PAGE_SIZE, 1, 1)
++                page = ax.dsl.mul(ax.dsl.cast(page, dtype=ax.bf16), scales, output_dtype=ax.bf16)
++            kv_page_heads.append(page)
+ 
+         for local_q_head in range(q_head_count):
+             local_kv_head = local_q_head // kv_repeat
+             q_head = q[:, local_q_head : local_q_head + 1, :].reshape(query_len, head_dim)
+             kv_page = kv_page_heads[local_kv_head]
+-            k_page = kv_page[0:1, :, :, :].reshape(_KV_PAGE_SIZE, head_dim)
+-            v_page = kv_page[1:2, :, :, :].reshape(_KV_PAGE_SIZE, head_dim)
++            if isinstance(kv_page, tuple):
++                k_page, v_page = kv_page
++            else:
++                k_page = kv_page[0:1, :, :, :].reshape(_KV_PAGE_SIZE, head_dim)
++                v_page = kv_page[1:2, :, :, :].reshape(_KV_PAGE_SIZE, head_dim)
+             max_state, normalizer_state, accumulator_state = head_states[local_q_head * 3 : local_q_head * 3 + 3]
+             paged_attn_update(
+                 q_head,
+@@ -715,6 +763,7 @@ def prefill_attention_tile(
+     cache_location=None,
+     *,
+     cos_sin_cache=None,
++    paged_kv_scale=None,
+     core_id,
+     core_count,
+     query_indices=None,
+@@ -748,7 +797,7 @@ def prefill_attention_tile(
+     assert paged_kv_cache.shape[1] == 2
+     assert paged_kv_cache.shape[2] == _KV_PAGE_SIZE
+     assert paged_kv_cache.shape[3] == kv_head_count
+-    assert paged_kv_cache.dtype == ax.bf16
++    assert paged_kv_cache.dtype == (ax.int8 if paged_kv_scale is not None else ax.bf16) or paged_kv_cache.dtype == ax.fp8_e4m3
+     assert w_k.shape == w_v.shape
+     assert q_head_count % kv_head_count == 0
+     assert q_head_count % core_count == 0
+@@ -964,8 +1013,8 @@ def prefill_attention_tile(
+     # existing AxScatter path without requiring strided DynamicSt support.
+     if not shared_kv_projection or pair_rank == 0:
+         if cache_location is not None:
+-            store_paged_kv(k, paged_kv_cache, cache_location, 0, kv_head_start, banks=banks)
+-            store_paged_kv(v, paged_kv_cache, cache_location, 1, kv_head_start, banks=banks)
++            store_paged_kv(k, paged_kv_cache, cache_location, 0, kv_head_start, banks=banks, scale_cache=paged_kv_scale)
++            store_paged_kv(v, paged_kv_cache, cache_location, 1, kv_head_start, banks=banks, scale_cache=paged_kv_scale)
+         else:
+             local_kv_row_indices = (
+                 np.arange(query_len, dtype=np.uint32)[:, None] * kv_head_count
+@@ -996,6 +1045,7 @@ def prefill_attention_tile(
+         history_page_count,
+         kv_head_start,
+         banks=banks,
++        paged_kv_scale=paged_kv_scale,
+     )
+     if gate is not None:
+         # Gate rows are strided views of packed [Q, Gate] projections.
+@@ -1091,6 +1141,7 @@ def flash_attn_with_kvcache(
+     post_residual_addition=None,
+     cache_location=None,
+     cos_sin_cache=None,
++    paged_kv_scale=None,
+     banks=None,
+ ):
+     """Run one request using bounded 256-token pages for long prefill.
+@@ -1145,6 +1196,7 @@ def flash_attn_with_kvcache(
+             post_residual_addition,
+             cache_location,
+             cos_sin_cache=cos_sin_cache,
++            paged_kv_scale=paged_kv_scale,
+             core_id=core_id,
+             core_count=core_count,
+             banks=banks,
+@@ -1172,6 +1224,7 @@ def flash_attn_with_kvcache(
+         post_residual_addition,
+         cache_location,
+         cos_sin_cache=cos_sin_cache,
++        paged_kv_scale=paged_kv_scale,
+         core_id=core_id,
+         core_count=core_count,
+         query_indices=offsets,
+@@ -1196,6 +1249,7 @@ def flash_attn_with_kvcache(
+             post_residual_addition,
+             tile_location,
+             cos_sin_cache=cos_sin_cache,
++            paged_kv_scale=paged_kv_scale,
+             core_id=core_id,
+             core_count=core_count,
+             query_indices=query_indices,
+diff --git a/sgl-kernel-axera/python/sgl_kernel_axera/models/qwen38_27b/forward.py b/sgl-kernel-axera/python/sgl_kernel_axera/models/qwen38_27b/forward.py
+index ef4c2232ee..d23d8439f9 100644
+--- a/sgl-kernel-axera/python/sgl_kernel_axera/models/qwen38_27b/forward.py
++++ b/sgl-kernel-axera/python/sgl_kernel_axera/models/qwen38_27b/forward.py
+@@ -126,6 +126,7 @@ def forward_qwen38_blocks(
+                         indptr,
+                         indices,
+                         None,
++                        paged_kv_scale=weights.get("kv_scale"),
+                         **options,
+                     )
+             axd.pub(activation)

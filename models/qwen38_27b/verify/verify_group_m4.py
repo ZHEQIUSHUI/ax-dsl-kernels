@@ -33,7 +33,7 @@ T = 4
 
 
 def layer_io_names(kind, j):
-    return [f"st{j}", f"cq{j}", f"ck{j}", f"cv{j}"] if kind == "gdn" else [f"kv{j}"]
+    return [f"st{j}", f"cq{j}", f"ck{j}", f"cv{j}"] if kind == "gdn" else [f"kv{j}"] + ([f"kvs{j}"] if G.KV8 else [])
 
 
 def snapshot_shapes():
@@ -230,7 +230,7 @@ def gdn_rows(c, xt, m, state, cq, ck, cv_, gi, ssnap, cqsnap, cksnap, cvsnap, ta
     return y
 
 
-def attn_rows(c, xt, m, cs, pn, mask, kv, tag):
+def attn_rows(c, xt, m, cs, pn, mask, kv, tag, kvs=None):
     QH, QW, D, HKV, ROT = L.QH, L.QW, L.D, L.HKV, L.ROT
     HC, QD = HKV // L.CORES, QH * D
     h = rmsnorm(xt, ax.dsl.load(m["ln1"]).reshape(1, 1, L.H), eps=L.EPS)
@@ -260,23 +260,32 @@ def attn_rows(c, xt, m, cs, pn, mask, kv, tag):
     L.axd.sub(ex)
 
     gated = ax.dsl.create_tensor((1, T, QH * D), ax.bf16, name=tag + "attn_gated")
+    # the T rows' K / V written, then their attention in one pass over the cache (a row's mask hides the cells past it)
+    G_ = L.G
+    qa = ax.dsl.create_tensor((HKV, T, G_, D), ax.bf16, name=tag + "q_heads")
+    masks = []
+    zero = None
     for t in range(T):
         pn_t = pn[t : t + 1].reshape(3)
-        mask_t = mask[t : t + 1].reshape(L.NBLK, L.BC)
+        masks.append(mask[t : t + 1].reshape(L.NBLK, L.BC))
         k = ax.dsl.create_tensor((1, HKV, D), ax.bf16, name=tag + f"k_row_{t}")
         v = ax.dsl.create_tensor((1, HKV, D), ax.bf16, name=tag + f"v_row_{t}")
-        qa = ax.dsl.create_tensor((L.HQ, D), ax.bf16, name=tag + f"q_heads_{t}")
         for kc in range(L.CORES):
             src = ex[kc : kc + 1, t : t + 1, QD : QD + HC * D].reshape(1, HC, D)
             ax.dsl.move(r=k[:, kc : kc + 1, :], x=src)
             src = ex[kc : kc + 1, t : t + 1, QD + HC * D : W_].reshape(1, HC, D)
             ax.dsl.move(r=v[:, kc : kc + 1, :], x=src)
-            src = ex[kc : kc + 1, t : t + 1, 0:QD].reshape(QH, D)
-            ax.dsl.move(r=qa[kc * QH : (kc + 1) * QH, :], x=src)
-        zero = G.kv_write_paged(kv, k, v, ax.dsl.load(pn_t[2:3])).reshape(1, 1)
-        qa = ax.dsl.add(qa, ax.dsl.cast(zero, dtype=ax.bf16), output_dtype=ax.bf16)
+            src = ex[kc : kc + 1, t : t + 1, 0:QD].reshape(HC, 1, G_, D)
+            ax.dsl.move(r=qa[kc * HC : (kc + 1) * HC, t : t + 1, :, :], x=src)
+        z = G.kv_write_paged(kv, k, v, ax.dsl.load(pn_t[2:3]), kvs).reshape(1, 1)
+        zero = z if zero is None else ax.dsl.add(zero, z, output_dtype=zero.dtype)
+    qa = ax.dsl.add(qa, ax.dsl.cast(zero, dtype=ax.bf16).reshape(1, 1, 1, 1), output_dtype=ax.bf16)
+    attn4 = ax.dsl.create_tensor((HC, T, G_, D), ax.bf16, name=tag + "attn_rows")
+    G.attention_split_qa_rows(c, qa, kv, pn[T - 1 : T].reshape(3)[1:2], masks, attn4, tag + "rows_", kvs=kvs)
+    for t in range(T):
         attn = ax.dsl.create_tensor((1, QH, D), ax.bf16, name=tag + f"attn_{t}")
-        G.attention_split_qa(c, qa, kv, pn_t[1:2], mask_t, attn, tag + f"t{t}_")
+        for hl in range(HC):
+            ax.dsl.move(r=attn[:, hl * G_ : (hl + 1) * G_, :], x=attn4[hl : hl + 1, t : t + 1, :, :].reshape(1, G_, D))
         gt = sigmoid_mul(attn, qg[:, t : t + 1, :, D : 2 * D], activation_output_dtype=ax.fp32,
                          output_dtype=ax.bf16).reshape(1, 1, QH * D)
         ax.dsl.move(r=gated[:, t : t + 1, :], x=gt)
@@ -302,7 +311,7 @@ def verify_body(x, packs, cs, pn, mask, out, ios, ssnap, cqsnap, cksnap, cvsnap,
                           ssnap, cqsnap, cksnap, cvsnap, f"L{j}_")
             gi += 1
         else:
-            xt = attn_rows(c, xt, m, cs, pn, mask, ios[j][0], f"L{j}_")
+            xt = attn_rows(c, xt, m, cs, pn, mask, ios[j][0], f"L{j}_", kvs=ios[j][1] if G.KV8 else None)
         # Retire this layer's shared-OCM buffers before the next layer.  The
         # M=4 reductions are 4x a T=1 group's, so holding all 16 live would
         # make the allocator reuse an address still being read.

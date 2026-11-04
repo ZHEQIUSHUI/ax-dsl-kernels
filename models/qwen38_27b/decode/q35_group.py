@@ -41,6 +41,17 @@ assert L.MX and not L.MOE and L.P == 1 and K.BLOCK
 G = int(os.environ.get("G", 4))
 # KVX=1: the KV heads split over the cores and exchanged through shared OCM (needs HKV % CORES == 0)
 KVX = os.environ.get("KVX", "0") == "1"
+# KV8=1: the paged K / V cache in int8 with a bf16 scale per row and head (a second input kvs<j> per attention layer,
+# [NBLK, 2, BC, HKV]): a row quantized as it is written (q = round(x / s), s = amax / 127), a page dequantized on chip as
+# it is read. The DDR read of the cache halves; the layouts are otherwise the same
+KV8 = os.environ.get("KV8", "0") == "1"
+# KV8=2: the cache in FP8 E4M3 with one static scale (rows x KV8_SCALE before the cast: the 27B's |K| <= 13, |V| <= 10;
+# E4M3 normals from 2^-6): K is a native MX operand of the score matmul (a constant E8M0 w_scale of 1 / KV8_SCALE), V is
+# cast to bf16 and the probabilities carry the 1 / KV8_SCALE; no scale cache, no per-element dequantization
+KVF8 = os.environ.get("KV8", "0") == "2"
+KV8_SCALE = float(os.environ.get("KV8_SCALE", "8"))
+KV8_E8M0 = 127 + int(round(math.log2(1.0 / KV8_SCALE)))  # the E8M0 byte of 1 / KV8_SCALE
+assert not (KV8 and KVF8) and 2.0 ** (KV8_E8M0 - 127) == 1.0 / KV8_SCALE
 # LMHEAD=1 (the group covers every layer): also the final norm and the output projection (tied embedding rows, in the
 # layers' weight format, or LMFMT=mx8 / mx4), logits [1, V] f32 as one more output; V / CORES rows per core
 LMHEAD = os.environ.get("LMHEAD", "0") == "1"
@@ -184,21 +195,76 @@ def gdn_layer(c, xt, m, state, cq, ck, cv_, t):
     return mlp(c, reduce(c, xt, o, t + "a"), m, t)
 
 
-def kv_write_paged(kv, k, v, krow):
+def kv_quant_row(x):
+    """x [1, HKV, D] bf16 -> (int8 [1, HKV * D], bf16 scale [1, HKV]): q = round(x / s), s = amax / 127 per head"""
+    HKV, D = L.HKV, L.D
+    a = ax.dsl.maximum(x, ax.dsl.mul(x, ax.dsl.full(shape=(1,), dtype=ax.bf16, fill_value=-1.0), output_dtype=ax.bf16))
+    amax = ax.dsl.maximum(ax.dsl.max(a, dim=-1, keepdim=True), ax.dsl.full(shape=(1,), dtype=ax.bf16, fill_value=1e-5))
+    sc = ax.dsl.mul(amax, ax.dsl.full(shape=(1,), dtype=ax.bf16, fill_value=1.0 / 127), output_dtype=ax.bf16)
+    q8 = ax.dsl.cast(ax.dsl.mul(x, ax.dsl.reciprocal(sc), output_dtype=ax.bf16), dtype=ax.int8)
+    return q8.reshape(1, HKV * D), sc.reshape(1, HKV)
+
+
+def kv_page(kv, kvs, index):
+    """cache page `index`: (K [BC, HKV * D], V [BC, HKV * D]) bf16 (KV8: dequantized with its rows' scales), or with
+    KVF8 K as FP8 for the score matmul (its constant E8M0 w_scale: kv_kscale()) and V as bf16 (x KV8_SCALE)"""
+    HKV, D, BC, NBLK = L.HKV, L.D, L.BC, L.NBLK
+    if KVF8:
+        page = ax.dsl.index_select(kv.reshape(NBLK, 2 * BC * HKV * D), index, dim=0).reshape(2 * BC, HKV * D)
+        return page[0:BC], ax.dsl.cast(page[BC : 2 * BC], dtype=ax.bf16)
+    if kvs is None:
+        page = ax.dsl.index_select(kv.reshape(NBLK, 2 * BC * HKV * D), index, dim=0).reshape(2 * BC, HKV * D)
+        return page[0:BC], page[BC : 2 * BC]
+    p8 = ax.dsl.index_select(kv.reshape(NBLK, 2 * BC * HKV * D), index, dim=0).reshape(2 * BC, HKV, D)
+    ps = ax.dsl.index_select(kvs.reshape(NBLK, 2 * BC * HKV), index, dim=0).reshape(2 * BC, HKV, 1)
+    page = ax.dsl.mul(ax.dsl.cast(p8, dtype=ax.bf16), ps, output_dtype=ax.bf16).reshape(2 * BC, HKV * D)
+    return page[0:BC], page[BC : 2 * BC]
+
+
+def kv_kscale(tag):
+    """KVF8: the score matmul's constant E8M0 scale of a K page head slice [BC, D / 32]"""
+    return ax.dsl.full((L.BC, L.D // 32), ax.mxe8m0, fill_value=KV8_E8M0)  # (the raw E8M0 byte: from_numpy of an E8M0 array is a dtype the matmul lowering rejects)
+
+
+def kv_scores(qa, kb, hk, ks):
+    """the scores of the queries qa [rows, D] (one KV head's) against the page's K: bf16 or FP8 (MX, constant scale)"""
+    D = L.D
+    if ks is None:
+        return ax.dsl.matmul(qa, kb[:, hk * D : (hk + 1) * D], transposed=True, output_dtype=ax.bf16)
+    return ax.dsl.matmul(qa, kb[:, hk * D : (hk + 1) * D], transposed=True, w_scale=ks, output_dtype=ax.bf16)
+
+
+def kv_write_paged(kv, k, v, krow, kvs=None):
     """the new K / V row (all heads) into the paged cache: K at flat row krow (page p, row r: p * 2 * BC + r), V at
-    krow + BC; then a zero read back from them (whatever depends on it runs after this core's store landed)"""
+    krow + BC; then a zero read back from them (whatever depends on it runs after this core's store landed).
+    kvs (KV8): the rows quantized to int8, their scales into kvs"""
     HKV, D, BC, NBLK = L.HKV, L.D, L.BC, L.NBLK
     flat = kv.reshape(NBLK * 2 * BC, HKV * D)
     vrow = ax.dsl.add(krow, ax.dsl.from_numpy(np.array([BC], dtype=np.int32)), output_dtype=ax.int32)
-    ax.dsl.select_scatter(k.reshape(1, HKV * D), krow, dim=0, r=flat)
-    ax.dsl.select_scatter(v.reshape(1, HKV * D), vrow, dim=0, r=flat)
+    if KVF8:
+        sc = ax.dsl.full(shape=(1,), dtype=ax.bf16, fill_value=KV8_SCALE)
+        k8 = ax.dsl.cast(ax.dsl.mul(k.reshape(1, HKV * D), sc, output_dtype=ax.bf16), dtype=ax.fp8_e4m3)
+        v8 = ax.dsl.cast(ax.dsl.mul(v.reshape(1, HKV * D), sc, output_dtype=ax.bf16), dtype=ax.fp8_e4m3)
+        ax.dsl.select_scatter(k8, krow, dim=0, r=flat)
+        ax.dsl.select_scatter(v8, vrow, dim=0, r=flat)
+    elif kvs is not None:
+        sflat = kvs.reshape(NBLK * 2 * BC, HKV)
+        qk, sk = kv_quant_row(k)
+        qv, sv = kv_quant_row(v)
+        ax.dsl.select_scatter(qk, krow, dim=0, r=flat)
+        ax.dsl.select_scatter(sk, krow, dim=0, r=sflat)
+        ax.dsl.select_scatter(qv, vrow, dim=0, r=flat)
+        ax.dsl.select_scatter(sv, vrow, dim=0, r=sflat)
+    else:
+        ax.dsl.select_scatter(k.reshape(1, HKV * D), krow, dim=0, r=flat)
+        ax.dsl.select_scatter(v.reshape(1, HKV * D), vrow, dim=0, r=flat)
     kb = ax.dsl.index_select(flat, krow, dim=0)
     vb = ax.dsl.index_select(flat, vrow, dim=0)
     back = ax.dsl.add(ax.dsl.cast(kb[:, 0:1], dtype=ax.fp32), ax.dsl.cast(vb[:, 0:1], dtype=ax.fp32), output_dtype=ax.fp32)
     return ax.dsl.mul(back.reshape(1), ax.dsl.full(shape=(1,), dtype=ax.fp32, fill_value=0.0), output_dtype=ax.fp32)
 
 
-def attn_layer(c, xt, m, cs, pn, mask, kv, t):
+def attn_layer(c, xt, m, cs, pn, mask, kv, t, kvs=None):
     assert KVX and L.DEC_SPLIT
     QH, QW, D, G_, HKV, ROT, LMAX = L.QH, L.QW, L.D, L.G, L.HKV, L.ROT, L.LMAX
     cos_t, sin_t = ax.dsl.load(cs[0:1]), ax.dsl.load(cs[1:2])
@@ -234,13 +300,13 @@ def attn_layer(c, xt, m, cs, pn, mask, kv, t):
         v = ax.dsl.create_tensor((CORES, HC * D), ax.bf16, ax.MemoryType.OCM, name=t + "v_row")
         ax.dsl.move(r=k, x=ex[:, o0 : o0 + HC * D])
         ax.dsl.move(r=v, x=ex[:, o0 + HC * D : o0 + 2 * HC * D])
-        zero = kv_write_paged(kv, k.reshape(1, HKV, D), v.reshape(1, HKV, D), ax.dsl.load(pn[2:3])).reshape(1, 1)
+        zero = kv_write_paged(kv, k.reshape(1, HKV, D), v.reshape(1, HKV, D), ax.dsl.load(pn[2:3]), kvs).reshape(1, 1)
         if L.DEC_SPLIT:
             qa = ax.dsl.create_tensor((CORES, QD), ax.bf16, ax.MemoryType.OCM, name=t + "q_heads")
             ax.dsl.move(r=qa, x=ex[:, 0:QD])
             qa = qa.reshape(L.HQ, D)
             qa = ax.dsl.add(qa, ax.dsl.cast(zero, dtype=ax.bf16), output_dtype=ax.bf16)  # exact: + 0
-            attention_split_qa(c, qa, kv, pn[1:2], mask, attn, t)
+            attention_split_qa(c, qa, kv, pn[1:2], mask, attn, t, kvs=kvs)
     gated = (sigmoid_mul(attn, qg[:, :, D : 2 * D], activation_output_dtype=ax.fp32, output_dtype=ax.bf16) if q.GATE
              else attn).reshape(1, 1, QH * D)
     wo = strip(m["w_o"], c * QH * D, (c + 1) * QH * D) if KSTRIDE and not KS_DOWN_ONLY else q.slice_w(m["w_o"], cols=slice(c * QH * D, (c + 1) * QH * D))
@@ -248,7 +314,7 @@ def attn_layer(c, xt, m, cs, pn, mask, kv, t):
     return mlp(c, reduce(c, xt, o, t + "a"), m, t)
 
 
-def attention_split_qa(c, qa, kv, nblk, mask, attn, tag=""):
+def attention_split_qa(c, qa, kv, nblk, mask, attn, tag="", kvs=None):
     """q35_layer_mc.attention_split on the queries of all heads qa [HQ, D] (scaled, + 0 after the own KV write) the
     caller exchanged already: the cache blocks over the cores, partials merged per core's own heads into attn"""
     import ml_dtypes
@@ -262,18 +328,18 @@ def attention_split_qa(c, qa, kv, nblk, mask, attn, tag=""):
     mi = ax.dsl.full(shape=(HQ, 1), dtype=ax.bf16, fill_value=-3e38)
     zero_col = ax.dsl.zeros(shape=(HQ, 1), dtype=ax.bf16)
     index = ax.dsl.zeros(shape=(1,), dtype=ax.int32)
+    ks = kv_kscale(tag) if KVF8 else None
+    inv_scale = ax.dsl.full(shape=(1,), dtype=ax.fp32, fill_value=1.0 / KV8_SCALE) if KVF8 else None
 
-    def body(index, kv, mask, qa, mi, li, oi, zero_col, minus_1):
+    def body(index, kv, mask, qa, mi, li, oi, zero_col, minus_1, *extra):
         loop_mi, loop_li, loop_oi = mi, li, oi
-        page = ax.dsl.index_select(kv.reshape(NBLK, 2 * BC * HKV * D), index, dim=0).reshape(2 * BC, HKV * D)
-        kb, vb = page[0:BC], page[BC : 2 * BC]
+        kb, vb = kv_page(kv, extra[0] if extra else None, index)
         mj = L.mask_block(mask, index, 1)
         m_s = ax.dsl.create_tensor(shape=(HQ, 1 + BC + 1), dtype=ax.bf16)
         ax.dsl.move(r=m_s[:, :1], x=mi)
         ax.dsl.move(r=m_s[:, -1:], x=zero_col)
         for hk in range(HKV):
-            sj = ax.dsl.matmul(qa[hk * G_ : (hk + 1) * G_, :], kb[:, hk * D : (hk + 1) * D], transposed=True,
-                               output_dtype=ax.bf16)
+            sj = kv_scores(qa[hk * G_ : (hk + 1) * G_, :], kb, hk, ks)
             ax.dsl.add(sj, mj, output_dtype=ax.bf16, r=m_s[hk * G_ : (hk + 1) * G_, 1 : 1 + BC])
         m_next = ax.dsl.max(m_s[:, : 1 + BC], dim=-1, keepdim=True)
         m_s = ax.dsl.sub(m_s, m_next, r=m_s)
@@ -287,13 +353,17 @@ def attention_split_qa(c, qa, kv, nblk, mask, attn, tag=""):
         for hk in range(HKV):
             ax.dsl.matmul(pj[hk * G_ : (hk + 1) * G_, :], vb[:, hk * D : (hk + 1) * D], output_dtype=ax.fp32,
                           r=oij[hk * G_ : (hk + 1) * G_, :])
+        if KVF8:  # the V rows carry KV8_SCALE: undone on the block's weighted values in place (not on a reassigned pj:
+            # the scheduler loses the DDR allocation of the reassigned tensor)
+            ax.dsl.mul(oij, inv_scale, r=oij)
         ratio_oi = ax.dsl.mul(ratio.reshape(HQ, 1), oi, output_dtype=ax.fp32)
         ax.dsl.add(ratio_oi, oij, r=loop_oi, output_dtype=ax.bf16)
         ax.dsl.mul(m_s[:, -1:], minus_1, r=loop_mi)
-        return (kv, mask, qa, loop_mi, loop_li, loop_oi, zero_col, minus_1)
+        return (kv, mask, qa, loop_mi, loop_li, loop_oi, zero_col, minus_1, *extra)
 
-    (kv, mask, qa, mi, li, oi, zero_col, minus_1) = ax.dsl.range(
-        index, range_start, range_stop, range_step, body, kv, mask, qa, mi, li, oi, zero_col, minus_1)
+    extra = (kvs,) if kvs is not None else ()
+    (kv, mask, qa, mi, li, oi, zero_col, minus_1, *extra) = ax.dsl.range(
+        index, range_start, range_stop, range_step, body, kv, mask, qa, mi, li, oi, zero_col, minus_1, *extra)
     part = L.shm_tensor((CORES, HQ, 2 + D), ax.fp32, name=tag + "attn_part")
     ax.dsl.move(r=part[c : c + 1, :, 0:1], x=ax.dsl.cast(mi, dtype=ax.fp32).reshape(1, HQ, 1))
     ax.dsl.move(r=part[c : c + 1, :, 1:2], x=li.reshape(1, HQ, 1))
@@ -353,7 +423,7 @@ def group_body(x, packs, cs, pn, mask, out, io, banks=None):
         if kind == "gdn":
             xt = gdn_layer(c, xt, m, *io[j], f"L{j}_")
         else:
-            xt = attn_layer(c, xt, m, cs, pn, mask, io[j][0], f"L{j}_")
+            xt = attn_layer(c, xt, m, cs, pn, mask, io[j][0], f"L{j}_", kvs=io[j][1] if KV8 else None)
     if c == 0:
         ax.dsl.store(L.keep_shm(xt), r=out)  # every shared OCM tensor of the call read once more (q35_layer_mc)
     if LMHEAD:
@@ -371,7 +441,7 @@ def kernel_source():
     """the kernel as module source (the builder reads it): its parameters name each layer's state / KV"""
     outs, ios = [], []
     for j, kind in enumerate(KINDS):
-        names = [f"st{j}", f"cq{j}", f"ck{j}", f"cv{j}"] if kind == "gdn" else [f"kv{j}"]
+        names = [f"st{j}", f"cq{j}", f"ck{j}", f"cv{j}"] if kind == "gdn" else [f"kv{j}"] + ([f"kvs{j}"] if KV8 else [])
         outs += names
         ios.append("(" + ", ".join(names) + ",)")
     packs = list(PDT)
@@ -477,7 +547,9 @@ def main():
                   torch.zeros((LMAX, HKV * D), dtype=torch.half) for k in KINDS]}
     gio = [[torch.zeros((NV, DK, DV)), torch.zeros((1, CONV - 1, KD), dtype=torch.bfloat16),
             torch.zeros((1, CONV - 1, KD), dtype=torch.bfloat16), torch.zeros((1, CONV - 1, VD), dtype=torch.bfloat16)]
-           if k == "gdn" else [torch.zeros((LMAX // BC, 2, BC, HKV * D), dtype=torch.bfloat16)] for k in KINDS]
+           if k == "gdn" else ([torch.zeros((LMAX // BC, 2, BC, HKV * D), dtype=torch.int8),
+                                torch.zeros((LMAX // BC, 2, BC, HKV), dtype=torch.bfloat16)] if KV8 else
+                               [torch.zeros((LMAX // BC, 2, BC, HKV * D), dtype=torch.float8_e4m3fn if KVF8 else torch.bfloat16)]) for k in KINDS]
     REP_, NK_ = NV // L.NK, L.NK
     to_tiled = torch.tensor([(t % NK_) * REP_ + t // NK_ for t in range(NV)])  # tiled head t = r * NK + k <- grouped k * REP + r
     name = f"{q.KP}_group{G}_{tag}{K.FMT}{os.environ.get('NAMESFX', '')}{'_lm' + LMFMT[-1] if LMHEAD else ''}_kvc_c{LMAX}"
@@ -553,15 +625,110 @@ def main():
         cval = L.cos(o, ref)
         same = bool(torch.equal(o.view(torch.int16), ref.view(torch.int16)))
         sc = min([L.cos(gio[j][0][to_tiled], state["1"][j]) for j, k in enumerate(KINDS) if k == "gdn"] or [1.0])
-        kvc = min([L.cos(gio[j][0][: step // BC + 1, 0].reshape(-1, HKV * D)[: step + 1].float(),
-                         state["1"][j][: step + 1].float()) for j, k in enumerate(KINDS) if k == "attn"] or [1.0])
+        def kcache(j):  # the group's K rows so far (KV8: dequantized)
+            kq = gio[j][0][: step // BC + 1, 0].reshape(-1, HKV, D)[: step + 1].float()
+            if KVF8:
+                kq = kq / KV8_SCALE
+            if KV8:
+                kq = kq * gio[j][1][: step // BC + 1, 0].reshape(-1, HKV, 1)[: step + 1].float()
+            return kq.reshape(-1, HKV * D)
+        kvc = min([L.cos(kcache(j), state["1"][j][: step + 1].float()) for j, k in enumerate(KINDS) if k == "attn"] or [1.0])
         logger.info(f"group step {step}: worst K cache cos {kvc:.6f}")
         logger.info(f"group {tag} step {step}: out cos {cval:.6f} (bitwise {same}), worst gdn state cos {sc:.6f}")
         worst = min(worst, cval)
-    path = max(glob.glob(f"{build}/grp/cache/group_kernel.*.compiled.axmodel"), key=os.path.getmtime)
+    found = glob.glob(f"{build}/grp/cache/group_kernel.*.compiled.axmodel")
+    if found:
+        path = max(found, key=os.path.getmtime)
+    else:  # the newer axnn keeps no cache dir under CRUN: an explicit compile (same arguments) writes the model
+        os.chdir(f"{build}/grp")
+        ax.init(chip_num=1, core_num=CORES)
+        mb.SCALES.clear()
+        path = str(kg[CORES].compile(*[case[n] for n in L.order(fn)]))
+        logger.info(f"compiled (explicit): {path}")
     shutil.copy(path, dst)
     logger.info(f"wrote {dst} ({os.path.getsize(dst)} bytes) and its layout (worst cos {worst:.6f})")
 
 
 if __name__ == "__main__":
     main()
+
+
+def attention_split_qa_rows(c, qa, kv, nblk, masks, attn, tag="", kvs=None):
+    """attention_split_qa for T query rows at once (the verify kernel): qa [HKV, T, G, D] the rows' scaled queries (all
+    heads, exchanged already, + 0 after the rows' KV writes), masks the T rows' masks ([NBLK, BC] each: a row sees the
+    cells up to its own), nblk the last row's block count; one pass over the cache blocks for all rows (the scores of
+    the T * G rows of a KV head in one matmul); attn [HC, T, G, D] = this core's heads"""
+    import ml_dtypes
+    HQ, QH, D, HKV, BC, NBLK, G_ = L.HQ, L.QH, L.D, L.HKV, L.BC, L.NBLK, L.G
+    T = len(masks)
+    RT = T * G_  # rows per KV head: [t][g]
+    R = HKV * RT  # all rows: [hk][t][g]
+    minus_1 = ax.dsl.from_numpy(np.full(shape=(1,), dtype=ml_dtypes.bfloat16, fill_value=-1))
+    range_start = ax.dsl.from_numpy(np.array([c], dtype=np.int32), prefix=f"{tag}split_start")
+    range_step = ax.dsl.from_numpy(np.array([CORES], dtype=np.int32), prefix=f"{tag}split_step")
+    range_stop = ax.dsl.load(nblk)
+    qa2 = qa.reshape(R, D)
+    oi = ax.dsl.zeros(shape=(R, D), dtype=ax.bf16)
+    li = ax.dsl.zeros(shape=(R,), dtype=ax.fp32)
+    mi = ax.dsl.full(shape=(R, 1), dtype=ax.bf16, fill_value=-3e38)
+    zero_col = ax.dsl.zeros(shape=(R, 1), dtype=ax.bf16)
+    index = ax.dsl.zeros(shape=(1,), dtype=ax.int32)
+    ks = kv_kscale(tag) if KVF8 else None
+    inv_scale = ax.dsl.full(shape=(1,), dtype=ax.fp32, fill_value=1.0 / KV8_SCALE) if KVF8 else None
+
+    def body(index, kv, qa2, mi, li, oi, zero_col, minus_1, *rest):
+        loop_mi, loop_li, loop_oi = mi, li, oi
+        masks, kvs_ = (rest[:-1], rest[-1]) if len(rest) > T else (rest, None)
+        kb, vb = kv_page(kv, kvs_, index)
+        mj = [L.mask_block(mk, index, 1) for mk in masks]
+        m_s = ax.dsl.create_tensor(shape=(R, 1 + BC + 1), dtype=ax.bf16)
+        ax.dsl.move(r=m_s[:, :1], x=mi)
+        ax.dsl.move(r=m_s[:, -1:], x=zero_col)
+        for hk in range(HKV):
+            sj = kv_scores(qa2[hk * RT : (hk + 1) * RT, :], kb, hk, ks)
+            for t in range(T):
+                r0 = hk * RT + t * G_
+                ax.dsl.add(sj[t * G_ : (t + 1) * G_, :], mj[t], output_dtype=ax.bf16, r=m_s[r0 : r0 + G_, 1 : 1 + BC])
+        m_next = ax.dsl.max(m_s[:, : 1 + BC], dim=-1, keepdim=True)
+        m_s = ax.dsl.sub(m_s, m_next, r=m_s)
+        pj = ax.dsl.exp(m_s[:, 1 : 1 + BC])
+        p32 = ax.dsl.exp(m_s[:, 1 : 1 + BC], output_dtype=ax.fp32)
+        lij = ax.dsl.sum(p32, dim=-1, output_dtype=ax.fp32)
+        ratio = ax.dsl.exp(m_s[:, :1], output_dtype=ax.fp32).reshape(R)
+        ratio_li = ax.dsl.mul(li, ratio, output_dtype=ax.fp32)
+        ax.dsl.add(ratio_li, lij, r=loop_li, output_dtype=ax.fp32)
+        oij = ax.dsl.create_tensor(shape=(R, D), dtype=ax.fp32)
+        for hk in range(HKV):
+            ax.dsl.matmul(pj[hk * RT : (hk + 1) * RT, :], vb[:, hk * D : (hk + 1) * D], output_dtype=ax.fp32,
+                          r=oij[hk * RT : (hk + 1) * RT, :])
+        if KVF8:  # the V rows carry KV8_SCALE: undone on the block's weighted values in place (not on a reassigned pj:
+            # the scheduler loses the DDR allocation of the reassigned tensor)
+            ax.dsl.mul(oij, inv_scale, r=oij)
+        ratio_oi = ax.dsl.mul(ratio.reshape(R, 1), oi, output_dtype=ax.fp32)
+        ax.dsl.add(ratio_oi, oij, r=loop_oi, output_dtype=ax.bf16)
+        ax.dsl.mul(m_s[:, -1:], minus_1, r=loop_mi)
+        return (kv, qa2, loop_mi, loop_li, loop_oi, zero_col, minus_1, *rest)
+
+    rest = tuple(masks) + ((kvs,) if kvs is not None else ())
+    (kv, qa2, mi, li, oi, zero_col, minus_1, *rest) = ax.dsl.range(
+        index, range_start, range_stop, range_step, body, kv, qa2, mi, li, oi, zero_col, minus_1, *rest)
+    part = L.shm_tensor((CORES, R, 2 + D), ax.fp32, name=tag + "attn_part")
+    ax.dsl.move(r=part[c : c + 1, :, 0:1], x=ax.dsl.cast(mi, dtype=ax.fp32).reshape(1, R, 1))
+    ax.dsl.move(r=part[c : c + 1, :, 1:2], x=li.reshape(1, R, 1))
+    ax.dsl.move(r=part[c : c + 1, :, 2:], x=ax.dsl.cast(oi, dtype=ax.fp32).reshape(1, R, D))
+    axd.pub(part)
+    axd.sub(part)
+    RQ = QH * T  # this core's rows: its KV heads' [t][g] blocks are contiguous in [hk][t][g]
+    hs = slice(c * RQ, (c + 1) * RQ)
+    m_all = part[0:1, hs, 0:1].reshape(RQ, 1)
+    for k_ in range(1, CORES):
+        m_all = ax.dsl.maximum(m_all, part[k_ : k_ + 1, hs, 0:1].reshape(RQ, 1))
+    l_sum, o_sum = None, None
+    for k_ in range(CORES):
+        w = ax.dsl.exp(ax.dsl.sub(part[k_ : k_ + 1, hs, 0:1].reshape(RQ, 1), m_all, output_dtype=ax.fp32),
+                       output_dtype=ax.fp32)
+        lw = ax.dsl.mul(part[k_ : k_ + 1, hs, 1:2].reshape(RQ, 1), w, output_dtype=ax.fp32)
+        ow = ax.dsl.mul(part[k_ : k_ + 1, hs, 2:].reshape(RQ, D), w, output_dtype=ax.fp32)
+        l_sum = lw if l_sum is None else ax.dsl.add(l_sum, lw, output_dtype=ax.fp32)
+        o_sum = ow if o_sum is None else ax.dsl.add(o_sum, ow, output_dtype=ax.fp32)
+    ax.dsl.div(o_sum, l_sum, output_dtype=ax.bf16, r=attn.reshape(RQ, D))

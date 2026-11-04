@@ -56,7 +56,13 @@ def gqa():
     ang = torch.arange(CTX)[:, None] / (1e7 ** (torch.arange(0, rot, 2).float() / rot))[None, :]
     w.update(w_norm_attn=torch.ones(H, dtype=torch.bfloat16), w_norm_q=torch.ones(HD) / HD**0.5,
              w_norm_k=torch.ones(HD, dtype=torch.bfloat16), cos=ang.cos(), sin=ang.sin(), partial_rotary_factor=0.25)
-    cache = torch.zeros(CTX // 256, 2, 256, KVH, HD, dtype=torch.bfloat16)
+    if os.getenv("KV8", "0") == "2":  # FP8 E4M3 cache with one static scale (sgl_kvf8)
+        cache = torch.zeros(CTX // 256, 2, 256, KVH, HD, dtype=torch.float8_e4m3fn)
+    elif os.getenv("KV8", "0") == "1":  # int8 cache + a bf16 scale per row and head (sgl_kv8: quantized as stored)
+        cache = torch.zeros(CTX // 256, 2, 256, KVH, HD, dtype=torch.int8)
+        w["kv_scale"] = torch.zeros(CTX // 256, 2, 256, KVH, dtype=torch.bfloat16)
+    else:
+        cache = torch.zeros(CTX // 256, 2, 256, KVH, HD, dtype=torch.bfloat16)
     return cache, w, mlp()
 
 
@@ -73,6 +79,11 @@ def main():
         for i, a in enumerate(linear):
             a[name + "_in"] = a[name + "_out"] = pool[i]
     kv_pool = torch.stack([kv for kv, _, _ in layers if kv is not None])
+    attn = [a for kv, a, _ in layers if kv is not None]
+    if "kv_scale" in attn[0]:  # KV8: the scale cache is one pool too (the blocks its slices, as the kernel banks them)
+        ks_pool = torch.stack([a["kv_scale"] for a in attn])
+        for i, a in enumerate(attn):
+            a["kv_scale"] = ks_pool[i]
     j = 0
     for i, (kv, a, m) in enumerate(layers):
         if kv is not None:
