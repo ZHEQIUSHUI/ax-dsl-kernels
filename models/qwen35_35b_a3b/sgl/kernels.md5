@@ -1,0 +1,10 @@
+# Qwen3.5-35B-A3B NVFP4 kernels built from the sgl-kernel-axera source below.
+# upstream: ZHEQIUSHUI/sgl-kernel-axera fix/sglang_axera_opt 866053298cb072c5eb39222582b3ff3563a6dbc4
+# md5  bytes  role  file
+bf6faa1f9837852fc6b609cd957e15df  1372258  decode  sgl35_decode.axmodel
+cd3889224e4ea00ff82d299c9eca1483  1002250  prefill.gdn  sgl35_gdn.axmodel
+9a6f1a6a599349e323ea618b8be8daf7  441842  prefill.attn  sgl35_flash.axmodel
+a33bb920e7dd9e5a1fa5828ab53e6da3  594422  prefill.moe  sgl35_moe4096.axmodel
+c8036070bcf97f3e001f8826cc7b26cf  33090  prefill.padding  sgl35_padding.axmodel
+a034baf668975d56f1378626cb4d8ec2  1331441  lm_head  mul_mat_mx4_n248320_k2048_npu4.axmodel
+14fb6cf35bfdac306722b0576e554b50  92225540  vit  qwen35_35b_a3b_vit3072_npu4.axmodel
