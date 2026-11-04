@@ -160,7 +160,7 @@ def gdn_layer(c, xt, m, state, cq, ck, cv_, t):
     return mlp(c, reduce(c, xt, o, t + "a"), m, t)
 
 
-def kv_write_paged(kv, k, v, krow):
+def kv_write_paged(kv, k, v, krow, kvs=None, rzero=None):
     """the new K / V row (all heads) into the paged cache: K at flat row krow (page p, row r: p * 2 * BC + r), V at
     krow + BC; then a zero read back from them (whatever depends on it runs after this core's store landed)"""
     HKV, D, BC, NBLK = L.HKV, L.D, L.BC, L.NBLK
@@ -171,7 +171,11 @@ def kv_write_paged(kv, k, v, krow):
     kb = ax.dsl.index_select(flat, krow, dim=0)
     vb = ax.dsl.index_select(flat, vrow, dim=0)
     back = ax.dsl.add(ax.dsl.cast(kb[:, 0:1], dtype=ax.fp32), ax.dsl.cast(vb[:, 0:1], dtype=ax.fp32), output_dtype=ax.fp32)
-    return ax.dsl.mul(back.reshape(1), ax.dsl.full(shape=(1,), dtype=ax.fp32, fill_value=0.0), output_dtype=ax.fp32)
+    if rzero is None:
+        z = ax.dsl.full(shape=(1,), dtype=ax.fp32, fill_value=0.0)
+    else:  # a runtime-false scalar: the read-back cannot be folded, so the stores really land
+        z = ax.dsl.cast(rzero, dtype=ax.fp32).reshape(1)
+    return ax.dsl.mul(back.reshape(1), z, output_dtype=ax.fp32)
 
 
 def attn_layer(c, xt, m, cs, pn, mask, kv, t):
@@ -288,6 +292,84 @@ def attention_split_qa(c, qa, kv, nblk, mask, attn, tag=""):
         l_sum = lw if l_sum is None else ax.dsl.add(l_sum, lw, output_dtype=ax.fp32)
         o_sum = ow if o_sum is None else ax.dsl.add(o_sum, ow, output_dtype=ax.fp32)
     ax.dsl.div(o_sum, l_sum, output_dtype=ax.bf16, r=attn.reshape(QH, D))
+
+
+def attention_split_qa_rows(c, qa, kv, nblk, masks, attn, tag=""):
+    """attention_split_qa for T query rows at once (the verify kernel): qa [HKV, T, G, D] the rows' scaled queries (all
+    heads, exchanged already, + 0 after the rows' KV writes), masks the T rows' masks ([NBLK, BC] each: a row sees the
+    cells up to its own), nblk the last row's block count; one pass over the cache blocks for all rows (the scores of
+    the T * G rows of a KV head in one matmul); attn [HC, T, G, D] = this core's heads. bf16 KV cache (the Qwen3.5
+    whole-model kernels' format)."""
+    import ml_dtypes
+    HQ, QH, D, HKV, BC, NBLK, G_ = L.HQ, L.QH, L.D, L.HKV, L.BC, L.NBLK, L.G
+    T = len(masks)
+    RT = T * G_  # rows per KV head: [t][g]
+    R = HKV * RT  # all rows: [hk][t][g]
+    minus_1 = ax.dsl.from_numpy(np.full(shape=(1,), dtype=ml_dtypes.bfloat16, fill_value=-1))
+    range_start = ax.dsl.from_numpy(np.array([c], dtype=np.int32), prefix=f"{tag}split_start")
+    range_step = ax.dsl.from_numpy(np.array([CORES], dtype=np.int32), prefix=f"{tag}split_step")
+    range_stop = ax.dsl.load(nblk)
+    qa2 = qa.reshape(R, D)
+    oi = ax.dsl.zeros(shape=(R, D), dtype=ax.bf16)
+    li = ax.dsl.zeros(shape=(R,), dtype=ax.fp32)
+    mi = ax.dsl.full(shape=(R, 1), dtype=ax.bf16, fill_value=-3e38)
+    zero_col = ax.dsl.zeros(shape=(R, 1), dtype=ax.bf16)
+    index = ax.dsl.zeros(shape=(1,), dtype=ax.int32)
+
+    def body(index, kv, qa2, mi, li, oi, zero_col, minus_1, *rest):
+        loop_mi, loop_li, loop_oi = mi, li, oi
+        masks = rest
+        page = ax.dsl.index_select(kv.reshape(NBLK, 2 * BC * HKV * D), index, dim=0).reshape(2 * BC, HKV * D)
+        kb, vb = page[0:BC], page[BC : 2 * BC]
+        mj = [L.mask_block(mk, index, 1) for mk in masks]
+        m_s = ax.dsl.create_tensor(shape=(R, 1 + BC + 1), dtype=ax.bf16)
+        ax.dsl.move(r=m_s[:, :1], x=mi)
+        ax.dsl.move(r=m_s[:, -1:], x=zero_col)
+        for hk in range(HKV):
+            sj = ax.dsl.matmul(qa2[hk * RT : (hk + 1) * RT, :], kb[:, hk * D : (hk + 1) * D], transposed=True,
+                               output_dtype=ax.bf16)
+            for t in range(T):
+                r0 = hk * RT + t * G_
+                ax.dsl.add(sj[t * G_ : (t + 1) * G_, :], mj[t], output_dtype=ax.bf16, r=m_s[r0 : r0 + G_, 1 : 1 + BC])
+        m_next = ax.dsl.max(m_s[:, : 1 + BC], dim=-1, keepdim=True)
+        m_s = ax.dsl.sub(m_s, m_next, r=m_s)
+        pj = ax.dsl.exp(m_s[:, 1 : 1 + BC])
+        p32 = ax.dsl.exp(m_s[:, 1 : 1 + BC], output_dtype=ax.fp32)
+        lij = ax.dsl.sum(p32, dim=-1, output_dtype=ax.fp32)
+        ratio = ax.dsl.exp(m_s[:, :1], output_dtype=ax.fp32).reshape(R)
+        ratio_li = ax.dsl.mul(li, ratio, output_dtype=ax.fp32)
+        ax.dsl.add(ratio_li, lij, r=loop_li, output_dtype=ax.fp32)
+        oij = ax.dsl.create_tensor(shape=(R, D), dtype=ax.fp32)
+        for hk in range(HKV):
+            ax.dsl.matmul(pj[hk * RT : (hk + 1) * RT, :], vb[:, hk * D : (hk + 1) * D], output_dtype=ax.fp32,
+                          r=oij[hk * RT : (hk + 1) * RT, :])
+        ratio_oi = ax.dsl.mul(ratio.reshape(R, 1), oi, output_dtype=ax.fp32)
+        ax.dsl.add(ratio_oi, oij, r=loop_oi, output_dtype=ax.bf16)
+        ax.dsl.mul(m_s[:, -1:], minus_1, r=loop_mi)
+        return (kv, qa2, loop_mi, loop_li, loop_oi, zero_col, minus_1, *rest)
+
+    (kv, qa2, mi, li, oi, zero_col, minus_1, *rest) = ax.dsl.range(
+        index, range_start, range_stop, range_step, body, kv, qa2, mi, li, oi, zero_col, minus_1, *masks)
+    part = L.shm_tensor((CORES, R, 2 + D), ax.fp32, name=tag + "attn_part")
+    ax.dsl.move(r=part[c : c + 1, :, 0:1], x=ax.dsl.cast(mi, dtype=ax.fp32).reshape(1, R, 1))
+    ax.dsl.move(r=part[c : c + 1, :, 1:2], x=li.reshape(1, R, 1))
+    ax.dsl.move(r=part[c : c + 1, :, 2:], x=ax.dsl.cast(oi, dtype=ax.fp32).reshape(1, R, D))
+    axd.pub(part)
+    axd.sub(part)
+    RQ = QH * T  # this core's rows: its KV heads' [t][g] blocks are contiguous in [hk][t][g]
+    hs = slice(c * RQ, (c + 1) * RQ)
+    m_all = part[0:1, hs, 0:1].reshape(RQ, 1)
+    for k_ in range(1, CORES):
+        m_all = ax.dsl.maximum(m_all, part[k_ : k_ + 1, hs, 0:1].reshape(RQ, 1))
+    l_sum, o_sum = None, None
+    for k_ in range(CORES):
+        w = ax.dsl.exp(ax.dsl.sub(part[k_ : k_ + 1, hs, 0:1].reshape(RQ, 1), m_all, output_dtype=ax.fp32),
+                       output_dtype=ax.fp32)
+        lw = ax.dsl.mul(part[k_ : k_ + 1, hs, 1:2].reshape(RQ, 1), w, output_dtype=ax.fp32)
+        ow = ax.dsl.mul(part[k_ : k_ + 1, hs, 2:].reshape(RQ, D), w, output_dtype=ax.fp32)
+        l_sum = lw if l_sum is None else ax.dsl.add(l_sum, lw, output_dtype=ax.fp32)
+        o_sum = ow if o_sum is None else ax.dsl.add(o_sum, ow, output_dtype=ax.fp32)
+    ax.dsl.div(o_sum, l_sum, output_dtype=ax.bf16, r=attn.reshape(RQ, D))
 
 
 def members(src, j, banks=None):
