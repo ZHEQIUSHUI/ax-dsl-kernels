@@ -215,8 +215,12 @@ def vperm(ins, n, vh=48):
     return None
 
 
-def params(model, kernel):
-    """the parameters of a layer kernel: GGUF tensor, conversion, kernel form"""
+def params(model, kernel, fmt=None):
+    """the parameters of a layer kernel: GGUF tensor, conversion, kernel form.
+
+    fmt ("mxfp4" / "mxfp8") is the kernel's weight format.  The IO shape alone is ambiguous for a board-normalized
+    FP4 descriptor: board_io.py stores it as uint8 with the last dimension already halved, so bytes == elements(shape)
+    and the old 2 * bytes heuristic would call it mxfp8.  The kernel name says which quantization it takes."""
     ins = {n: (b, t, s) for n, b, t, s in kernel["in"]}
     out = {}
     for n, (b, t, s) in ins.items():
@@ -235,10 +239,10 @@ def params(model, kernel):
         elif n == "conv_w":
             conv = "bf16_taps_reversed"  # kernel tap 0 = the current token
         elif ("s_" + n[2:]) in ins and n.startswith("w_"):
-            conv = "mxfp4" if 2 * b == elements(s) else "mxfp8"
+            conv = fmt or ("mxfp4" if 2 * b == elements(s) else "mxfp8")
         elif n.startswith("s_") and src != n:
             wb, _, ws = ins[src]
-            conv = ("mxfp4" if 2 * wb == elements(ws) else "mxfp8") + "_scales"
+            conv = (fmt or ("mxfp4" if 2 * wb == elements(ws) else "mxfp8")) + "_scales"
         else:
             conv = "tensor"  # as it is (bf16 / f32), a bf16 copy of a quantized / f16 tensor
         out[n] = {"gguf": g, "convert": conv, "bytes": b, "dtype": t, "shape": s}
@@ -296,7 +300,8 @@ def main():
         if f not in io:
             sys.exit(f"{role}: {f} not in {io_path}")
         if role.startswith("layer."):  # parameter source only: not a kernel of the path
-            man["params"][role[6:]] = params(model, io[f])
+            m = re.search(r"_(mx4|mx8)(?:_|$)", base)
+            man["params"][role[6:]] = params(model, io[f], "mxfp" + m.group(1)[-1] if m else None)
             continue
         k = {"file": f, "in": io_entries(io[f]["in"]), "out": io_entries(io[f]["out"])}
         lp = os.path.join(lay_dir, base + ".layout")
