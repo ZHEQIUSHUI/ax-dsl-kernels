@@ -38,7 +38,8 @@ import q35_group as Q
 import q35_layer_mc as L
 import q35_step as q
 from group_common import dump_json
-from mtp_kernel import P, T1_INPUTS, T1_OUTPUTS, PROMPT_INPUTS, PROMPT_OUTPUTS, make_bundle, mtp_prompt, mtp_t1
+from mtp_kernel import (P, EF32, HF32, T1_INPUTS, T1_OUTPUTS, PROMPT_INPUTS, PROMPT_OUTPUTS, PROMPTKV_INPUTS, PROMPTKV_OUTPUTS,
+                        make_bundle, make_kv_bundle, mtp_prompt, mtp_prompt_kv, mtp_t1)
 from mtp_ref import H, MTP_ORDER, MtpWeights, ROT
 
 MODEL = os.environ.get("MODEL", "/data/junda/hf/Qwen3.8-27B")
@@ -76,8 +77,12 @@ def make_state_t1():
 
 def make_state_prompt():
     st = make_state_t1()
-    e = torch.randn((1, P, H), dtype=torch.float32).bfloat16()
-    h = torch.randn((1, P, H), dtype=torch.float32).bfloat16()
+    e = torch.randn((1, P, H), dtype=torch.float32)
+    if not EF32:
+        e = e.bfloat16()
+    h = torch.randn((1, P, H), dtype=torch.float32)
+    if not HF32:
+        h = h.bfloat16()
     cs = torch.zeros((P, 2, ROT // 2), dtype=torch.bfloat16)
     pn = torch.zeros((P, 3), dtype=torch.int32)
     mask = torch.zeros((NBLK, P, BC), dtype=torch.bfloat16)
@@ -88,7 +93,9 @@ def make_state_prompt():
         mask[:, p] = L.mask_rows(p).reshape(NBLK, BC)
     return dict(e=e, h=h, cs=cs, pn=pn, mask=mask, nblk=torch.tensor([1], dtype=torch.int32),
                 kv=st["kv"].clone(), hnext=torch.zeros((1, P, H), dtype=torch.bfloat16),
-                hraw=torch.zeros((1, P, H), dtype=torch.bfloat16))
+                hraw=torch.zeros((1, P, H), dtype=torch.bfloat16),
+                kout=torch.zeros((P, L.HKV * D), dtype=torch.bfloat16),
+                vout=torch.zeros((P, L.HKV * D), dtype=torch.bfloat16))
 
 
 def run_kernel(fn, sub, case, packs, inputs, outputs, out_dir, name, layout_lines, pdt):
@@ -127,15 +134,22 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     W = MtpWeights(MODEL, random=QW_RANDOM)
     bundle, args, deq = make_bundle(W)
+    only = os.environ.get("ONLY", "t1,prompt").split(",")
+    kv_bundle = make_kv_bundle(W)[0] if "promptkv" in only else None
     packs = bundle.packs
     logger.info(f"MTP packs: " + ", ".join(f"{p} {t.numel() * t.element_size()}B" for p, t in packs.items()))
-    only = os.environ.get("ONLY", "t1,prompt").split(",")
     if "t1" in only:
         run_kernel(mtp_t1, "t1", make_state_t1(), packs, T1_INPUTS, T1_OUTPUTS, out_dir,
-                   "qwen35_mtp_t1_mx4_kvc_c16384_npu4", bundle.lines, bundle.pdt)
+                   f"qwen35_mtp_t1_mx4_kvc_c{LMAX}_npu4", bundle.lines, bundle.pdt)
     if "prompt" in only:
         run_kernel(mtp_prompt, "prompt", make_state_prompt(), packs, PROMPT_INPUTS, PROMPT_OUTPUTS, out_dir,
-                   "qwen35_mtp_prefill256_mx4_kvc_c16384_npu4", bundle.lines, bundle.pdt)
+                   f"qwen35_mtp_prefill256_mx4_kvc_c{LMAX}_npu4", bundle.lines, bundle.pdt)
+    if "promptkv" in only:
+        kvp = kv_bundle.packs if kv_bundle is not None else packs
+        kvlines = kv_bundle.lines if kv_bundle is not None else bundle.lines
+        logger.info(f"MTP KV packs: " + ", ".join(f"{p} {t.numel() * t.element_size()}B" for p, t in kvp.items()))
+        run_kernel(mtp_prompt_kv, "promptkv", make_state_prompt(), kvp, PROMPTKV_INPUTS, PROMPTKV_OUTPUTS, out_dir,
+                   f"qwen35_mtp_promptkv{P}{'f32' if HF32 else ''}_mx4_kvc_c{LMAX}_npu4", kvlines, kv_bundle.pdt)
 
 
 if __name__ == "__main__":

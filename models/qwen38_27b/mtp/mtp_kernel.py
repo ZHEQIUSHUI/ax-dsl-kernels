@@ -16,16 +16,114 @@ import ml_dtypes
 
 import axnn.dsl as ax
 from axnn.dsl.kernels.utils import rmsnorm, silu_mul, sigmoid_mul
+from axnn.dsl.kernels.utils.linear import _weight_format
 
 import q35_group as Q
 import q35_layer_mc as L
 import q35_layer_pk as K
 import q35_step as q
+import q35_mx_build as MB
 from mtp_ref import H, MTP_ORDER, ROT, mtp_args
 
 EPS = L.EPS
-P = 256
-CH = 32
+P = int(__import__("os").environ.get("P", "256"))
+CH = int(__import__("os").environ.get("CH", "256"))
+KVCH = int(__import__("os").environ.get("KVCH", "128"))  # the K/V-only pass: 256 rows of concat norm do not fit OCM
+HF32 = int(__import__("os").environ.get("HF32", "0"))  # read the target's h_nextn rows in place (no host bf16 copy)
+EF32 = int(__import__("os").environ.get("EF32", "0"))  # read the target's token-embedding rows in place (no host bf16 copy)
+XC = 32       # input norm / eh_proj rows per pass (the full 256-row fp32 tile exceeds OCM)
+MT = int(__import__("os").environ.get("MT", "64"))  # projection M tile: one staged weight tile serves all MT chunk rows
+WOUT = int(__import__("os").environ.get("WOUT", "0"))  # weight-outer DDR linear: stream each weight tile once per call
+WMT  = int(__import__("os").environ.get("WMT", "64"))   # row tile for the weight-outer loop
+WOC  = int(__import__("os").environ.get("WOC", "512"))  # output-channel tile for the weight-outer loop
+ROWSPLIT = int(__import__("os").environ.get("ROWSPLIT", "0"))  # partition prompt rows over the NPU cores
+KV_ORDER = ("ln_e", "ln_h", "w_fc", "s_fc", "ln1", "w_k", "s_k", "w_v", "s_v", "k_norm")
+
+# q.proj is q35_mx_build's MX wrapper around linear(); it resolves linear through this
+# module, so extend that call with an M tile. linear() then stages each weight tile once
+# and reuses it for every M tile of the 256-row chunk.
+_linear = MB.linear
+
+
+def _linear_mt(x, w, ws, name, **kw):
+    if x.ndim >= 2 and x.shape[-2] > MT:
+        kw.setdefault("m_tile_size", MT)
+    return _linear(x, w, ws, name, **kw)
+
+
+MB.linear = _linear_mt
+
+
+def _ddr_linear(x, w, s, name, *, r, output_dtype=ax.bf16, oc_tile=64):
+    """MX linear over DDR rows: one staged weight tile per OC block, 256-row X tiles.
+
+    MatMul can only read/write OCM on this backend. The ordinary utility assumes
+    the whole X row block is already resident, which is impossible at 1k rows;
+    this loop stages X from DDR once per M tile and reuses it across all OC
+    tiles. Weights are still streamed in OC order, four times for P=1024/MT=256.
+    """
+    weight_format, group_size, packed_factor = _weight_format(w, s)
+    assert weight_format == "mx"
+    oc, packed_ic = w.shape
+    ic, rows = packed_ic * packed_factor, x.shape[-2]
+    assert x.shape[-1] == ic and rows % MT == 0 and oc % oc_tile == 0
+    if WOUT:
+        # Weight-outer: keep one weight tile resident while walking the rows, then reuse the
+        # X tile across only the OC tiles that fit in OCM. This streams each packed weight
+        # tile once per call; the old M-outer order streamed the whole pack once per row tile.
+        # Keep the largest weight tile that fits beside one WMT-row X tile. The FC
+        # projection (input 2*H) fits 4096 output channels at 64 rows; K/V only have
+        # 1024 outputs in total, so they take the whole projection in one pass.
+        woc = min(oc, WOC)
+        wmt = WMT
+        for o0 in range(0, oc, woc):
+            os = slice(o0, o0 + min(woc, oc - o0))
+            wb = ax.dsl.load(w[os, :])
+            sb = ax.dsl.load(s[os, :])
+            for m0 in range(0, rows, wmt):
+                xb = ax.dsl.load(x[..., m0 : m0 + wmt, :])
+                ob = ax.dsl.create_tensor((*x.shape[:-2], wmt, os.stop - os.start), output_dtype,
+                                          ax.MemoryType.OCM, name=f"{name}_o{m0}_{o0}")
+                ax.dsl.matmul(xb, wb, transposed=True, output_dtype=output_dtype,
+                              w_scale=sb.reshape(1, os.stop - os.start, ic // group_size), r=ob)
+                dst = r[..., m0 : m0 + wmt, os]
+                if r.memory_type == ax.MemoryType.DDR:
+                    ax.dsl.store(ob, r=dst)
+                else:
+                    ax.dsl.move(x=ob, r=dst)
+        return r
+
+    for m0 in range(0, rows, MT):
+        xb = ax.dsl.load(x[..., m0 : m0 + MT, :])
+        for o0 in range(0, oc, oc_tile):
+            os = slice(o0, o0 + oc_tile)
+            wb = ax.dsl.load(w[os, :])
+            sb = ax.dsl.load(s[os, :])
+            ob = ax.dsl.create_tensor((*x.shape[:-2], MT, oc_tile), output_dtype,
+                                      ax.MemoryType.OCM, name=f"{name}_o{m0}_{o0}")
+            ax.dsl.matmul(xb, wb, transposed=True, output_dtype=output_dtype,
+                          w_scale=sb.reshape(1, oc_tile, ic // group_size), r=ob)
+            dst = r[..., m0 : m0 + MT, os]
+            if r.memory_type == ax.MemoryType.DDR:
+                ax.dsl.store(ob, r=dst)
+            else:
+                ax.dsl.move(x=ob, r=dst)
+    return r
+
+
+def mproj(x, w, name, output_dtype=ax.bf16, r=None):
+    """q.proj with the M tile above (its weight scales come from q35_mx_build)."""
+    if r is None:
+        return q.proj(x, w, name, output_dtype=output_dtype)
+    assert not MB.PRJ_ROWS and not MB.PRJ_KSPLIT, "an explicit mproj output needs the plain projection path"
+    s, s2 = MB.SCALES.get(id(w)), MB.SCALES2.get(id(w))
+    if (x.memory_type == ax.MemoryType.DDR or r.memory_type == ax.MemoryType.DDR):
+        assert s is not None and s2 is None
+        return _ddr_linear(x, w, s, name, r=r, output_dtype=output_dtype)
+    nv = dict(weight_scale2=s2) if s2 is not None else {}
+    tile = MB.oc_tile_fp4(w.shape[1]) if s2 is not None else \
+        MB.oc_tile_fp8(w.shape[1]) if s is not None else q.oc_tile(w.shape[1])
+    return _linear_mt(x, w, s, name, output_dtype=output_dtype, oc_tile_size=tile, r=r, **nv)
 
 
 class MtpBundle:
@@ -44,6 +142,19 @@ def make_bundle(W):
     sizes = K.layout("mtp", ab, MTP_ORDER)
     packs = K.packed(ab, "mtp", sizes)
     lines = K.layout_lines("mtp", sizes)
+    return MtpBundle(packs, sizes, dict(K.PACKS), lines), args, deq
+
+
+def make_kv_bundle(W):
+    """The K/V-only prompt pass needs only the concat norm, eh_proj, ln1 and K/V weights.
+
+    A separate compact pack keeps one prompt call from streaming the unused q/o/MLP
+    weights (about 180 MB of the 212 MB MTP pack).
+    """
+    args, deq = mtp_args(W, quantized=True)
+    sizes = K.layout("mtpkv", args, KV_ORDER)
+    packs = K.packed(args, "mtpkv", sizes)
+    lines = K.layout_lines("mtpkv", sizes)
     return MtpBundle(packs, sizes, dict(K.PACKS), lines), args, deq
 
 
@@ -177,15 +288,33 @@ def mtp_t1(e, h, p4, pw, ps, pf, pb, cs, pn, mask, kv, hnext, hraw):
     return hnext, hraw, kv
 
 
-def reduce_rows(c, x, partial, tag):
-    part = L.shm_tensor((L.CORES, CH, H), ax.fp32, name=tag)
-    ax.dsl.move(r=part[c : c + 1], x=partial.reshape(1, CH, H))
-    L.axd.pub(part)
-    L.axd.sub(part)
-    acc = part[0:1]
-    for k in range(1, L.CORES):
-        acc = ax.dsl.add(acc, part[k : k + 1], output_dtype=ax.fp32)
-    return ax.dsl.add(x, ax.dsl.cast(acc, dtype=ax.bf16), output_dtype=ax.bf16)
+def reduce_rows(c, x, partial, tag, row_tile=int(__import__("os").environ.get("RT", "64"))):
+    # Split on rows, not hidden columns: a column-sliced shared tensor fed to concat
+    # produced wrong hnext/hraw in the CH=128 experiment.
+    out = []
+    for r0 in range(0, CH, row_tile):
+        # a distinct shared tile per slice: reusing one buffer across pub/sub rounds let a
+        # later move alias an earlier slice's contribution (right at CH = 64 / one tile)
+        part = L.shm_tensor((L.CORES, row_tile, H), ax.fp32, name=f"{tag}_{r0}")
+        ax.dsl.move(r=part[c : c + 1], x=partial.reshape(1, CH, H)[:, r0 : r0 + row_tile])
+        L.axd.pub(part)
+        L.axd.sub(part)
+        acc = part[0:1]
+        for k in range(1, L.CORES):
+            acc = ax.dsl.add(acc, part[k : k + 1], output_dtype=ax.fp32)
+        out.append(ax.dsl.add(_ld(x[:, r0 : r0 + row_tile]), ax.dsl.cast(acc, dtype=ax.bf16), output_dtype=ax.bf16))
+    return ax.dsl.concat(*out, dim=1)
+
+
+def norm_sliced(x, w, rows, tag):
+    """RMSNorm of `rows` rows in XC-row slices: a 256-row FP32 RMSNorm tile does not fit OCM."""
+    out = ax.dsl.create_tensor((x.shape[0], rows, H), x.dtype, ax.MemoryType.DDR, name=tag + "_norm")
+    for r0 in range(0, rows, XC):
+        tile = ax.dsl.create_tensor((x.shape[0], XC, H), x.dtype,
+                                    name=f"{tag}_norm_tile{r0}")
+        rmsnorm(_ld(x[:, r0 : r0 + XC]), _ld(w).reshape(1, 1, H), eps=EPS, r=tile)
+        ax.dsl.store(tile, r=out[:, r0 : r0 + XC])
+    return out
 
 
 def keep_shm_safe(y):
@@ -203,19 +332,75 @@ def keep_shm_safe(y):
     return y
 
 
+def eh_proj_rows(e, h, m, c0, rows, tag):
+    """z = eh_proj(concat(norm(e), norm(h))) for `rows` rows; the concat lives in DDR so one
+    linear call over all rows streams the w_fc pack once instead of once per 32-row slice."""
+    cat = ax.dsl.create_tensor((1, rows, 2 * H), ax.bf16, ax.MemoryType.DDR, name=tag + "_cat")
+    for r0 in range(0, rows, XC):
+        en = ax.dsl.create_tensor((1, XC, H), ax.bf16, name=f"{tag}_en{r0}")
+        es = _ld(e[:, c0 + r0 : c0 + r0 + XC])
+        if es.dtype == ax.fp32:
+            es = ax.dsl.cast(es, dtype=ax.bf16)
+        rmsnorm(es, _ld(m["ln_e"]).reshape(1, 1, H), eps=EPS, r=en)
+        hs = _ld(h[:, c0 + r0 : c0 + r0 + XC])
+        if hs.dtype == ax.fp32:
+            hs = ax.dsl.cast(hs, dtype=ax.bf16)
+        hn = ax.dsl.create_tensor((1, XC, H), ax.bf16, name=f"{tag}_hn{r0}")
+        rmsnorm(hs, _ld(m["ln_h"]).reshape(1, 1, H), eps=EPS, r=hn)
+        ct = ax.dsl.create_tensor((1, XC, 2 * H), ax.bf16, name=f"{tag}_cat{r0}")
+        ax.dsl.concat(en, hn, dim=-1, r=ct)
+        ax.dsl.store(ct, r=cat[:, r0 : r0 + XC])
+    z = ax.dsl.create_tensor((1, rows, H), ax.bf16, ax.MemoryType.DDR, name=tag + "_z")
+    return mproj(cat, m["w_fc"], tag + "fc", r=z)
+
+
+def mtp_prompt_kv(e, h, p4, pw, ps, pf, pb, cs, kout, vout):
+    """The MTP K/V of all P prompt rows, without the per-row attention/MLP.
+
+    Filling the draft KV needs only norm(e), norm(h), eh_proj, ln1 and the K/V
+    projections for every prompt row; the full block (q, attention, o, MLP and
+    head_norm) is only needed for the last row, which mtp_t1 computes. The rows
+    are written plainly (no paged scatter); the host copies them into the paged
+    KV at each row's cell, which also avoids a 1 GB dynamic-index scatter in
+    the compiled graph.
+    """
+    c = ax.program_id(0)
+    m = K.unpack("mtpkv", pw, ps, pf, pb, p4=p4)
+    QH, QW, D, G_, HKV, ROT_, BC = L.QH, L.QW, L.D, L.G, L.HKV, L.ROT, L.BC
+    if ROWSPLIT:
+        assert P % L.CORES == 0
+        parts = [(c * (P // L.CORES), P // L.CORES, f"kvcore{c}_")]
+    else:
+        parts = [(c0, min(KVCH, P - c0), f"kv{c0}_") for c0 in range(0, P, KVCH)]
+    for c0, rows, tag in parts:
+        z = eh_proj_rows(e, h, m, c0, rows, tag)
+        hh = norm_sliced(z, m["ln1"], rows, tag + "ln1")
+        cos_t = _ld(cs[c0 : c0 + rows, 0:1, :]).reshape(rows, ROT // 2)
+        sin_t = _ld(cs[c0 : c0 + rows, 1:2, :]).reshape(rows, ROT // 2)
+        kraw = ax.dsl.create_tensor((1, rows, HKV * D), ax.bf16, name=tag + "kraw")
+        mproj(hh, m["w_k"], tag + "k", r=kraw)
+        knorm = ax.dsl.create_tensor((rows, HKV, D), ax.bf16, name=tag + "knorm")
+        rmsnorm(kraw.reshape(rows, HKV, D), _ld(m["k_norm"]).reshape(1, 1, D), eps=EPS, r=knorm)
+        krope = ax.dsl.create_tensor((rows, HKV, D), ax.bf16, name=tag + "krope")
+        q.rope(knorm, cos_t, sin_t, rotary_dim=ROT_, r=krope)
+        ax.dsl.store(krope.reshape(rows, HKV * D), r=kout[c0 : c0 + rows])
+        mproj(hh, m["w_v"], tag + "v", r=vout.reshape(1, P, HKV * D)[:, c0 : c0 + rows])
+    return kout, vout
+
+
 def mtp_prompt(e, h, p4, pw, ps, pf, pb, cs, pn, mask, nblk, kv, hnext, hraw):
     """256 prompt rows in four static 64-row attention/MLP chunks."""
     c = ax.program_id(0)
     m = K.unpack("mtp", pw, ps, pf, pb, p4=p4)
     # Chunk the input norms / eh_proj: a 256-row fp32 RMSNorm output does not
     # fit one CRUN OCM tile (5.2 MB output + 2.6 MB input > 6.9 MB).
-    z_all = ax.dsl.create_tensor((1, P, H), ax.bf16, name="mtp_z_all")
-    for c0 in range(0, P, CH):
+    z_all = ax.dsl.create_tensor((1, P, H), ax.bf16, ax.MemoryType.DDR, name="mtp_z_all")
+    for c0 in range(0, P, XC):
         L.SHM_LIVE.clear()
-        en = rmsnorm(ax.dsl.load(e[:, c0 : c0 + CH]), _ld(m["ln_e"]).reshape(1, 1, H), eps=EPS)
-        hn_in = rmsnorm(ax.dsl.load(h[:, c0 : c0 + CH]), _ld(m["ln_h"]).reshape(1, 1, H), eps=EPS)
-        zc = q.proj(ax.dsl.concat(en, hn_in, dim=-1), m["w_fc"], f"mtp_fc{c0}")
-        ax.dsl.move(r=z_all[:, c0 : c0 + CH], x=zc)
+        en = rmsnorm(ax.dsl.load(e[:, c0 : c0 + XC]), _ld(m["ln_e"]).reshape(1, 1, H), eps=EPS)
+        hn_in = rmsnorm(ax.dsl.load(h[:, c0 : c0 + XC]), _ld(m["ln_h"]).reshape(1, 1, H), eps=EPS)
+        zc = mproj(ax.dsl.concat(en, hn_in, dim=-1), m["w_fc"], f"mtp_fc{c0}")
+        ax.dsl.store(zc, r=z_all[:, c0 : c0 + XC])
     L.SHM_LIVE.clear()
     QH, QW, D, G_, HKV, ROT_, BC = L.QH, L.QW, L.D, L.G, L.HKV, L.ROT, L.BC
     FC, HC, NBLK = L.FC, L.HC, L.NBLK
@@ -229,18 +414,18 @@ def mtp_prompt(e, h, p4, pw, ps, pf, pb, cs, pn, mask, nblk, kv, hnext, hraw):
     for c0 in range(0, P, CH):
         tag = f"mtp{c0}_"
         x = z_all[:, c0 : c0 + CH]
-        xt = _ld(x)
-        hh = rmsnorm(xt, _ld(m["ln1"]).reshape(1, 1, H), eps=EPS)
+        xt = x
+        hh = norm_sliced(x, m["ln1"], CH, tag + "ln1")
         cos_t = _ld(cs[c0 : c0 + CH, 0:1, :]).reshape(CH, ROT // 2)
         sin_t = _ld(cs[c0 : c0 + CH, 1:2, :]).reshape(CH, ROT // 2)
-        qg = q.proj(hh, q.slice_w(m["w_q"], rows=slice(c * QH * QW, (c + 1) * QH * QW)), tag + "q").reshape(
+        qg = mproj(hh, q.slice_w(m["w_q"], rows=slice(c * QH * QW, (c + 1) * QH * QW)), tag + "q").reshape(
             CH, QH, QW)
         qh = q.rope(rmsnorm(qg[:, :, 0:D], _ld(m["q_norm"]).reshape(1, 1, D), eps=EPS), cos_t, sin_t,
                     rotary_dim=ROT_)
-        k = rmsnorm(q.proj(hh, m["w_k"], tag + "k").reshape(CH, HKV, D), _ld(m["k_norm"]).reshape(1, 1, D),
+        k = rmsnorm(mproj(hh, m["w_k"], tag + "k").reshape(CH, HKV, D), _ld(m["k_norm"]).reshape(1, 1, D),
                     eps=EPS)
         k = q.rope(k, cos_t, sin_t, rotary_dim=ROT_)
-        v = q.proj(hh, m["w_v"], tag + "v").reshape(CH, HKV, D)
+        v = mproj(hh, m["w_v"], tag + "v").reshape(CH, HKV, D)
         krow = _ld(pn[c0 : c0 + CH, 2:3]).reshape(CH)
         vrow = ax.dsl.add(krow, ax.dsl.from_numpy(np.array([BC], dtype=np.int32)), output_dtype=ax.int32)
         ax.dsl.select_scatter(k.reshape(CH, HKV * D), krow, dim=0, r=kvflat)
@@ -302,20 +487,21 @@ def mtp_prompt(e, h, p4, pw, ps, pf, pb, cs, pn, mask, nblk, kv, hnext, hraw):
         gated = (sigmoid_mul(attn, qg[:, :, D : 2 * D], activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
                  if q.GATE else attn).reshape(1, CH, QH * D)
         hs = slice(c * HC, (c + 1) * HC)
-        o = q.proj(gated.reshape(1, CH, QH * D),
+        o = mproj(gated.reshape(1, CH, QH * D),
                    q.slice_w(m["w_o"], cols=slice(c * QH * D, (c + 1) * QH * D)), tag + "o", output_dtype=ax.fp32)
         x1 = reduce_rows(c, xt, o, tag + "o_part")
-        h2 = rmsnorm(x1, _ld(m["ln2"]).reshape(1, 1, H), eps=EPS)
+        h2 = norm_sliced(x1, m["ln2"], CH, tag + "ln2")
         fs = slice(c * FC, (c + 1) * FC)
-        act = silu_mul(q.proj(h2, q.slice_w(m["w_gate"], rows=fs), tag + "gate"),
-                       q.proj(h2, q.slice_w(m["w_up"], rows=fs), tag + "up"),
+        act = silu_mul(mproj(h2, q.slice_w(m["w_gate"], rows=fs), tag + "gate"),
+                       mproj(h2, q.slice_w(m["w_up"], rows=fs), tag + "up"),
                        activation_output_dtype=ax.fp32, output_dtype=ax.bf16)
-        d = q.proj(act, q.slice_w(m["w_down"], cols=fs), tag + "down", output_dtype=ax.fp32)
+        d = mproj(act, q.slice_w(m["w_down"], cols=fs), tag + "down", output_dtype=ax.fp32)
         x2 = reduce_rows(c, x1, d, tag + "d_part")
-        hn = rmsnorm(x2, _ld(m["head_norm"]).reshape(1, 1, H), eps=EPS)
-        hn = keep_shm_safe(hn)
         if c == 0:
-            ax.dsl.store(hn, r=hnext[:, c0 : c0 + CH])
+            for r0 in range(0, CH, XC):
+                hs = rmsnorm(_ld(x2[:, r0 : r0 + XC]), _ld(m["head_norm"]).reshape(1, 1, H), eps=EPS)
+                hs = keep_shm_safe(hs)
+                ax.dsl.store(hs, r=hnext[:, c0 + r0 : c0 + r0 + XC])
             ax.dsl.store(x2, r=hraw[:, c0 : c0 + CH])
     return hnext, hraw, kv
 
@@ -324,4 +510,6 @@ T1_INPUTS = ["e", "h", "p4", "pw", "ps", "pf", "pb", "cs", "pn", "mask"]
 T1_OUTPUTS = ["hnext", "hraw", "kv"]
 PROMPT_INPUTS = ["e", "h", "p4", "pw", "ps", "pf", "pb", "cs", "pn", "mask", "nblk"]
 PROMPT_OUTPUTS = ["hnext", "hraw", "kv"]
+PROMPTKV_INPUTS = ["e", "h", "p4", "pw", "ps", "pf", "pb", "cs"]
+PROMPTKV_OUTPUTS = ["kout", "vout"]
 

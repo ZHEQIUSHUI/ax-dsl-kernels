@@ -29,9 +29,12 @@ from loguru import logger
 import axnn.dsl as ax
 import q35_layer_mc as L
 import q35_step as q
-from mtp_kernel import P, make_bundle, mtp_prompt, mtp_t1
+from mtp_kernel import P, EF32, HF32, make_bundle, make_kv_bundle, mtp_prompt, mtp_prompt_kv, mtp_t1
 from mtp_ref import H, MtpWeights, mtp_args, mtp_step
-import resident_pyrun as rp
+try:
+    import resident_pyrun as rp
+except ModuleNotFoundError:  # only the T=1 check needs the resident-cache shim
+    rp = None
 
 MODEL = os.environ.get("MODEL", "/data/junda/hf/Qwen3.8-27B")
 RUN_MODE = os.environ.get("RUN_MODE", "PYRUN")
@@ -63,8 +66,11 @@ def build(fn, sub, build_dir):
     os.makedirs(f"{build_dir}/{sub}", exist_ok=True)
     os.chdir(f"{build_dir}/{sub}")
     ax.init(chip_num=1, core_num=CORES)
-    return ax.builder(run_mode=ax.RunMode(RUN_MODE), enable_cache=RUN_MODE == "CRUN",
-                      dump_path=f"{build_dir}/{sub}")(fn)
+    k = ax.builder(run_mode=ax.RunMode(RUN_MODE), enable_cache=RUN_MODE == "CRUN",
+                   dump_path=f"{build_dir}/{sub}")(fn)
+    if os.environ.get("CACHE_KEY"):
+        k.gen_cache_key = lambda: os.environ["CACHE_KEY"]
+    return k
 
 
 def check_t1(W, bundle, deq, build_dir):
@@ -86,13 +92,15 @@ def check_t1(W, bundle, deq, build_dir):
                 hnext=torch.zeros((1, 1, H), dtype=torch.bfloat16),
                 hraw=torch.zeros((1, 1, H), dtype=torch.bfloat16))
     if pos:
+        assert rp is not None, "the T=1 resident check needs resident_pyrun.py on PYTHONPATH"
         rp.set_(kv=kv_ref.clone())
         q.RESIDENT["kv"] = kv_ref.clone()
     k = build(mtp_t1, "t1", build_dir)
     order = list(mtp_t1.__code__.co_varnames[: mtp_t1.__code__.co_argcount])
     k[CORES](*[case[n] for n in order])
-    rp.clear()
-    q.RESIDENT.clear()
+    if rp is not None:
+        rp.clear()
+        q.RESIDENT.clear()
     results = {}
     results["hnext"] = cos(case["hnext"][0, 0], ref[-1][0])
     results["hraw"] = cos(case["hraw"][0, 0], ref[-1][1])
@@ -105,7 +113,9 @@ def check_t1(W, bundle, deq, build_dir):
 
 def check_prompt(W, bundle, deq, build_dir):
     torch.manual_seed(11)
-    es = torch.randn((P, H), dtype=torch.float32).bfloat16()
+    es = torch.randn((P, H), dtype=torch.float32)
+    if not EF32:
+        es = es.bfloat16()
     hs = torch.randn((P, H), dtype=torch.float32).bfloat16()
     kv_ref = torch.zeros((NBLK, 2, BC, HKV * D), dtype=torch.bfloat16)
     hn_ref = torch.zeros((P, H), dtype=torch.float32)
@@ -137,17 +147,52 @@ def check_prompt(W, bundle, deq, build_dir):
     return results
 
 
+def check_prompt_kv(W, bundle, deq, build_dir):
+    """The KV-only prompt kernel: the 256 prompt KV rows must match the reference; the
+    last row's hnext/hraw come from the released mtp_t1 kernel."""
+    torch.manual_seed(11)
+    es = torch.randn((P, H), dtype=torch.float32)
+    if not EF32:
+        es = es.bfloat16()
+    h_f32 = torch.randn((P, H), dtype=torch.float32)
+    hs = h_f32 if HF32 else h_f32.bfloat16()
+    kv_ref = torch.zeros((NBLK, 2, BC, HKV * D), dtype=torch.bfloat16)
+    for p in range(P):
+        mtp_step(es[p].bfloat16(), hs[p].bfloat16(), p, kv_ref, deq)
+    cs = torch.zeros((P, 2, ROT // 2), dtype=torch.bfloat16)
+    pn = torch.zeros((P, 3), dtype=torch.int32)
+    for p in range(P):
+        c, s = q.rope_cos_sin(p)
+        cs[p, 0], cs[p, 1] = c, s
+        pn[p] = torch.tensor([p, p // BC + 1, (p // BC) * 2 * BC + p % BC], dtype=torch.int32)
+    case = dict(bundle.packs, e=es.reshape(1, P, H), h=hs.reshape(1, P, H), cs=cs, pn=pn,
+                kout=torch.zeros((P, HKV * D), dtype=torch.bfloat16),
+                vout=torch.zeros((P, HKV * D), dtype=torch.bfloat16))
+    k = build(mtp_prompt_kv, "promptkv", build_dir)
+    order = list(mtp_prompt_kv.__code__.co_varnames[: mtp_prompt_kv.__code__.co_argcount])
+    k[CORES](*[case[n] for n in order])
+    kvc = torch.tensor([cos(case[n][p], kv_ref[p // BC, h_, p % BC])
+                        for p in range(P) for h_, n in ((0, "kout"), (1, "vout"))])
+    results = {"kv_mean": float(kvc.mean()), "kv_min": float(kvc.min())}
+    logger.info(f"MTP promptkv{P} " + " ".join(f"{k}={v:.7f}" for k, v in results.items()))
+    return results
+
+
 def main():
     out = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "out_mtp_check")
     os.makedirs(out, exist_ok=True)
     torch.set_num_threads(int(os.environ.get("THREADS", "32")))
     W = MtpWeights(MODEL, random=QW_RANDOM)
     bundle, args, deq = make_bundle(W)
+    only = ONLY.split(",")
+    kv_bundle = make_kv_bundle(W)[0] if "promptkv" in only else bundle
     res = {}
-    if "t1" in ONLY:
+    if "t1" in only:
         res["t1"] = check_t1(W, bundle, deq, out)
-    if "prompt" in ONLY:
+    if "prompt" in only:
         res["prompt"] = check_prompt(W, bundle, deq, out)
+    if "promptkv" in only:
+        res["promptkv"] = check_prompt_kv(W, kv_bundle, deq, out)
     torch.save(res, Path(out) / "check_mtp.pt")
 
 

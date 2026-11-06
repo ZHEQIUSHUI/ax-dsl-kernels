@@ -11,7 +11,9 @@ The text path has one 256-row prefill kernel for all 32 layers (a runtime loop o
 and one 16-layer decode-group kernel called twice per token. The decode group reads every projection, including
 `w_down`, `w_out` and `w_o`, from the prefill banks (`BANKS=1 KSTRIDE=1`), so the backbone has one CMM copy. The
 layer kernels in `kernels/` are IO descriptors only; the adapter uses them to bind one layer's parameters. Context is
-16384 only; MTP, int8 KV and longer contexts are out of scope for this package.
+16384 only; int8 KV and longer contexts are out of scope for this package. The optional MTP roles
+(`mtp.t1`, `mtp.prompt`, `mtp.promptkv`) are built from `models/qwen35_4b/mtp/`; the adapter keeps them optional
+(`MTP=1`) and a manifest without them uses the old non-MTP path.
 
 ## Kernel files
 
@@ -83,6 +85,21 @@ Manifest (after collecting every kernel's board IO into `io.json`):
 python tools/manifest/mkmanifest.py qwen35_whole build/4b/stage_io/io.json build/4b/stage_io qwen35_4b \
   > build/4b/stage_io/manifest.json
 ```
+
+MTP (1-row draft, 256-row prompt and the 1024-row K/V-only catch-up):
+
+```sh
+source /data/junda/work/axdsl_env.sh
+cd models/qwen35_4b/mtp
+MODEL=/data/junda/hf/Qwen3.5-4B QW_RANDOM=1 RUN_MODE=CRUN ONLY=t1,prompt,promptkv \
+  P=1024 ROWSPLIT=1 EF32=1 HF32=1 nice -n 10 python build_mtp.py <out>
+MODEL=/data/junda/hf/Qwen3.5-4B ONLY=promptkv python check_mtp.py <check-out>
+```
+
+The final `mtp.promptkv` kernel is `qwen35_4b_mtp_promptkv1024f32e32_mx4_kvc_c16384_npu4.axmodel`
+(568,197 B, md5 `1964a6fd818ce67bd755584478391120`). Real-weight board CRUN: `kv_mean=0.9999843`,
+`kv_min=0.9999714`; standalone `.209`: 1.746 ms per 1024 rows. Host use: llama.cpp commit `ce0029bd6`;
+warm 4k prompt MTP off `788.212 ms` / on `1013.736 ms` (77.8%).
 
 ## Checks
 
