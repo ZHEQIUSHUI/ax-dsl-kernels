@@ -1436,7 +1436,7 @@ def gdn_prefill_impl(
     assert input_norm_eps > 0 and o_norm_eps > 0
     history_rows = None
     if valid_tokens is not None:
-        assert seq_len == GDN_PREFILL_TILE_SIZE and token_indices is None
+        assert 1 <= seq_len <= GDN_PREFILL_TILE_SIZE and token_indices is None
         assert valid_tokens.shape == (1,) and valid_tokens.dtype == ax.int32
         count = ax.dsl.load(valid_tokens)
         # Both consumers share one row vector, even for a long Conv history.
@@ -2165,16 +2165,17 @@ def GDNKernel(
     banks=None,
     valid_tokens=None,
 ):
-    """Record GDN with one INT32 valid_tokens ABI for 256-row prefill.
+    """Record GDN with one INT32 valid_tokens ABI for up to 256-row prefill.
 
-    The caller supplies 1..256 valid rows. Only their outputs are defined;
+    The caller supplies 1..rows valid rows. Only their outputs are defined;
     recurrent and convolution states stop at the real sequence end.
     """
     assert ax.num_programs(0) == 4, "this kernel requires four cores"
+    assert x.shape[1] >= 1
     if x.shape[1] == GDN_PREFILL_TILE_SIZE:
         assert valid_tokens is not None, "256-row prefill requires a runtime valid token count, including full blocks"
     if valid_tokens is not None:
-        assert x.shape[1] == GDN_PREFILL_TILE_SIZE
+        assert x.shape[1] <= GDN_PREFILL_TILE_SIZE
     args = (
         x,
         residual_in,

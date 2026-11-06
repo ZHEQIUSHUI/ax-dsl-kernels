@@ -23,6 +23,17 @@ kernels = {
     "lm_head": rel["kernels"]["lm_head"],
     "vit": rel["kernels"]["vit"],
 }
+for role, file in (
+    ("prefill.gdn128", "sgl35_gdn128.axmodel"),
+    ("prefill.attn128", "sgl35_flash128.axmodel"),
+    ("prefill.gdn3840", "sgl35_gdn3840.axmodel"),
+    ("prefill.gdn4096", "sgl35_gdn4096.axmodel"),
+    ("prefill.attn3840", "sgl35_flash3840.axmodel"),
+    ("prefill.attn4096", "sgl35_flash4096.axmodel"),
+    ("prefill.moev", "sgl35_moe4096v.axmodel"),
+):
+    if file in io:
+        kernels[role] = entry(file, 0)
 man = {"format": 1, "model": "qwen35_moe_sgl", "context": 16384, "cores": 4,
        "params": {}, "kernels": kernels}
 (out / "manifest.json").write_text(json.dumps(man, indent=1))

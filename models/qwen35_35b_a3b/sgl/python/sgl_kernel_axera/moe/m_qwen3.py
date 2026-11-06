@@ -2532,6 +2532,7 @@ def _large_prefill_moe(
     norm_eps=1e-06,
     add_residual=False,
     keep_input_resident=False,
+    valid_tokens=None,
     banks=None,
 ):
     """Stream 256-token preparation tiles, then process routed experts in C shards.
@@ -2735,6 +2736,17 @@ def _large_prefill_moe(
         unroll_factor=1,
     )
     token_map, weight_map, accumulated, normalized_input = prepared[:4]
+    if valid_tokens is not None:
+        # Rows past the live token count are only there to keep the fixed
+        # 4096-row workspace shape.  Drop them from the routing map so they
+        # neither activate experts nor add padded expert tiles.  Their output
+        # rows are never read.
+        valid = ax.dsl.load(valid_tokens)
+        cols = ax.dsl.from_numpy(np.arange(tokens, dtype=np.int32))
+        keep = ax.dsl.minimum(
+            ax.dsl.maximum(ax.dsl.sub(valid, cols, output_dtype=ax.int32), zero), one, output_dtype=ax.uint8
+        )
+        ax.dsl.mul(token_map, keep.reshape(1, -1), output_dtype=ax.uint8, r=token_map)
     axd.pub(token_map)
     axd.pub(weight_map)
     axd.pub(output_ax)
@@ -2791,6 +2803,8 @@ def moe_kernel_expert_parallel_v2_scf(
     norm_topk_prob,  # False
     output_ax,  # [seq_len, hidden_dim]
     chunk_size=None,
+    prefill_expert_tokens=None,
+    valid_tokens=None,
     input_norm_w=None,
     norm_eps=1e-6,
     add_residual=False,
@@ -2805,6 +2819,9 @@ def moe_kernel_expert_parallel_v2_scf(
     global scales. Runtime expert IDs select the active experts' OCM tiles.
     With chunk_size=None, complete prefill batches of 256/512/1024/2048/4096
     tokens use 32/64/128/128/128 rows per expert tile. Other shapes use 64.
+    prefill_expert_tokens overrides the token rows per expert tile for the
+    large-prefill path (seq_len > 256).  valid_tokens (1,) int32 optionally
+    hides workspace rows past the live token count from routing.
     Prefills above 256 tokens visit experts in ID order, with each expert's
     runtime token count controlling its inner Range. Empty experts skip all
     projection work; overloaded experts execute additional token tiles.
@@ -2817,6 +2834,8 @@ def moe_kernel_expert_parallel_v2_scf(
     seq_len, hidden_dim = x.shape
     if chunk_size is None:
         chunk_size = {256: 32, 512: 64, 1024: 128, 2048: 128, 4096: 128}.get(seq_len, 64)
+    if prefill_expert_tokens is not None:
+        chunk_size = prefill_expert_tokens
     chunk_size = min(chunk_size, seq_len) if chunk_size > 0 else seq_len
     if seq_len > 256:
         assert fused_gate_up
@@ -2850,6 +2869,7 @@ def moe_kernel_expert_parallel_v2_scf(
             norm_eps,
             add_residual,
             prefill_input_resident,
+            valid_tokens=valid_tokens,
             banks=banks,
         )
     core_id = ax.program_id(0)

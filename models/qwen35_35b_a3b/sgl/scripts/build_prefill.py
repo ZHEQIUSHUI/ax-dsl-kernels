@@ -24,7 +24,10 @@ from test_qwen35_runtime import moe_weights
 H, HEADS, KVH, HD = 2048, 16, 2, 256
 KH, VH, KD, VD = 16, 32, 128, 128
 EXPERTS, INTER = 256, 512
-CTX, ROWS = int(os.getenv("CTX", "16384")), 4096
+CTX, ROWS = int(os.getenv("CTX", "16384")), int(os.getenv("ROWS", "4096"))
+GDN_ROWS = int(os.getenv("GDN_ROWS", "256"))
+GDN_VALID = int(os.getenv("GDN_VALID", str(GDN_ROWS)))
+GDN_CHUNK_SIZE = int(os.getenv("GDN_CHUNK_SIZE", "32"))
 
 
 class Compiled(Exception):
@@ -41,7 +44,7 @@ if not os.getenv("SIM"):
 
 
 def gdn():
-    x, _, w, state, conv = random_case(256, hidden=H, key_heads=KH, value_heads=VH, key_dim=KD, value_dim=VD)
+    x, _, w, state, conv = random_case(GDN_ROWS, hidden=H, key_heads=KH, value_heads=VH, key_dim=KD, value_dim=VD)
     w, _ = random_nvfp4_weights(w, seed=11)
     w = runtime_weights(w)
     w["w_pre"] = None
@@ -49,8 +52,10 @@ def gdn():
                            (state, *split_conv_state(conv, KH * KD, VH * VD)), strict=True):
         w[name + "_out"] = w[name + "_in"] = value.contiguous()
     out = torch.empty_like(x)
-    valid = torch.full((1,), 256, dtype=torch.int32)
-    config(GDNKernel, "gdn")[4, 4](x, None, output=None, residual_out=out, valid_tokens=valid, **w)
+    valid = torch.full((1,), GDN_VALID, dtype=torch.int32) if GDN_ROWS <= 256 else None
+    config(GDNKernel, "gdn")[4, 4](
+        x, None, output=None, residual_out=out, valid_tokens=valid, chunk_size=GDN_CHUNK_SIZE, **w
+    )
 
 
 def flash():
@@ -64,10 +69,10 @@ def flash():
     w.update(w_norm_attn=torch.ones(H, dtype=torch.bfloat16), w_norm_q=torch.ones(HD) / HD**0.5,
              w_norm_k=torch.ones(HD, dtype=torch.bfloat16), cos=None, sin=None,
              cos_sin_cache=torch.cat((ang.cos(), ang.sin()), dim=-1), partial_rotary_factor=0.25)
-    x = (torch.randn(1, 256, H) * 0.03).bfloat16()
+    x = (torch.randn(1, ROWS, H) * 0.03).bfloat16()
     out = torch.empty_like(x)
     cache = torch.zeros(CTX // 256, 2, 256, KVH, HD, dtype=torch.bfloat16)
-    positions = torch.arange(256, dtype=torch.int32)[None, :].repeat(3, 1)
+    positions = torch.arange(ROWS, dtype=torch.int32)[None, :].repeat(3, 1)
     indptr = torch.tensor([0, 0], dtype=torch.int32)
     indices = torch.arange(CTX // 256, dtype=torch.int32)
     last_len = torch.tensor([0], dtype=torch.int32)
@@ -82,7 +87,14 @@ def flash():
 def moe():
     x = (torch.randn(ROWS, H) * 0.03).bfloat16()
     out = torch.empty_like(x)
-    config(moe_kernel_expert_parallel_v2_scf, "moe")[4, 4](x, output_ax=out, **moe_weights(H, EXPERTS, INTER))
+    rows_per_expert = int(os.getenv("MOE_EXPERT_TOKENS", "0")) or None
+    valid = None
+    if os.getenv("MOE_VALID"):
+        valid = torch.full((1,), int(os.getenv("MOE_VALID")), dtype=torch.int32)
+    config(moe_kernel_expert_parallel_v2_scf, "moe")[4, 4](
+        x, output_ax=out, prefill_expert_tokens=rows_per_expert, valid_tokens=valid,
+        **moe_weights(H, EXPERTS, INTER)
+    )
 
 
 def padding():
@@ -114,6 +126,12 @@ except Compiled:
     pass
 name = {"gdn": "sgl35_gdn.axmodel", "flash": "sgl35_flash.axmodel",
         "moe": "sgl35_moe4096.axmodel", "padding": "sgl35_padding.axmodel"}[sys.argv[1]]
+if sys.argv[1] == "gdn" and GDN_ROWS != 256:
+    name = f"sgl35_gdn{GDN_ROWS}.axmodel"
+elif sys.argv[1] == "flash" and ROWS != 256:
+    name = f"sgl35_flash{ROWS}.axmodel"
+elif sys.argv[1] == "moe" and os.getenv("MOE_VALID"):
+    name = "sgl35_moe4096v.axmodel"
 f = glob.glob(str(out_path / sys.argv[1] / "**" / "*.compiled.axmodel"), recursive=True)
 assert len(f) == 1, f
 shutil.copy(f[0], out_path / name)
