@@ -78,23 +78,27 @@ def main():
         pool = torch.stack([a[name + "_in"] for a in linear])
         for i, a in enumerate(linear):
             a[name + "_in"] = a[name + "_out"] = pool[i]
-    kv_pool = torch.stack([kv for kv, _, _ in layers if kv is not None])
-    attn = [a for kv, a, _ in layers if kv is not None]
-    if "kv_scale" in attn[0]:  # KV8: the scale cache is one pool too (the blocks its slices, as the kernel banks them)
-        ks_pool = torch.stack([a["kv_scale"] for a in attn])
-        for i, a in enumerate(attn):
-            a["kv_scale"] = ks_pool[i]
-    j = 0
-    for i, (kv, a, m) in enumerate(layers):
-        if kv is not None:
-            layers[i] = (kv_pool[j], a, m); j += 1
-    kernels, weights = prepare(layers, mrope_section=(11, 11, 10), cache_path=out, run_mode="CRUN")
-    for rows in [int(r) for r in os.getenv("ROWS", "256,1").split(",")]:
+    split_kv = os.getenv("SPLIT_KV", "0") == "1"
+    if not split_kv:
+        kv_pool = torch.stack([kv for kv, _, _ in layers if kv is not None])
+        attn = [a for kv, a, _ in layers if kv is not None]
+        if "kv_scale" in attn[0]:  # KV8: the scale cache is one pool too (the blocks its slices, as the kernel banks them)
+            ks_pool = torch.stack([a["kv_scale"] for a in attn])
+            for i, a in enumerate(attn):
+                a["kv_scale"] = ks_pool[i]
+        j = 0
+        for i, (kv, a, m) in enumerate(layers):
+            if kv is not None:
+                layers[i] = (kv_pool[j], a, m); j += 1
+    rows_list = [int(r) for r in os.getenv("ROWS", "256,1").split(",")]
+    kernels, weights = prepare(layers, mrope_section=(11, 11, 10), cache_path=out, run_mode="CRUN",
+                               rows=tuple(rows_list), split_kv=split_kv)
+    for rows in rows_list:
         x = (torch.randn(rows, H) * 0.03).bfloat16()
         pos = torch.arange(rows, dtype=torch.int32).expand(3, -1).contiguous()
         meta = (pos, torch.tensor([0, 1], dtype=torch.int32), torch.arange(0, CTX // 256, dtype=torch.int32),
                 torch.tensor([rows % 256 or 256], dtype=torch.int32), torch.tensor([0, 0], dtype=torch.int32))
-        vt = torch.tensor([rows], dtype=torch.int32) if rows == 256 else None
+        vt = torch.tensor([rows], dtype=torch.int32) if rows > 1 else None
         print(f"rows {rows}: building", flush=True)
         kernels[rows][4, 4](x, *meta, x, valid_tokens=vt, **weights)
         print(f"rows {rows}: done finite={bool(torch.isfinite(x).all())}", flush=True)

@@ -19,7 +19,8 @@ HF = "/data/junda/hf/Qwen3.8-27B"
 H, I, HEADS, KVH, HD = 5120, 17408, 24, 4, 256
 KH, VH, KD, VD = 16, 48, 128, 128
 REP = VH // KH
-T = 256
+T = int(os.getenv("ROWS", "256"))  # 64 / 128: a tail page (the reference is the T-row prefix)
+VALID = int(os.getenv("VALID", str(T)))  # < T: a partial last page (padded rows are ignored)
 NORM1 = os.getenv("NORM1", "1") == "1"
 R = gguf.GGUFReader(GG)
 TS = {t.name: t for t in R.tensors}
@@ -109,7 +110,8 @@ def gqa_w(L):
     w.update(w_norm_attn=nrm(f"blk.{L}.attn_norm.weight"), w_norm_q=f32(f"blk.{L}.attn_q_norm.weight") / HD**0.5,
              w_norm_k=f32(f"blk.{L}.attn_k_norm.weight").bfloat16(), cos=ang.cos().float(), sin=ang.sin().float(),
              partial_rotary_factor=0.25)
-    return torch.zeros(64, 2, 256, KVH, HD, dtype=torch.bfloat16), w, mlp_w(L)
+    dtype = torch.float8_e4m3fn if os.getenv("KV8", "0") == "2" else torch.bfloat16
+    return torch.zeros(64, 2, 256, KVH, HD, dtype=dtype), w, mlp_w(L)
 
 
 def gguf_into_hf(sd, L):
@@ -167,8 +169,9 @@ def hf_block(x):
 def main():
     torch.set_num_threads(32)
     ax.init(chip_num=1)
+    split_kv = os.getenv("SPLIT_KV", "0") == "1"
     torch.manual_seed(0)
-    ids = torch.randint(0, 200000, (T,))
+    ids = torch.randint(0, 200000, (256,))[:T]
     x = f32("token_embd.weight")[ids].bfloat16()                             # [T, H]
     layers = []
     for L in range(3):
@@ -180,12 +183,14 @@ def main():
             w[name + "_in"] = w[name + "_out"] = value.contiguous()
         layers.append((None, w, mlp_w(L)))
     layers.append(gqa_w(3))
-    saved = f"/data/junda/work/q27f/y_norm{int(NORM1)}.pt"
-    if os.path.exists(saved):
+    kv8 = os.getenv("KV8", "0")
+    saved = f"/data/junda/work/q27f/y_norm{int(NORM1)}{'_split' if split_kv else ''}{'_kv' + kv8 if kv8 != '0' else ''}" + \
+            (f"_r{T}" if T != 256 else "") + (f"_v{VALID}" if VALID != T else "") + ".pt"
+    if os.path.exists(saved) and os.getenv("FORCE_RUN", "0") != "1":
         y = torch.load(saved)
         return finish(x, y)
     kernels, weights = prepare(layers, mrope_section=(11, 11, 10), cache_path=os.getenv("OUT", "/data/junda/work/q27f/out_chk"),
-                               run_mode=os.getenv("RUN_MODE", "PYRUN"))
+                               run_mode=os.getenv("RUN_MODE", "PYRUN"), rows=(T,), split_kv=split_kv)
     y = x.clone()
     meta = (torch.arange(T, dtype=torch.int32).expand(3, -1).contiguous(), torch.tensor([0, 0], dtype=torch.int32),
             torch.arange(64, dtype=torch.int32), torch.tensor([T], dtype=torch.int32), torch.tensor([0, 0], dtype=torch.int32))
@@ -197,16 +202,23 @@ def main():
 
 def finish(x, y):
     rp = f"/data/junda/work/q27f/ref_block0_g{os.getenv('REF_GGUF', '0')}.pt"
-    ref = torch.load(rp) if os.path.exists(rp) else hf_block(x)
+    ref = torch.load(rp) if os.path.exists(rp) else None
+    if ref is None or ref.shape[0] < T:
+        ref = hf_block(x)
+    if ref.shape[0] > T:  # a tail variant: the causal prefix of the 256-row reference
+        ref = ref[:T]
+    if VALID < T:  # a partial page: only the valid rows are read afterwards
+        y, ref, x = y[:VALID], ref[:VALID], x[:VALID]
     a, b = y.float(), ref.float()
     cos = torch.nn.functional.cosine_similarity(a, b, dim=-1)
-    print(f"NORM1={int(NORM1)} cos mean {cos.mean():.5f} min {cos.min():.5f}; rows 0/1/255 {cos[0]:.4f} {cos[1]:.4f} {cos[255]:.4f}; "
+    print(f"NORM1={int(NORM1)} cos mean {cos.mean():.5f} min {cos.min():.5f}; rows 0/1/{cos.shape[0]-1} {cos[0]:.4f} {cos[1]:.4f} {cos[-1]:.4f}; "
           f"|y| {a.abs().mean():.3f} |ref| {b.abs().mean():.3f}")
     da, db = a - x.float(), b - x.float()
     dc = torch.nn.functional.cosine_similarity(da, db, dim=-1)
     print(f"delta (block output - input): cos mean {dc.mean():.5f} min {dc.min():.5f}; |d_y| {da.abs().mean():.4f} "
           f"|d_ref| {db.abs().mean():.4f}; ratio of norms per row mean {(da.norm(dim=-1) / db.norm(dim=-1)).mean():.4f}")
-    torch.save(b, f"/data/junda/work/q27f/ref_block0_g{os.getenv('REF_GGUF', '0')}.pt")
+    if T == 256 and VALID == T:  # (a tail check must not overwrite the full reference)
+        torch.save(b, f"/data/junda/work/q27f/ref_block0_g{os.getenv('REF_GGUF', '0')}.pt")
 
 
 if __name__ == "__main__":

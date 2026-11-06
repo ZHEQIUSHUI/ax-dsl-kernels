@@ -40,7 +40,10 @@ through `prefill/sgl_kv8_kvf8.patch` on sgl-kernel-axera at `prefill/sgl_base_co
 bytes of the bf16 one and the attention of a long context reads half as much. The host sizes the KV pools by llama.cpp's
 `-c` (`GGML_AXERA_KV_PAGES` / the `cache_k_l` allocation), so the NPU memory follows the context given, not the kernel's
 maximum; the prefill kernel is one block per call (`BLOCKS=1`, `_b1`: the KV input under the runtime's 2 GiB IO limit, the
-host calls it 16 times per page). The verify kernel (`verify/verify_group_m4.py`) runs the 4 rows' attention in one pass
+host calls it 16 times per page). The pf27 set's prefill (`_b16s2`) instead runs the whole model in one call per 256-cell
+page: the 16 blocks are unrolled at trace time and each block's K+V is its own IO (`b3_kv0..15`, 512 MiB at 256k fp8), so
+no IO reaches the runtime's 2 GiB limit; the host binds them to the existing per-layer pools and adds 128 / 80 / 64-row
+tail variants. The verify kernel (`verify/verify_group_m4.py`) runs the 4 rows' attention in one pass
 over the KV (one scan per layer instead of four). Builds: `g16ks_c256k_kvf8.sh` (decode), `verify/` with `KV8=2
 LMAX=262144`, `prefill/b27_c256k_kvf8.sh`. CRUN: decode output cos 0.99972 / K cache 0.99939 against the bf16 reference;
 verify min cos 0.99947 at 256k. Earlier sets (bf16 KV at 16k / 128k / 256k) are in the history of `kernels.md5`.
@@ -61,3 +64,25 @@ Board (.184, SDK V0.5.1, 2026-10-30): short completion identical to the delivere
 
 Reproducibility: the AXDSL compiler is deterministic for a fixed source and toolchain; `kernels.md5` holds the files of
 the build above.
+
+pf27 (2026-11-06): the split-KV prefill set. `prefill/b27_16_c256k_kvf8_split_s2.sh` builds
+`forward_qwen38_blocks_split`: the 16 blocks are unrolled at trace time and every block's K+V is its own IO
+(`b3_kv0..15`, 512 MiB at 256k fp8), below the runtime's 2 GiB IO limit; the banks and the other IOs are the 16k set's.
+The adapter binds `b3_kv<j>` to block j's existing per-layer pool and sizes the pools from `-c`; decode / verify / MTP
+read the same pools unchanged. The FP8 KV store is fused into the attention layer's scatter (one
+`mul(values, 8, output_dtype=e4m3)` straight into the page), and V stays e4m3 as the native MX operand of p@V (a
+constant E8M0 scale), so a history page is no longer widened to bf16. `_t128.sh` / `_t64.sh` / `_t80.sh` build the same
+kernel with `ROWS=128 / 64 / 80` (same banks and IO names; manifest roles `prefill128` / `prefill64` / `prefill80`); the
+adapter runs the smallest variant that holds the last page's valid rows, so the 4k / 1.7k remainders use the 64-row one
+and the 847-token check (3 x 256 + 79) uses the 80-row one. Build:
+`SPLIT_KV=1 KV8=2 CTX=262144 BLOCKS=16 ROWS=<rows> nice python build27.py <out>`; CRUN
+`ROWS=<rows> SPLIT_KV=1 KV8=2 REF_GGUF=1 check27.py` (block 0 vs transformers: cos 0.99995 / 0.99996 for every
+variant, min >= 0.99970; the partial-page rows included).
+
+Board (.184, SDK V0.5.1, the split-KV pools and 256/128/80/64-row variants): 4k prompt (3619 tokens) 1244 tok/s
+(released 1107), 1.7k 1176 (974), 847 1084 (the 16k one-call-per-page set 1018; 1.4% below the 1100 target: the
+79-row tail still costs 142.5 ms because of the per-call fixed cost, and the host pays a 43 ms state snapshot for that
+page); 64k needle found, prefill 832 tok/s (803); PPL -c 4096 4.2948 (4.2856, +0.21%); greedy and MTP unchanged
+(21.9 / 20.6 tok/s). The adapter's step-4 zero change (a marked warm-up batch, so the prompt skips the 154 MB memset)
+is worth ~0.5% on short prompts. Host-side changes: llama.cpp branch `pf27-axera` commits `860189671`, `a202c055`,
+`57b11c449` (author ZHEQIUSHUI).

@@ -1,23 +1,35 @@
 diff --git a/sgl-kernel-axera/python/sgl_kernel_axera/attention/flash_attn.py b/sgl-kernel-axera/python/sgl_kernel_axera/attention/flash_attn.py
-index 2c99805352..31ca0fbe54 100644
+index 2c99805352..1de68184e7 100644
 --- a/sgl-kernel-axera/python/sgl_kernel_axera/attention/flash_attn.py
 +++ b/sgl-kernel-axera/python/sgl_kernel_axera/attention/flash_attn.py
-@@ -32,6 +32,14 @@ BASELINE_PAGE_SIZE = 256
+@@ -32,12 +32,25 @@ BASELINE_PAGE_SIZE = 256
  # axnn decode tests keep ``MAX_NUM_PAGES >= 32``; match that floor so both the
  # 5D page axis and the 1-D page-id table stay out of that lowering.
  _MIN_PAGED_GATHER_PAGES = 32
-+# KV8=2 (build27.py): the paged cache in FP8 E4M3, the values x KV_FP8_SCALE before the cast; K is a native MX operand
-+# of the score matmul (a constant E8M0 w_scale of 1 / KV_FP8_SCALE), V is cast to bf16 and the probabilities carry it
++# KV8=2 (build27.py): the paged cache in FP8 E4M3, K / V x KV_FP8_SCALE fused into the KV scatter. K and V are both
++# native MX operands of their matmuls (a constant E8M0 w_scale of 1 / KV_FP8_SCALE): neither is widened on the read
 +KV_FP8_SCALE = float(os.environ.get("KV8_SCALE", "8"))
 +KV_FP8_E8M0 = 127 + int(round(np.log2(1.0 / KV_FP8_SCALE)))
 +
 +
 +def kv_fp8_kscale(rows, head_dim):
 +    return ax.dsl.full((rows, head_dim // 32), ax.mxe8m0, fill_value=KV_FP8_E8M0)  # (the raw E8M0 byte)
++
++
++def kv_fp8_vscale(rows, head_dim):
++    # V is the untransposed matmul weight: [ic = rows, oc = head_dim] -> its scale is [oc, ic / 32]
++    return ax.dsl.full((head_dim, rows // 32), ax.mxe8m0, fill_value=KV_FP8_E8M0)
  # Qwen3-0.6B is GQA=2, so each KV head attends two query heads. Concat-padding
  # that size-2 view is still a size-2 SDMA gather source (8B is GQA=4 and already
  # clears it). Select dummy rows from the full local Q instead, then drop them.
-@@ -49,11 +57,28 @@ _OUTPUT_PROJECTION_WEIGHT_IC_LOAD_TILE = 512
+ _MIN_DECODE_QUERY_HEADS = 4
+ _KV_PAGE_SIZE = BASELINE_PAGE_SIZE
+-_SUPPORTED_QUERY_LENGTHS = (128, 256)
++_SUPPORTED_QUERY_LENGTHS = (64, 80, 128, 256)
+ _QKV_WEIGHT_OC_TILE = 128
+ _QKV_WEIGHT_IC_LOAD_TILE = 1024
+ _KV_PROJECTION_TOKEN_TILE = 128
+@@ -49,11 +62,28 @@ _OUTPUT_PROJECTION_WEIGHT_IC_LOAD_TILE = 512
  _OUTPUT_PROJECTION_WEIGHT_OC_LOAD_TILE = 512
  
  
@@ -43,12 +55,12 @@ index 2c99805352..31ca0fbe54 100644
 +    if scale_cache is not None:
 +        values, scales = quantize_kv_rows(values)
 +    elif cache.dtype == ax.fp8_e4m3:
-+        values = ax.dsl.cast(ax.dsl.mul(values, ax.dsl.full((1,), ax.bf16, fill_value=KV_FP8_SCALE), output_dtype=ax.bf16),
-+                             dtype=ax.fp8_e4m3)
++        # one fused scale + round-to-e4m3 op, written straight into the scatter (no separate widened pass)
++        values = ax.dsl.mul(values, ax.dsl.full((1,), ax.bf16, fill_value=KV_FP8_SCALE), output_dtype=ax.fp8_e4m3)
      heads = cache.shape[3]
      page_size = cache.shape[2]
      # load: location[2] int32 DDR -> target[2] int32 OCM (page ID, token offset).
-@@ -81,6 +106,8 @@ def store_paged_kv(values, cache, location, plane, head_start, banks=None):
+@@ -81,6 +111,8 @@ def store_paged_kv(values, cache, location, plane, head_start, banks=None):
          r=cache.reshape(-1, head_dim),
          banks=banks,
      )
@@ -57,11 +69,8 @@ index 2c99805352..31ca0fbe54 100644
  
  
  def _history_tail_mask(page_index, slot_positions, page_size_scalar, valid_kv_len, page_size, dtype):
-@@ -139,9 +166,14 @@ def paged_attn_update(
-     # so online-softmax then reduces uninitialized scores to Inf.
-     score_rows = state_scores[:, 1 : 1 + kv_len]
+@@ -141,7 +173,11 @@ def paged_attn_update(
      score_start = 0
-+    kv_fp8 = any(k_tile.dtype == ax.fp8_e4m3 for k_tile in k_tiles)
      for k_tile in k_tiles:
          score_stop = score_start + k_tile.shape[0]
 -        ax.dsl.matmul(q, k_tile, transposed=True, r=score_rows[:, score_start:score_stop])
@@ -73,17 +82,36 @@ index 2c99805352..31ca0fbe54 100644
          score_start = score_stop
  
      if active_mask is not None:
-@@ -172,6 +204,9 @@ def paged_attn_update(
-         )
+@@ -165,13 +201,22 @@ def paged_attn_update(
+     value_start = 0
+     for v_tile in v_tiles:
+         value_stop = value_start + v_tile.shape[1]
+-        ax.dsl.matmul(
+-            probabilities.reshape(query_rows, kv_len),
+-            v_tile,
+-            r=weighted_values[:, :, value_start:value_stop].reshape(query_rows, v_tile.shape[1]),
+-        )
++        if v_tile.dtype == ax.fp8_e4m3:
++            # The cache's V rows are e4m3 x KV_FP8_SCALE: consume them natively as the matmul's MX weight (the same
++            # constant E8M0 scale as K), with no widening pass over the page.
++            ax.dsl.matmul(
++                probabilities.reshape(query_rows, kv_len),
++                v_tile,
++                w_scale=kv_fp8_vscale(v_tile.shape[0], head_dim),
++                r=weighted_values[:, :, value_start:value_stop].reshape(query_rows, v_tile.shape[1]),
++            )
++        else:
++            ax.dsl.matmul(
++                probabilities.reshape(query_rows, kv_len),
++                v_tile,
++                r=weighted_values[:, :, value_start:value_stop].reshape(query_rows, v_tile.shape[1]),
++            )
          value_start = value_stop
- 
-+    if kv_fp8:  # the V rows carry KV_FP8_SCALE: undone on the block weighted values (not on the probabilities: the
-+        # scheduler loses the DDR allocation of a reassigned probabilities tensor)
-+        ax.dsl.mul(weighted_values, ax.dsl.full((1,), weighted_values.dtype, fill_value=1.0 / KV_FP8_SCALE), r=weighted_values)
+-
      scaled_previous_output = ax.dsl.mul(
          previous_state_ratio.reshape(1, query_rows, 1),
          accumulator,
-@@ -481,6 +516,7 @@ def paged_flash_attention(
+@@ -481,6 +526,7 @@ def paged_flash_attention(
      history_page_count,
      kv_head_start,
      banks=None,
@@ -91,7 +119,7 @@ index 2c99805352..31ca0fbe54 100644
  ):
      """Update all local Q-head states over history and current KV.
  
-@@ -542,21 +578,33 @@ def paged_flash_attention(
+@@ -542,21 +588,33 @@ def paged_flash_attention(
          kv_page_heads = []
          for local_kv_head in range(kv_head_count):
              global_kv_head = kv_head_start + local_kv_head
@@ -104,8 +132,8 @@ index 2c99805352..31ca0fbe54 100644
 +                dim=0,
 +                banks=banks,
 +            ).reshape(2, _KV_PAGE_SIZE, 1, head_dim)
-+            if page.dtype == ax.fp8_e4m3 and paged_kv_scale is None:  # the FP8 cache: K stays FP8, V to bf16
-+                page = (page[0:1].reshape(_KV_PAGE_SIZE, head_dim), ax.dsl.cast(page[1:2].reshape(_KV_PAGE_SIZE, head_dim), dtype=ax.bf16))
++            if page.dtype == ax.fp8_e4m3 and paged_kv_scale is None:  # the FP8 cache: K and V stay FP8
++                page = (page[0:1].reshape(_KV_PAGE_SIZE, head_dim), page[1:2].reshape(_KV_PAGE_SIZE, head_dim))
 +            elif paged_kv_scale is not None:  # int8 rows x their scales
 +                scales = gather_rows(
 +                    paged_kv_scale[:, :, :, global_kv_head : global_kv_head + 1],
@@ -132,7 +160,7 @@ index 2c99805352..31ca0fbe54 100644
              max_state, normalizer_state, accumulator_state = head_states[local_q_head * 3 : local_q_head * 3 + 3]
              paged_attn_update(
                  q_head,
-@@ -715,6 +763,7 @@ def prefill_attention_tile(
+@@ -715,6 +773,7 @@ def prefill_attention_tile(
      cache_location=None,
      *,
      cos_sin_cache=None,
@@ -140,7 +168,7 @@ index 2c99805352..31ca0fbe54 100644
      core_id,
      core_count,
      query_indices=None,
-@@ -748,7 +797,7 @@ def prefill_attention_tile(
+@@ -748,7 +807,7 @@ def prefill_attention_tile(
      assert paged_kv_cache.shape[1] == 2
      assert paged_kv_cache.shape[2] == _KV_PAGE_SIZE
      assert paged_kv_cache.shape[3] == kv_head_count
@@ -149,7 +177,7 @@ index 2c99805352..31ca0fbe54 100644
      assert w_k.shape == w_v.shape
      assert q_head_count % kv_head_count == 0
      assert q_head_count % core_count == 0
-@@ -964,8 +1013,8 @@ def prefill_attention_tile(
+@@ -964,8 +1023,8 @@ def prefill_attention_tile(
      # existing AxScatter path without requiring strided DynamicSt support.
      if not shared_kv_projection or pair_rank == 0:
          if cache_location is not None:
@@ -160,7 +188,7 @@ index 2c99805352..31ca0fbe54 100644
          else:
              local_kv_row_indices = (
                  np.arange(query_len, dtype=np.uint32)[:, None] * kv_head_count
-@@ -996,6 +1045,7 @@ def prefill_attention_tile(
+@@ -996,6 +1055,7 @@ def prefill_attention_tile(
          history_page_count,
          kv_head_start,
          banks=banks,
@@ -168,7 +196,7 @@ index 2c99805352..31ca0fbe54 100644
      )
      if gate is not None:
          # Gate rows are strided views of packed [Q, Gate] projections.
-@@ -1091,6 +1141,7 @@ def flash_attn_with_kvcache(
+@@ -1091,6 +1151,7 @@ def flash_attn_with_kvcache(
      post_residual_addition=None,
      cache_location=None,
      cos_sin_cache=None,
@@ -176,7 +204,7 @@ index 2c99805352..31ca0fbe54 100644
      banks=None,
  ):
      """Run one request using bounded 256-token pages for long prefill.
-@@ -1145,6 +1196,7 @@ def flash_attn_with_kvcache(
+@@ -1145,6 +1206,7 @@ def flash_attn_with_kvcache(
              post_residual_addition,
              cache_location,
              cos_sin_cache=cos_sin_cache,
@@ -184,7 +212,7 @@ index 2c99805352..31ca0fbe54 100644
              core_id=core_id,
              core_count=core_count,
              banks=banks,
-@@ -1172,6 +1224,7 @@ def flash_attn_with_kvcache(
+@@ -1172,6 +1234,7 @@ def flash_attn_with_kvcache(
          post_residual_addition,
          cache_location,
          cos_sin_cache=cos_sin_cache,
@@ -192,7 +220,7 @@ index 2c99805352..31ca0fbe54 100644
          core_id=core_id,
          core_count=core_count,
          query_indices=offsets,
-@@ -1196,6 +1249,7 @@ def flash_attn_with_kvcache(
+@@ -1196,6 +1259,7 @@ def flash_attn_with_kvcache(
              post_residual_addition,
              tile_location,
              cos_sin_cache=cos_sin_cache,
@@ -200,8 +228,30 @@ index 2c99805352..31ca0fbe54 100644
              core_id=core_id,
              core_count=core_count,
              query_indices=query_indices,
+diff --git a/sgl-kernel-axera/python/sgl_kernel_axera/attention/gdn.py b/sgl-kernel-axera/python/sgl_kernel_axera/attention/gdn.py
+index 862bf88df9..29f38a6da3 100644
+--- a/sgl-kernel-axera/python/sgl_kernel_axera/attention/gdn.py
++++ b/sgl-kernel-axera/python/sgl_kernel_axera/attention/gdn.py
+@@ -1362,7 +1362,7 @@ def gdn_prefill_impl(
+     assert input_norm_eps > 0 and o_norm_eps > 0
+     history_rows = None
+     if valid_tokens is not None:
+-        assert seq_len == GDN_PREFILL_TILE_SIZE and token_indices is None
++        assert seq_len <= GDN_PREFILL_TILE_SIZE and token_indices is None
+         assert valid_tokens.shape == (1,) and valid_tokens.dtype == ax.int32
+         count = ax.dsl.load(valid_tokens)
+         # Both consumers share one row vector, even for a long Conv history.
+@@ -2103,7 +2103,7 @@ def GDNKernel(
+     if x.shape[1] == GDN_PREFILL_TILE_SIZE:
+         assert valid_tokens is not None, "256-row prefill requires a runtime valid token count, including full blocks"
+     if valid_tokens is not None:
+-        assert x.shape[1] == GDN_PREFILL_TILE_SIZE
++        assert x.shape[1] <= GDN_PREFILL_TILE_SIZE
+     args = (
+         x,
+         residual_in,
 diff --git a/sgl-kernel-axera/python/sgl_kernel_axera/models/qwen38_27b/forward.py b/sgl-kernel-axera/python/sgl_kernel_axera/models/qwen38_27b/forward.py
-index ef4c2232ee..d23d8439f9 100644
+index ef4c2232ee..c105f98927 100644
 --- a/sgl-kernel-axera/python/sgl_kernel_axera/models/qwen38_27b/forward.py
 +++ b/sgl-kernel-axera/python/sgl_kernel_axera/models/qwen38_27b/forward.py
 @@ -126,6 +126,7 @@ def forward_qwen38_blocks(
@@ -212,3 +262,217 @@ index ef4c2232ee..d23d8439f9 100644
                          **options,
                      )
              axd.pub(activation)
+@@ -155,8 +156,139 @@ def forward_qwen38_blocks(
+     return output
+ 
+ 
++def forward_qwen38_blocks_split(
++    x,
++    position_ids,
++    indptr,
++    indices,
++    last_page_len,
++    cache_location,
++    output,
++    layout,
++    mrope_section,
++    valid_tokens=None,
++    **weights,
++):
++    """The whole model with one KV input per block (static unroll).
++
++    A 256k FP8 block's K+V is 512 MiB, so a block-indexed KV bank would be one
++    8 GiB IO and cannot be bound by the runtime.  The model is therefore
++    unrolled at trace time: every block's attention reads and writes its own
++    ``b3_kv<block>`` input.  Only two shared activation buffers are live at a
++    time, so the unroll does not scale OCM footprint with the block count.
++    """
++    input_banks = {value.name: value for value in weights.values()}
++    stages = block_stages(layout, weights)
++    assert x.shape[0] in (1, 64, 80, 128, 256) and x.shape == output.shape
++    rows, hidden_dim = x.shape
++    assert x.shape[0] == 1 or (valid_tokens is not None and valid_tokens.shape == (1,))
++    blocks = stages[0][2]["w_norm"].shape[0]
++    kv_names = sorted(int(name[5:]) for name in weights if name.startswith("b3_kv") and name[5:].isdigit())
++    assert blocks > 0 and kv_names == list(range(blocks)), (kv_names, blocks)
++    core = ax.program_id(0)
++    cores = ax.num_programs(0)
++    assert cores == 4, "Qwen3.8 fused forward requires four cores"
++    width = hidden_dim // cores
++    owned = slice(core * width, (core + 1) * width)
++
++    hidden = ax.dsl.load(x[:, owned])
++    current = ax.dsl.create_tensor(x.shape, x.dtype, ax.MemoryType.SHARED_OCM, name="block_current")
++    ax.dsl.move(hidden, r=current[:, owned])
++    axd.pub(current)
++    axd.sub(current)
++
++    for block_index in range(blocks):
++        block_id = ax.dsl.full((1,), ax.int32, fill_value=block_index)
++        for phase, stage in enumerate(stages):
++            activation = ax.dsl.create_tensor(
++                x.shape, x.dtype, ax.MemoryType.SHARED_OCM, name=f"block_activation_{block_index}_{phase}")
++            (_, stage_weights, mlp_weights), banks = block_layer((None, stage[1], stage[2]), block_id, input_banks)
++            kv = weights[f"b3_kv{block_index}"] if phase == 3 else None
++            if kv is None:
++                GDNKernel.func(
++                    current.reshape(1, rows, hidden_dim),
++                    None,
++                    output=None,
++                    residual_out=activation.reshape(1, rows, hidden_dim),
++                    projection_buffer=hidden,
++                    valid_tokens=valid_tokens,
++                    banks=banks,
++                    **stage_weights,
++                )
++            else:
++                args = (
++                    current.reshape(1, rows, hidden_dim),
++                    *(stage_weights[name] for name in ATTENTION_WEIGHT_NAMES[:17]),
++                    position_ids,
++                    *(stage_weights[name] for name in ATTENTION_WEIGHT_NAMES[17:]),
++                )
++                options = dict(
++                    banks=banks,
++                    cos_sin_cache=stage_weights.get("cos_sin_cache"),
++                    attn_output_gate=True,
++                    partial_rotary_factor=stage_weights["partial_rotary_factor"],
++                    mrope_section=mrope_section,
++                    mrope_interleaved=True,
++                    has_mrope=position_ids.ndim == 2,
++                    cache_location=cache_location,
++                )
++                if rows == 1:
++                    decode = decode_paged_kv_shared_kv_kernel if kv.shape[3] == 2 else decode_paged_kv_kernel
++                    decode.func(
++                        *args,
++                        None,
++                        None,
++                        activation.reshape(1, rows, hidden_dim),
++                        kv,
++                        indptr,
++                        indices,
++                        last_page_len,
++                        256,
++                        **options,
++                    )
++                else:
++                    flash_attn_with_kvcache.func(
++                        *args,
++                        None,
++                        activation.reshape(1, rows, hidden_dim),
++                        kv,
++                        indptr,
++                        indices,
++                        None,
++                        paged_kv_scale=stage_weights.get("kv_scale"),
++                        **options,
++                    )
++            axd.pub(activation)
++            axd.sub(activation)
++            mlp_kernel.func(
++                activation.reshape(1, rows, hidden_dim),
++                residual=None,
++                output=activation.reshape(1, rows, hidden_dim),
++                tile_size=[rows],
++                residual_buffer=hidden,
++                banks=banks,
++                **mlp_weights,
++            )
++            axd.pub(activation)
++            axd.sub(activation)
++            current = activation
++
++    ax.dsl.move(current[:, owned], r=hidden)
++    ax.dsl.store(hidden, r=output[:, owned])
++    return output
++
++
+ @torch.no_grad()
+-def prepare(layers, *, mrope_section, cache_path, run_mode=None, weight_banks=()):
++def prepare(
++    layers,
++    *,
++    mrope_section,
++    cache_path,
++    run_mode=None,
++    weight_banks=(),
++    rows=(1, 256),
++    split_kv=False,
++):
+     """Bind block-indexed runtime banks once and build the fixed kernel variants.
+ 
+     Persistent state pools and checkpoint weight banks keep their storage.
+@@ -166,10 +298,11 @@ def prepare(layers, *, mrope_section, cache_path, run_mode=None, weight_banks=()
+     """
+     assert len(layers) % 4 == 0
+     assert all((kv is not None) == (i % 4 == 3) for i, (kv, _, _) in enumerate(layers))
+-    layout, weights = block_arguments(layers, "mlp", weight_banks)
++    layout, weights = block_arguments(layers, "mlp", weight_banks, split_kv=split_kv)
+     cache_path = Path(cache_path)
+     # Decode and fixed-width prefill each retain one loaded model. Real token
+     # counts and history page counts are runtime inputs to the prefill graph.
++    fn = forward_qwen38_blocks_split if split_kv else forward_qwen38_blocks
+     kernels = {
+         rows: ax.builder(
+             run_mode=ax.RunMode(run_mode or os.getenv("RUN_MODE", "CRUN")),
+@@ -178,8 +311,8 @@ def prepare(layers, *, mrope_section, cache_path, run_mode=None, weight_banks=()
+             unique_axmodel=True,
+             cache_path=cache_path,
+             dump_path=cache_path / "artifacts",
+-        )(forward_qwen38_blocks)
+-        for rows in (1, 256)
++        )(fn)
++        for rows in rows
+     }
+     return kernels, dict(layout=layout, mrope_section=tuple(mrope_section), **weights)
+ 
+diff --git a/sgl-kernel-axera/python/sgl_kernel_axera/models/weights.py b/sgl-kernel-axera/python/sgl_kernel_axera/models/weights.py
+index 687c8ce9b8..867067ddc1 100644
+--- a/sgl-kernel-axera/python/sgl_kernel_axera/models/weights.py
++++ b/sgl-kernel-axera/python/sgl_kernel_axera/models/weights.py
+@@ -51,8 +51,12 @@ def bind_weight_banks(layers):
+     return banks
+ 
+ 
+-def block_arguments(layers, mlp_kind, weight_banks=()):
+-    """Build four block descriptors and contiguous kernel IO, preserving aliases."""
++def block_arguments(layers, mlp_kind, weight_banks=(), split_kv=False):
++    """Build four block descriptors and contiguous kernel IO, preserving aliases.
++
++    split_kv binds each block's KV cache as its own input (b3_kv<block>), so the
++    kernel never needs one bank wider than a block's pool.
++    """
+     blocks = len(layers) // 4
+     tensors = {}
+     arguments, inputs = {}, {}
+@@ -150,7 +154,14 @@ def block_arguments(layers, mlp_kind, weight_banks=()):
+     layout = []
+     for phase in range(4):
+         group = layers[phase::4]
+-        kv_arg, kv_views = argument(f"b{phase}_kv", [kv for kv, _, _ in group])
++        if split_kv and phase == 3:
++            for index, (kv, _, _) in enumerate(group):
++                assert kv is not None and kv.is_contiguous()
++                input_name(f"b3_kv{index}", kv)
++            kv_arg = None
++            kv_views = (None,) * len(group)
++        else:
++            kv_arg, kv_views = argument(f"b{phase}_kv", [kv for kv, _, _ in group])
+         mappings = []
+         for slot, kind in ((1, "attn"), (2, mlp_kind)):
+             fields = {}
+@@ -160,9 +171,10 @@ def block_arguments(layers, mlp_kind, weight_banks=()):
+                     layer[slot][name] = view
+                 fields[name] = expression
+             mappings.append(fields)
+-        for index, view in enumerate(kv_views):
+-            _, attention, mlp = layers[4 * index + phase]
+-            layers[4 * index + phase] = view, attention, mlp
++        if not (split_kv and phase == 3):
++            for index, view in enumerate(kv_views):
++                _, attention, mlp = layers[4 * index + phase]
++                layers[4 * index + phase] = view, attention, mlp
+         layout.append((kv_arg, *mappings))
+     return tuple(layout), tensors
+ 
